@@ -1,0 +1,1 @@
+﻿// TODO: Configure go_router routes here.\n// Route constants:\n// - / (HomeScreen)\n// - /capture (CaptureScreen)\n// - /capture-guidance (CaptureGuidanceScreen)\n// - /reference-marking (ReferenceMarkingScreen)\n// - /analysis (ResultsScreen)\n// - /health (HealthHistoryScreen)\n// - /measurements (MeasurementsScreen)\n// - /privacy (PrivacyScreen)

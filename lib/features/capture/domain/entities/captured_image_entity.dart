@@ -1,0 +1,1 @@
+﻿/// Represents a captured and orientation-corrected image ready for inference.\nclass CapturedImageEntity {\n  final String path;\n  final int widthPx;\n  final int heightPx;\n  const CapturedImageEntity({\n    required this.path,\n    required this.widthPx,\n    required this.heightPx,\n  });\n}

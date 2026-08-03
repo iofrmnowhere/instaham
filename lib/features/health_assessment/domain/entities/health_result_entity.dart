@@ -1,0 +1,1 @@
+﻿/// Result from the health classification model.\nclass HealthResultEntity {\n  final bool eligible;\n  final String? className;\n  final double? confidence;\n  final bool uncertain;\n  final String? failureReason;\n  const HealthResultEntity({\n    required this.eligible,\n    this.className,\n    this.confidence,\n    this.uncertain = false,\n    this.failureReason,\n  });\n}

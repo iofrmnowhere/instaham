@@ -1,0 +1,1 @@
+﻿import 'package:flutter/material.dart';\n\nclass InstahamApp extends StatelessWidget {\n  const InstahamApp({super.key});\n\n  @override\n  Widget build(BuildContext context) {\n    return const MaterialApp(\n      title: 'INSTAHAM',\n      home: Scaffold(body: Center(child: Text('INSTAHAM'))),\n    );\n  }\n}
