@@ -1,1 +1,19 @@
-﻿// Service for loading and running the health classification model.\n// Supports MobileNetV4-Conv-Small, ShuffleNetV2, or GhostNetV3.\n// Classes loaded from classes.json.\nabstract interface class IHealthModelService {\n  Future<void> loadModel();\n  Future<HealthClassificationResult> classify(String imagePath);\n}\n\nclass HealthClassificationResult {\n  final String className;\n  final double confidence;\n  final Map<String, double> probabilities;\n  const HealthClassificationResult({\n    required this.className,\n    required this.confidence,\n    required this.probabilities,\n  });\n}
+// Service for loading and running the health classification model.
+// Supports MobileNetV4-Conv-Small, ShuffleNetV2, or GhostNetV3.
+// Classes loaded from classes.json.
+abstract interface class IHealthModelService {
+  Future<void> loadModel();
+  Future<HealthClassificationResult> classify(String imagePath);
+}
+
+class HealthClassificationResult {
+  final String className;
+  final double confidence;
+  final Map<String, double> probabilities;
+
+  const HealthClassificationResult({
+    required this.className,
+    required this.confidence,
+    required this.probabilities,
+  });
+}

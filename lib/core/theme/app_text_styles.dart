@@ -1,1 +1,28 @@
-﻿import 'package:flutter/material.dart';\n\n/// Typography tokens — Inter for body, IBM Plex Mono for numeric readouts.\nabstract final class AppTextStyles {\n  static const _ibmPlexMono = TextStyle(fontFamily: 'IBMPlexMono');\n  static const _inter       = TextStyle(fontFamily: 'Inter');\n\n  static final headline = _inter.copyWith(fontSize: 22, fontWeight: FontWeight.w700);\n  static final label    = _inter.copyWith(fontSize: 14, fontWeight: FontWeight.w500);\n  static final body     = _inter.copyWith(fontSize: 14, fontWeight: FontWeight.w400);\n  static final subtext  = _inter.copyWith(fontSize: 12, fontWeight: FontWeight.w400);\n\n  /// Numeric / measurement readout\n  static final numeric  = _ibmPlexMono.copyWith(fontSize: 28, fontWeight: FontWeight.w700);\n}
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+/// Typography tokens — Inter for body/headings, IBM Plex Mono for numeric readouts.
+abstract final class AppTextStyles {
+  static final headline = GoogleFonts.inter(
+    fontSize: 22,
+    fontWeight: FontWeight.w700,
+  );
+  static final label = GoogleFonts.inter(
+    fontSize: 14,
+    fontWeight: FontWeight.w500,
+  );
+  static final body = GoogleFonts.inter(
+    fontSize: 14,
+    fontWeight: FontWeight.w400,
+  );
+  static final subtext = GoogleFonts.inter(
+    fontSize: 12,
+    fontWeight: FontWeight.w400,
+  );
+
+  /// Numeric / measurement readout
+  static final numeric = GoogleFonts.ibmPlexMono(
+    fontSize: 28,
+    fontWeight: FontWeight.w700,
+  );
+}

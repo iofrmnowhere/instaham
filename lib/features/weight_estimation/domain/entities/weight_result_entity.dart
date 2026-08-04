@@ -1,1 +1,22 @@
-﻿import '../../../segmentation/domain/entities/segmentation_result_entity.dart';\nimport '../../../../services/ml/weight_regression_service.dart';\n\n/// Result from the weight estimation pipeline branch.\nclass WeightResultEntity {\n  final bool eligible;\n  final double? valueKg;\n  final double? referenceLengthCm;\n  final double? referencePixelLength;\n  final double? cmPerPixel;\n  final WeightFeatures? features;\n  final String? failureReason;\n  const WeightResultEntity({\n    required this.eligible,\n    this.valueKg,\n    this.referenceLengthCm,\n    this.referencePixelLength,\n    this.cmPerPixel,\n    this.features,\n    this.failureReason,\n  });\n}
+import '../../../../services/ml/weight_regression_service.dart';
+
+/// Result from the weight estimation pipeline branch.
+class WeightResultEntity {
+  final bool eligible;
+  final double? valueKg;
+  final double? referenceLengthCm;
+  final double? referencePixelLength;
+  final double? cmPerPixel;
+  final WeightFeatures? features;
+  final String? failureReason;
+
+  const WeightResultEntity({
+    required this.eligible,
+    this.valueKg,
+    this.referenceLengthCm,
+    this.referencePixelLength,
+    this.cmPerPixel,
+    this.features,
+    this.failureReason,
+  });
+}

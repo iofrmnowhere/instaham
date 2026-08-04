@@ -1,1 +1,46 @@
-﻿import 'package:flutter/material.dart';\nimport 'app_colors.dart';\nimport 'app_text_styles.dart';\n\nabstract final class AppTheme {\n  static ThemeData get light => ThemeData(\n    useMaterial3: true,\n    colorScheme: ColorScheme.light(\n      primary: AppColors.signalPink,\n      onPrimary: Colors.white,\n      surface: AppColors.background,\n      onSurface: AppColors.foreground,\n    ),\n    cardTheme: const CardThemeData(color: AppColors.card),\n    textTheme: TextTheme(\n      headlineMedium: AppTextStyles.headline,\n      bodyMedium: AppTextStyles.body,\n      labelMedium: AppTextStyles.label,\n    ),\n  );\n}
+import 'package:flutter/material.dart';
+import 'app_colors.dart';
+import 'app_text_styles.dart';
+
+enum ResultStatus { success, uncertain, blocked }
+
+enum StatCardStatus { success, warning, error }
+
+abstract final class AppRadius {
+  static const double sm = 9.6;
+  static const double md = 12.8;
+  static const double lg = 16.0;
+  static const double xl = 22.4;
+  static const double x2l = 28.8;
+  static const double x3l = 35.2;
+  static const double x4l = 41.6;
+}
+
+abstract final class AppTheme {
+  static ThemeData get light => ThemeData(
+        useMaterial3: true,
+        scaffoldBackgroundColor: AppColors.background,
+        colorScheme: const ColorScheme.light(
+          primary: AppColors.signalPink,
+          onPrimary: Colors.white,
+          surface: AppColors.background,
+          onSurface: AppColors.foreground,
+          error: AppColors.destructive,
+          onError: Colors.white,
+        ),
+        cardTheme: CardThemeData(
+          color: AppColors.card,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            side: const BorderSide(color: AppColors.border),
+          ),
+          elevation: 0,
+        ),
+        textTheme: TextTheme(
+          headlineMedium: AppTextStyles.headline,
+          bodyMedium: AppTextStyles.body,
+          labelMedium: AppTextStyles.label,
+          bodySmall: AppTextStyles.subtext,
+        ),
+      );
+}

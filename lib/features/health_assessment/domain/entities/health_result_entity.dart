@@ -1,1 +1,16 @@
-﻿/// Result from the health classification model.\nclass HealthResultEntity {\n  final bool eligible;\n  final String? className;\n  final double? confidence;\n  final bool uncertain;\n  final String? failureReason;\n  const HealthResultEntity({\n    required this.eligible,\n    this.className,\n    this.confidence,\n    this.uncertain = false,\n    this.failureReason,\n  });\n}
+/// Result from the health classification model.
+class HealthResultEntity {
+  final bool eligible;
+  final String? className;
+  final double? confidence;
+  final bool uncertain;
+  final String? failureReason;
+
+  const HealthResultEntity({
+    required this.eligible,
+    this.className,
+    this.confidence,
+    this.uncertain = false,
+    this.failureReason,
+  });
+}

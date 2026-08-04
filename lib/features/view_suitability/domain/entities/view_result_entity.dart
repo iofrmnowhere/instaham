@@ -1,1 +1,15 @@
-﻿/// Result from the view-suitability classifier.\n/// Label is one of: 'dorsal_valid', 'health_only', 'reject'.\nclass ViewResultEntity {\n  final String label;\n  final double confidence;\n  const ViewResultEntity({required this.label, required this.confidence});\n\n  bool get isDorsalValid => label == 'dorsal_valid';\n  bool get isHealthOnly  => label == 'health_only';\n  bool get isReject      => label == 'reject';\n}
+/// Result from the view-suitability classifier.
+/// Label is one of: 'dorsal_valid', 'health_only', 'reject'.
+class ViewResultEntity {
+  final String label;
+  final double confidence;
+
+  const ViewResultEntity({
+    required this.label,
+    required this.confidence,
+  });
+
+  bool get isDorsalValid => label == 'dorsal_valid';
+  bool get isHealthOnly => label == 'health_only';
+  bool get isReject => label == 'reject';
+}

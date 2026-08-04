@@ -1,1 +1,19 @@
-﻿// Service for running YOLO segmentation at 640x640 with letterboxing.\n// Maps mask back to original image coordinates.\nabstract interface class ISegmentationService {\n  Future<void> loadModel();\n  Future<SegmentationResult> segment(String imagePath);\n}\n\nclass SegmentationResult {\n  final int pigCount;\n  final double confidence;\n  final bool maskAvailable;\n  // TODO: Add mask data (pixel map or polygon)\n  const SegmentationResult({\n    required this.pigCount,\n    required this.confidence,\n    required this.maskAvailable,\n  });\n}
+// Service for running YOLO segmentation at 640x640 with letterboxing.
+// Maps mask back to original image coordinates.
+abstract interface class ISegmentationService {
+  Future<void> loadModel();
+  Future<SegmentationResult> segment(String imagePath);
+}
+
+class SegmentationResult {
+  final int pigCount;
+  final double confidence;
+  final bool maskAvailable;
+  // TODO: Add mask data (pixel map or polygon)
+
+  const SegmentationResult({
+    required this.pigCount,
+    required this.confidence,
+    required this.maskAvailable,
+  });
+}

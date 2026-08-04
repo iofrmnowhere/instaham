@@ -1,1 +1,17 @@
-﻿// Service for loading and running the view-suitability MobileNetV4 model.\n// Classes are loaded from classes.json — never hardcoded.\n// Input: 224x224 center-crop, ImageNet normalized.\nabstract interface class IViewModelService {\n  Future<void> loadModel();\n  Future<ViewClassificationResult> classify(String imagePath);\n}\n\nclass ViewClassificationResult {\n  final String label; // 'dorsal_valid' | 'health_only' | 'reject'\n  final double confidence;\n  const ViewClassificationResult({required this.label, required this.confidence});\n}
+// Service for loading and running the view-suitability MobileNetV4 model.
+// Classes are loaded from classes.json — never hardcoded.
+// Input: 224x224 center-crop, ImageNet normalized.
+abstract interface class IViewModelService {
+  Future<void> loadModel();
+  Future<ViewClassificationResult> classify(String imagePath);
+}
+
+class ViewClassificationResult {
+  final String label; // 'dorsal_valid' | 'health_only' | 'reject'
+  final double confidence;
+
+  const ViewClassificationResult({
+    required this.label,
+    required this.confidence,
+  });
+}

@@ -1,1 +1,17 @@
-﻿import 'package:flutter/material.dart';\n\nclass InstahamApp extends StatelessWidget {\n  const InstahamApp({super.key});\n\n  @override\n  Widget build(BuildContext context) {\n    return const MaterialApp(\n      title: 'INSTAHAM',\n      home: Scaffold(body: Center(child: Text('INSTAHAM'))),\n    );\n  }\n}
+import 'package:flutter/material.dart';
+import 'core/router/app_router.dart';
+import 'core/theme/app_theme.dart';
+
+class App extends StatelessWidget {
+  const App({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp.router(
+      title: 'INSTAHAM',
+      theme: AppTheme.light,
+      routerConfig: AppRouter.router,
+      debugShowCheckedModeBanner: false,
+    );
+  }
+}
