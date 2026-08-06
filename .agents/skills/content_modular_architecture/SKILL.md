@@ -1,13 +1,26 @@
 ---
 name: content_modular_architecture
 description: >
-  Defines the Content Modular Architecture (CMA) for the INSTAHAM Flutter app.
-  Triggers when implementing any feature, adding a new screen, creating a new
-  service, or structuring lib/ folders. Use this to ensure consistent module
-  boundaries, layering, naming conventions, and dependency rules across the project.
+  Use for new INSTAHAM feature modules, architecture changes, cross-feature refactors,
+  or decisions about lib/ boundaries and layering. Do not use for isolated UI styling,
+  copy edits, a single widget bug, a focused database query, or routine generated-code updates.
 ---
 
 # Content Modular Architecture — INSTAHAM Flutter
+
+## When not to activate this skill
+
+Do not load this architecture workflow for:
+
+- Color, spacing, typography, icon, or copy-only changes.
+- A bug confined to one existing widget or method.
+- A focused Drift query that does not change schema or layering.
+- Generated-code regeneration.
+- Test-only changes that do not alter architecture.
+
+For those tasks, follow the root `AGENTS.md` and inspect only the directly relevant files.
+
+---
 
 ## Overview
 

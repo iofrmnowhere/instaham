@@ -1,0 +1,285 @@
+diff --git a/.agents/AGENTS.md b/.agents/AGENTS.md
+deleted file mode 100644
+index 58d5386..0000000
+--- a/.agents/AGENTS.md
++++ /dev/null
+@@ -1,60 +0,0 @@
+-# INSTAHAM Workspace Rules
+-
+-## Critical Rules for Inference & Flow
+-The following rules are non-negotiable for the INSTAHAM app:
+-
+-1. **Never hardcode class indices** — always load mapping from the model metadata.
+-2. **Fixed Feature Order for XGBoost**: You must extract and pass features exactly in this order: `RA, LC, BL, BW, E`.
+-3. **Weight Eligibility**: Weight estimation requires ALL 9 checks to pass (1 pig, no truncation, no occlusion, valid posture, valid reference, etc.). If any check fails, do not estimate weight.
+-4. **Independence**: Health assessment and weight estimation are independent branches. A failed weight branch must NEVER block the health assessment if the image is usable.
+-5. **EXIF Correction**: EXIF orientation must be corrected before passing images to any model.
+-6. **No Silent Resizing**: Do not silently resize or rotate images after the reference endpoints have been selected by the user.
+-7. **Reference Scale Only**: The cm/pixel scale must come from the user-marked reference object. Never derive scale from the pig's own body dimensions.
+-8. **No Forced Predictions**: On any failure, do not show a forced or low-quality prediction. Explicitly show what failed and ask the user for another image.
+-
+-## Architecture
+-This project uses a **Content Modular Architecture (CMA)**. Each capability lives in its own self-contained module under `lib/features/<feature>/` (e.g., `capture`, `inference_pipeline`, `segmentation`, `weight_estimation`). 
+-- Features do not import from other features.
+-- All ML models are wrapped in interfaces inside `lib/services/ml/`.
+-
+-## UX Source of Truth
+-
+-The implemented navigation, capture, reference-review, result, and persistence contracts are documented in:
+-
+-```text
+-.agents/skills/content_modular_architecture/references/design_system.md
+-```
+-
+-- Only `Weight + Health` and `Health Only` are capture modes.
+-- Camera height is not a validated scale method.
+-- The camera must expose a conventional dominant shutter.
+-- Reference suggestions are never silently accepted; users confirm or adjust exactly two endpoints.
+-- Automatic reference detection is optional/future. Manual marking is the required fallback.
+-- Results must show independent branch states and must never invent scores or predictions.
+-
+-## Local Persistence & Backend Contract
+-
+-- Drift/SQLite in `lib/core/database/` is the local source of truth.
+-- Shared scan-flow values live in `lib/core/models/scan_flow.dart`; feature modules may import core, but not one another.
+-- Tables cover pigs, scan records, reference annotations, independent weight/health results, pipeline events, privacy preferences, and a sync outbox.
+-- Database schema changes require a `schemaVersion` increment and an explicit migration.
+-- Keep weight features stored and passed in the fixed order `RA, LC, BL, BW, E`.
+-- Backend synchronization must use stable local IDs plus separate remote IDs and the outbox. Do not couple UI widgets directly to HTTP clients.
+-- Research-image sharing and analytics default off. Never enqueue or upload images without explicit consent.
+-- Retakes and recovery update the existing scan session rather than discarding valid reference/pig context.
+-- Update the design-system reference and this contract whenever navigation, persistence, consent, or inference flow changes.
+-
+-## Implementation Plan Guidelines
+-When creating an implementation plan in this workspace, follow these rigorous guidelines:
+-1. **Grounded in Source**: Trace plans directly from reference files (e.g., Next.js TSX files, design systems). Document exact props, state machines, icons, and layout specifics rather than guessing.
+-2. **Structured Phasing**: Break the work down into logical phases (e.g., Phase 0: Dependencies, Phase 1: Core Theme, Phase 2: Shared Widgets, etc.).
+-3. **Precise File Mapping**: Use `[NEW]`, `[MODIFY]`, and `[DELETE]` tags with exact file paths. Provide highly detailed per-file descriptions of what will be built or changed.
+-4. **Explicit Module Boundaries Verification**: Include a table verifying that no cross-feature imports are introduced for each modified CMA feature (`lib/features/...`).
+-5. **Asset & Dependency Tracking**: Explicitly list `pubspec.yaml` changes, document icon stand-ins with mapping tables, and highlight missing or unused assets.
+-6. **ML Services & Data Flow**: Outline data flow (adhering to Fixed Feature Order). Keep ML runtime decisions abstract behind `lib/services/ml/` interfaces without baking engine logic into the UI.
+-7. **Verification Plan**: Include concrete steps for automated testing and manual verification, ensuring edge cases (like failed weight checks not blocking health assessments) are explicitly covered.
+-
+-## Tech Stack
+-- **Mobile Application**: Flutter & Dart
+-
+-**Note**: `instaham_ui` exists only as a visual/component reference for porting into Flutter. Never scaffold it as a separate project or runtime.
+diff --git a/.agents/skills/content_modular_architecture/SKILL.md b/.agents/skills/content_modular_architecture/SKILL.md
+index 97b9c81..cfea3e6 100644
+--- a/.agents/skills/content_modular_architecture/SKILL.md
++++ b/.agents/skills/content_modular_architecture/SKILL.md
+@@ -1,14 +1,27 @@
+ ---
+ name: content_modular_architecture
+ description: >
+-  Defines the Content Modular Architecture (CMA) for the INSTAHAM Flutter app.
+-  Triggers when implementing any feature, adding a new screen, creating a new
+-  service, or structuring lib/ folders. Use this to ensure consistent module
+-  boundaries, layering, naming conventions, and dependency rules across the project.
++  Use for new INSTAHAM feature modules, architecture changes, cross-feature refactors,
++  or decisions about lib/ boundaries and layering. Do not use for isolated UI styling,
++  copy edits, a single widget bug, a focused database query, or routine generated-code updates.
+ ---
+ 
+ # Content Modular Architecture — INSTAHAM Flutter
+ 
++## When not to activate this skill
++
++Do not load this architecture workflow for:
++
++- Color, spacing, typography, icon, or copy-only changes.
++- A bug confined to one existing widget or method.
++- A focused Drift query that does not change schema or layering.
++- Generated-code regeneration.
++- Test-only changes that do not alter architecture.
++
++For those tasks, follow the root `AGENTS.md` and inspect only the directly relevant files.
++
++---
++
+ ## Overview
+ 
+ Every significant capability in INSTAHAM is a **self-contained feature module** under `lib/features/`. Modules own their data, domain logic, and presentation — nothing leaks across module boundaries without going through a shared `lib/core/` or `lib/services/` layer.
+diff --git a/.gitattributes b/.gitattributes
+new file mode 100644
+index 0000000..403f510
+--- /dev/null
++++ b/.gitattributes
+@@ -0,0 +1,18 @@
++# Keep repository text deterministic across Windows, macOS, Linux, and Codex sandboxes.
++* text=auto eol=lf
++
++# Windows command files require CRLF in some environments.
++*.bat text eol=crlf
++*.cmd text eol=crlf
++
++# Binary assets.
++*.png binary
++*.jpg binary
++*.jpeg binary
++*.gif binary
++*.webp binary
++*.ico binary
++*.ttf binary
++*.otf binary
++*.db binary
++*.sqlite binary
+diff --git a/AGENTS.md b/AGENTS.md
+new file mode 100644
+index 0000000..484fb81
+--- /dev/null
++++ b/AGENTS.md
+@@ -0,0 +1,75 @@
++# INSTAHAM Codex Instructions
++
++## Project scope
++
++- The product is the Flutter app in `lib/`.
++- `instaham_ui/` is a read-only Next.js visual reference. Do not run, refactor, or add dependencies to it unless the task explicitly targets that folder.
++- `.dart_tool/`, `build/`, platform `ephemeral/` folders, and generated files are not sources of product requirements.
++
++## Default working behavior
++
++- Make the smallest coherent change that satisfies the request.
++- Inspect only the files needed for the requested slice. Do not inventory the entire repository for routine UI fixes.
++- Do not combine unrelated UI, database, ML, navigation, privacy, or backend work unless the request explicitly requires the integration.
++- For broad prompts such as “update the UI and add a database,” preserve scope by implementing one clearly defined vertical slice at a time and state what remains.
++- Do not rewrite working files merely for formatting, line endings, or style.
++- Do not edit generated files manually, including `*.g.dart` and generated plugin registrants.
++- Do not modify platform folders unless a dependency or platform capability requires it.
++
++## Validation
++
++Run the narrowest useful checks after editing:
++
++1. `dart format` on changed Dart files.
++2. `flutter analyze` for Dart or dependency changes.
++3. Targeted `flutter test <path>` for the changed behavior.
++4. Run the full test suite only for cross-cutting changes.
++5. Run `dart run build_runner build --delete-conflicting-outputs` only when Drift schema/source generation changes.
++
++Report the exact commands run and any checks that could not run. Never claim success without command output.
++
++## Architecture
++
++- Shared infrastructure belongs in `lib/core/` or `lib/services/`.
++- Feature code belongs in `lib/features/<feature>/`.
++- Features must not import other feature modules directly.
++- Prefer presentation → domain/repository → data access. Avoid adding new direct database calls inside widgets.
++- Keep UI widgets independent of HTTP clients and ML runtime packages.
++- Use the `content_modular_architecture` skill only for new modules, architecture changes, or cross-feature refactors—not for isolated styling or copy changes.
++
++## Database rules
++
++- Drift/SQLite is the local source of truth.
++- Schema changes require a `schemaVersion` increment, an explicit migration, regenerated Drift output, and a migration test.
++- Keep database queries out of large screen widgets; add focused DAOs/repositories when extending persistence.
++- Preserve stable local IDs and separate remote IDs.
++- Do not enqueue, upload, or retain research images without explicit consent.
++- Do not create speculative backend tables or sync behavior unless requested by an acceptance criterion.
++
++## Critical inference and calibration rules
++
++1. Never hardcode model class indices; load mappings from model metadata.
++2. Pass XGBoost features exactly as `RA, LC, BL, BW, E`.
++3. Weight estimation requires all eligibility checks to pass.
++4. Weight and health branches are independent; a failed weight branch must not block health assessment.
++5. Correct EXIF orientation before any model receives the image.
++6. Do not resize or rotate after the user marks reference endpoints unless coordinates are transformed exactly.
++7. Derive cm/pixel only from the user-confirmed reference object.
++8. Never force a prediction after a failed quality or eligibility check.
++9. Reference-point coordinates must map to the actual displayed image rectangle, including `BoxFit` letterboxing—not the whole widget bounds.
++
++## UI source of truth
++
++- Use `.agents/skills/content_modular_architecture/references/design_system.md` for established navigation and interaction contracts.
++- Port only the explicitly requested screen or component from `instaham_ui/`.
++- Preserve accessibility: semantic labels, readable contrast, scalable text, and touch targets of at least 44×44 logical pixels.
++- Never display invented model scores, predictions, or completed states.
++
++## Task completion summary
++
++Include:
++
++- Files changed.
++- Behavior implemented.
++- Validation run.
++- Known limitations or intentionally deferred work.
+diff --git a/docs/CODEX_TASK_TEMPLATE.md b/docs/CODEX_TASK_TEMPLATE.md
+new file mode 100644
+index 0000000..a1b91b1
+--- /dev/null
++++ b/docs/CODEX_TASK_TEMPLATE.md
+@@ -0,0 +1,72 @@
++# Codex task templates for INSTAHAM
++
++Use one task per coherent change. Avoid combining UI redesign, schema design, ML integration, and backend work in one prompt.
++
++## Focused UI change
++
++```text
++Update only [screen/widget paths] to match [specific reference path or screenshot].
++
++In scope:
++- [concrete visual or interaction changes]
++- [responsive/accessibility criteria]
++
++Out of scope:
++- Database schema changes
++- Navigation changes outside these screens
++- ML service changes
++- Refactors of unrelated widgets
++
++Acceptance criteria:
++- [observable behavior 1]
++- [observable behavior 2]
++- Existing tests still pass
++
++Run dart format on changed files, flutter analyze, and the closest targeted widget tests.
++```
++
++## Focused Drift change
++
++```text
++Implement only the local persistence needed for [specific entity/use case].
++
++In scope:
++- [table/column/query]
++- DAO or repository method
++- Migration and database tests
++
++Out of scope:
++- UI redesign
++- Backend synchronization
++- Speculative tables for future features
++- ML pipeline changes
++
++Acceptance criteria:
++- schemaVersion incremented when required
++- explicit migration included
++- generated Drift output refreshed
++- targeted tests prove create/read/update/delete behavior
++```
++
++## UI-to-database integration
++
++```text
++Connect [one screen/flow] to the existing database API.
++Do not redesign other screens or change the schema unless a listed acceptance criterion requires it.
++
++Acceptance criteria:
++- [write event]
++- [read/update event]
++- cancellation and failure behavior
++- no abandoned draft records
++- loading/error state is recoverable
++- targeted widget and database tests pass
++```
++
++## Review-only task
++
++```text
++Review [specific commit/diff/files] for correctness. Do not edit files.
++Prioritize functional bugs, data loss, privacy, calibration math, architecture violations, and missing tests.
++Return findings with file and line references, then a minimal repair order.
++```

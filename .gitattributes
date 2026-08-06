@@ -1,0 +1,18 @@
+# Keep repository text deterministic across Windows, macOS, Linux, and Codex sandboxes.
+* text=auto eol=lf
+
+# Windows command files require CRLF in some environments.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.ttf binary
+*.otf binary
+*.db binary
+*.sqlite binary
