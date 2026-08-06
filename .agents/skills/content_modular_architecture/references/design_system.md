@@ -67,7 +67,7 @@ enum ResultStatus { success, uncertain, blocked }
 | `/health` | Redirect to `/records` | legacy route |
 | `/measurements` | Redirect to `/records` | legacy route |
 | `/reference-marking` | `ReferenceMarkingScreen` | `features/weight_estimation/` |
-| `/analytics` | Redirect to `/records` until implemented | *(future)* |
+| `/analytics` | `AnalyticsScreen` | `features/analytics/` |
 | `/privacy` | `PrivacyScreen` | `core/` |
 | Legacy result-state routes | Redirect to `/records` | states render inside `ResultsScreen` |
 
