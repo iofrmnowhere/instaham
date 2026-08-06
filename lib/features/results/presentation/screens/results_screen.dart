@@ -35,11 +35,12 @@ class _ResultsScreenState extends State<ResultsScreen> {
 
   void _reload() {
     final id = widget.args.sessionId;
-    setState(
-      () => _bundle = id == null
-          ? Future.value(null)
-          : _database!.loadScanBundle(id),
-    );
+    final future = id == null
+        ? Future<LocalScanBundle?>.value(null)
+        : _database!.loadScanBundle(id);
+    setState(() {
+      _bundle = future;
+    });
   }
 
   ReferenceSelection? _referenceFor(LocalScanBundle bundle) {

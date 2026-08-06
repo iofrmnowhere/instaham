@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:instaham/core/database/app_database.dart';
@@ -90,4 +91,102 @@ void main() {
     expect(bundle.health!.className, 'healthy');
     expect(bundle.pig!.tag, 'P-001');
   });
+
+  test('inserts complete sample scan record', () async {
+    final scanId = await database.insertSampleRecord();
+    final bundle = await database.loadScanBundle(scanId);
+
+    expect(bundle, isNotNull);
+    expect(bundle!.scan.status, ScanStatuses.completed);
+    expect(bundle.pig?.tag, 'TAG-101');
+    expect(bundle.weight?.valueKg, 85.5);
+    expect(bundle.health?.className, 'Healthy');
+  });
+
+  test(
+    'watchWeightAnalytics computes stats and excludes soft-deleted scans',
+    () async {
+      final s1 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
+      await database.saveWeightResult(
+        scanId: s1,
+        eligible: true,
+        valueKg: 80.0,
+      );
+
+      final s2 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
+      await database.saveWeightResult(
+        scanId: s2,
+        eligible: true,
+        valueKg: 100.0,
+      );
+
+      final s3 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
+      await database.saveWeightResult(
+        scanId: s3,
+        eligible: false,
+        failureReason: 'Blocked',
+      );
+
+      // Soft-deleted scan
+      final s4 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
+      await database.saveWeightResult(
+        scanId: s4,
+        eligible: true,
+        valueKg: 500.0,
+      );
+      await (database.update(database.scanRecords)
+            ..where((row) => row.id.equals(s4)))
+          .write(ScanRecordsCompanion(deletedAt: Value(DateTime.now())));
+
+      final stats = await database.watchWeightAnalytics().first;
+      expect(stats.totalScans, 3);
+      expect(stats.eligibleScans, 2);
+      expect(stats.blockedScans, 1);
+      expect(stats.averageKg, 90.0);
+      expect(stats.minKg, 80.0);
+      expect(stats.maxKg, 100.0);
+    },
+  );
+
+  test(
+    'watchHealthAnalytics aggregates classes, uncertain, and blocked counts',
+    () async {
+      final s1 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
+      await database.saveHealthResult(
+        scanId: s1,
+        eligible: true,
+        className: 'Healthy',
+      );
+
+      final s2 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
+      await database.saveHealthResult(
+        scanId: s2,
+        eligible: true,
+        className: 'Healthy',
+      );
+
+      final s3 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
+      await database.saveHealthResult(
+        scanId: s3,
+        eligible: true,
+        className: 'Sick',
+        uncertain: true,
+      );
+
+      final s4 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
+      await database.saveHealthResult(
+        scanId: s4,
+        eligible: false,
+        failureReason: 'Blurry',
+      );
+
+      final stats = await database.watchHealthAnalytics().first;
+      expect(stats.totalScans, 4);
+      expect(stats.eligibleScans, 3);
+      expect(stats.uncertainScans, 1);
+      expect(stats.blockedScans, 1);
+      expect(stats.classCounts['Healthy'], 2);
+      expect(stats.classCounts['Sick'], 1);
+    },
+  );
 }

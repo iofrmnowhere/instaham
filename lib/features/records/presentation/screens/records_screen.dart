@@ -27,19 +27,32 @@ class _RecordsScreenState extends State<RecordsScreen> {
       header: Container(
         padding: const EdgeInsets.all(16),
         width: double.infinity,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              'Records',
-              style: AppTextStyles.headline.copyWith(fontSize: 24),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Records',
+                  style: AppTextStyles.headline.copyWith(fontSize: 24),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Saved scans and results on this device',
+                  style: AppTextStyles.subtext.copyWith(
+                    color: AppColors.mutedForeground,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 2),
-            Text(
-              'Saved scans and results on this device',
-              style: AppTextStyles.subtext.copyWith(
-                color: AppColors.mutedForeground,
-              ),
+            IconButton(
+              tooltip: 'Add sample record',
+              icon: const Icon(Icons.add_task),
+              onPressed: () async {
+                final db = DatabaseScope.of(context);
+                await db.insertSampleRecord();
+              },
             ),
           ],
         ),
@@ -238,10 +251,25 @@ class _EmptyRecords extends StatelessWidget {
             ),
             if (filter == 'all') ...[
               const SizedBox(height: 18),
-              ElevatedButton.icon(
-                onPressed: () => context.push('/capture'),
-                icon: const Icon(Icons.camera_alt_outlined),
-                label: const Text('Start scan'),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                alignment: WrapAlignment.center,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: () => context.push('/capture'),
+                    icon: const Icon(Icons.camera_alt_outlined),
+                    label: const Text('Start scan'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final db = DatabaseScope.of(context);
+                      await db.insertSampleRecord();
+                    },
+                    icon: const Icon(Icons.add_task),
+                    label: const Text('Add sample record'),
+                  ),
+                ],
               ),
             ],
           ],

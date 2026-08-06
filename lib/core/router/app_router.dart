@@ -6,6 +6,7 @@ import '../../features/capture/presentation/screens/capture_guidance_screen.dart
 import '../../features/capture/presentation/screens/capture_screen.dart';
 import '../../features/results/presentation/screens/results_screen.dart';
 import '../../features/weight_estimation/presentation/screens/reference_marking_screen.dart';
+import '../../features/analytics/presentation/screens/analytics_screen.dart';
 import '../../features/records/presentation/screens/records_screen.dart';
 import '../models/scan_flow.dart';
 import 'app_routes.dart';
@@ -60,7 +61,7 @@ abstract final class AppRouter {
       ),
       GoRoute(
         path: AppRoutes.analytics,
-        redirect: (context, state) => AppRoutes.records,
+        builder: (context, state) => const AnalyticsScreen(),
       ),
       GoRoute(
         path: AppRoutes.privacy,

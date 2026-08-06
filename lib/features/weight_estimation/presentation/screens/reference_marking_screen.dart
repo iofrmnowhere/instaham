@@ -433,8 +433,10 @@ class _ReferenceMarkingScreenState extends State<ReferenceMarkingScreen> {
                     ],
                   ),
                 ),
-                CheckboxListTile(
-                  contentPadding: EdgeInsets.zero,
+                Material(
+                  type: MaterialType.transparency,
+                  child: CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
                   value: _sameFloorPlane,
                   activeColor: AppColors.signalPink,
                   controlAffinity: ListTileControlAffinity.leading,
@@ -443,6 +445,7 @@ class _ReferenceMarkingScreenState extends State<ReferenceMarkingScreen> {
                   title: Text(
                     'Reference is flat on the same floor plane as the pig',
                     style: AppTextStyles.label,
+                  ),
                   ),
                 ),
                 if (_error != null)

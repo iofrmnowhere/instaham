@@ -148,7 +148,9 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
                   const SizedBox(height: 20),
                 ],
                 AppCard(
-                  child: SwitchListTile.adaptive(
+                  child: Material(
+                    type: MaterialType.transparency,
+                    child: SwitchListTile.adaptive(
                     contentPadding: EdgeInsets.zero,
                     value: _researchSharing,
                     activeTrackColor: AppColors.signalPink,
@@ -167,10 +169,13 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
                       ),
                     ),
                   ),
+                  ),
                 ),
                 const SizedBox(height: 10),
                 AppCard(
-                  child: SwitchListTile.adaptive(
+                  child: Material(
+                    type: MaterialType.transparency,
+                    child: SwitchListTile.adaptive(
                     contentPadding: EdgeInsets.zero,
                     value: _usageAnalytics,
                     activeTrackColor: AppColors.signalPink,
@@ -188,6 +193,7 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
                         color: AppColors.mutedForeground,
                       ),
                     ),
+                  ),
                   ),
                 ),
                 const SizedBox(height: 10),

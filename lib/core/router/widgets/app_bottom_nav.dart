@@ -26,6 +26,11 @@ class AppBottomNav extends StatelessWidget {
   static const items = [
     AppNavItem(href: '/', label: 'Home', icon: Icons.home_outlined),
     AppNavItem(
+      href: '/analytics',
+      label: 'Analytics',
+      icon: Icons.bar_chart_outlined,
+    ),
+    AppNavItem(
       href: '/capture',
       label: 'Scan',
       icon: Icons.camera_alt,
@@ -65,8 +70,8 @@ class AppBottomNav extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Container(
-                    width: item.primary ? 38 : 30,
-                    height: item.primary ? 38 : 30,
+                    width: item.primary ? 38 : 28,
+                    height: item.primary ? 38 : 28,
                     decoration: item.primary
                         ? const BoxDecoration(
                             color: AppColors.signalPink,
@@ -75,7 +80,7 @@ class AppBottomNav extends StatelessWidget {
                         : null,
                     child: Icon(
                       item.icon,
-                      size: 22,
+                      size: item.primary ? 22 : 20,
                       color: item.primary ? Colors.white : color,
                     ),
                   ),
@@ -84,7 +89,7 @@ class AppBottomNav extends StatelessWidget {
                     Text(
                       item.label,
                       style: AppTextStyles.label.copyWith(
-                        fontSize: 10,
+                        fontSize: 9,
                         color: color,
                         fontWeight: active ? FontWeight.w700 : FontWeight.w500,
                       ),

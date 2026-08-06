@@ -4,6 +4,7 @@ import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../features/analytics/domain/models/analytics_models.dart';
 import '../models/scan_flow.dart';
 
 part 'app_database.g.dart';
@@ -189,6 +190,10 @@ class AppDatabase extends _$AppDatabase {
       name: 'instaham',
       native: const DriftNativeOptions(
         databaseDirectory: getApplicationSupportDirectory,
+      ),
+      web: DriftWebOptions(
+        sqlite3Wasm: Uri.parse('sqlite3.wasm'),
+        driftWorker: Uri.parse('drift_worker.dart.js'),
       ),
     );
   }
@@ -430,12 +435,149 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  Future<String> insertSampleRecord() async {
+    final scanId = await createDraftScan(goal: ScanGoal.weightAndHealth);
+    await markCaptured(scanId, imagePath: null);
+    await saveReferenceAnnotation(
+      scanId: scanId,
+      reference: ReferenceSelection.meterStick,
+      startX: 0.1,
+      startY: 0.25,
+      endX: 0.9,
+      endY: 0.25,
+      pixelLength: 800,
+      cmPerPixel: 0.125,
+      source: 'manual',
+      detectorConfidence: 0.95,
+      sameFloorPlaneConfirmed: true,
+    );
+    await saveWeightResult(
+      scanId: scanId,
+      eligible: true,
+      valueKg: 85.5,
+      referenceLengthCm: 100.0,
+      referencePixelLength: 800.0,
+      cmPerPixel: 0.125,
+      ra: 0.45,
+      lc: 1.10,
+      bl: 0.85,
+      bw: 0.42,
+      e: 0.78,
+      modelVersion: 'xgb-weight-v1',
+    );
+    await saveHealthResult(
+      scanId: scanId,
+      eligible: true,
+      className: 'Healthy',
+      confidence: 0.94,
+      modelVersion: 'mobilenet-health-v1',
+    );
+    await assignPig(
+      scanId: scanId,
+      tag: 'TAG-101',
+      displayName: 'Sample Pig #101',
+    );
+    await updateScanStatus(scanId, ScanStatuses.completed);
+    return scanId;
+  }
+
   Stream<List<ScanRecord>> watchRecentScans({int limit = 100}) {
     final query = select(scanRecords)
       ..where((row) => row.deletedAt.isNull())
       ..orderBy([(row) => OrderingTerm.desc(row.updatedAt)])
       ..limit(limit);
     return query.watch();
+  }
+
+  Stream<WeightAnalytics> watchWeightAnalytics() {
+    final query = select(weightResults).join([
+      innerJoin(scanRecords, scanRecords.id.equalsExp(weightResults.scanId)),
+    ])..where(scanRecords.deletedAt.isNull());
+
+    return query.watch().map((rows) {
+      final results = rows.map((row) => row.readTable(weightResults)).toList();
+      if (results.isEmpty) return WeightAnalytics.empty();
+
+      final totalScans = results.length;
+      final eligibleRows = results.where((r) => r.eligible).toList();
+      final eligibleScans = eligibleRows.length;
+      final blockedScans = totalScans - eligibleScans;
+
+      if (eligibleRows.isEmpty) {
+        return WeightAnalytics(
+          totalScans: totalScans,
+          eligibleScans: 0,
+          blockedScans: blockedScans,
+        );
+      }
+
+      final values = eligibleRows
+          .map((r) => r.valueKg)
+          .whereType<double>()
+          .toList();
+
+      if (values.isEmpty) {
+        return WeightAnalytics(
+          totalScans: totalScans,
+          eligibleScans: eligibleScans,
+          blockedScans: blockedScans,
+        );
+      }
+
+      final sum = values.reduce((a, b) => a + b);
+      final avg = sum / values.length;
+      final minVal = values.reduce(min);
+      final maxVal = values.reduce(max);
+
+      return WeightAnalytics(
+        totalScans: totalScans,
+        eligibleScans: eligibleScans,
+        blockedScans: blockedScans,
+        averageKg: avg,
+        minKg: minVal,
+        maxKg: maxVal,
+      );
+    });
+  }
+
+  Stream<HealthAnalytics> watchHealthAnalytics() {
+    final query = select(healthResults).join([
+      innerJoin(scanRecords, scanRecords.id.equalsExp(healthResults.scanId)),
+    ])..where(scanRecords.deletedAt.isNull());
+
+    return query.watch().map((rows) {
+      final results = rows.map((row) => row.readTable(healthResults)).toList();
+      if (results.isEmpty) return HealthAnalytics.empty();
+
+      final totalScans = results.length;
+      int eligibleScans = 0;
+      int uncertainScans = 0;
+      int blockedScans = 0;
+      final Map<String, int> classCounts = {};
+
+      for (final r in results) {
+        if (!r.eligible) {
+          blockedScans++;
+        } else {
+          eligibleScans++;
+          if (r.uncertain) {
+            uncertainScans++;
+          }
+          final name = r.className?.trim();
+          if (name != null && name.isNotEmpty) {
+            classCounts[name] = (classCounts[name] ?? 0) + 1;
+          }
+        }
+      }
+
+      return HealthAnalytics(
+        totalScans: totalScans,
+        eligibleScans: eligibleScans,
+        uncertainScans: uncertainScans,
+        blockedScans: blockedScans,
+        classCounts: classCounts,
+      );
+    });
   }
 
   Future<LocalScanBundle?> loadScanBundle(String scanId) async {
