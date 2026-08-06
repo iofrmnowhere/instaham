@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+
+import '../../../../core/models/scan_flow.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
-import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/widgets/app_card.dart';
 import '../../../../core/theme/widgets/app_scaffold.dart';
 
@@ -14,155 +15,117 @@ class CaptureGuidanceScreen extends StatefulWidget {
 }
 
 class _CaptureGuidanceScreenState extends State<CaptureGuidanceScreen> {
-  String mode = 'weight-health'; // 'weight-health' or 'health-only'
-
-  final guidanceTips = {
-    'weight-health': [
-      'Position pig broadside to camera',
-      'Ensure good lighting and clear view',
-      'Keep camera at marked height',
-      'Avoid shadows and reflections',
-      'Include reference object in frame',
-    ],
-    'health-only': [
-      'Focus on pig profile view',
-      'Check for visible health indicators',
-      'Ensure clear facial features visible',
-      'Good lighting is essential',
-      'Take multiple angles if needed',
-    ],
-  };
+  ScanGoal _goal = ScanGoal.weightAndHealth;
 
   @override
   Widget build(BuildContext context) {
-    final tips = guidanceTips[mode]!;
+    final tips = _goal == ScanGoal.weightAndHealth
+        ? const [
+            'Photograph one pig from directly above.',
+            'Keep the complete head, body, and tail inside the frame.',
+            'Place a known straight reference flat beside the pig.',
+            'Keep both reference endpoints visible.',
+            'Keep the phone parallel to the ground and avoid blur.',
+          ]
+        : const [
+            'Capture the visibly affected area clearly.',
+            'Include enough context to show that the image belongs to a pig.',
+            'Use even lighting and avoid motion blur.',
+          ];
 
     return AppScaffold(
       showNav: false,
       header: Container(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
         decoration: const BoxDecoration(
           border: Border(bottom: BorderSide(color: AppColors.border)),
         ),
         child: Row(
           children: [
             IconButton(
+              onPressed: () => context.pop(),
               icon: const Icon(Icons.close),
-              onPressed: () => context.go('/measurements'),
             ),
-            Text('Capture Tips', style: AppTextStyles.headline.copyWith(fontSize: 20)),
+            Text(
+              'Capture tips',
+              style: AppTextStyles.headline.copyWith(fontSize: 20),
+            ),
           ],
         ),
       ),
       child: ListView(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         children: [
-          // Mode Selector Segmented buttons
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => setState(() => mode = 'weight-health'),
-                  style: OutlinedButton.styleFrom(
-                    backgroundColor: mode == 'weight-health' ? AppColors.signalPink : Colors.transparent,
-                    foregroundColor: mode == 'weight-health' ? Colors.white : AppColors.foreground,
-                    side: const BorderSide(color: AppColors.signalPink),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+          SegmentedButton<ScanGoal>(
+            segments: ScanGoal.values
+                .map(
+                  (goal) => ButtonSegment<ScanGoal>(
+                    value: goal,
+                    label: Text(goal.label),
                   ),
-                  child: const Text('Weight + Health'),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => setState(() => mode = 'health-only'),
-                  style: OutlinedButton.styleFrom(
-                    backgroundColor: mode == 'health-only' ? AppColors.signalPink : Colors.transparent,
-                    foregroundColor: mode == 'health-only' ? Colors.white : AppColors.foreground,
-                    side: const BorderSide(color: AppColors.signalPink),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
-                  ),
-                  child: const Text('Health Only'),
-                ),
-              ),
-            ],
+                )
+                .toList(),
+            selected: {_goal},
+            onSelectionChanged: (value) => setState(() => _goal = value.first),
           ),
           const SizedBox(height: 16),
-
-          // Guidance Card
           AppCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Best Practices', style: AppTextStyles.label.copyWith(fontWeight: FontWeight.w600)),
+                Text(
+                  'Before you capture',
+                  style: AppTextStyles.label.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 const SizedBox(height: 12),
-                ...tips.map((tip) {
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 8.0),
+                ...tips.map(
+                  (tip) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.check_circle_outline, size: 18, color: AppColors.success),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(tip, style: AppTextStyles.body.copyWith(fontSize: 13)),
+                        const Icon(
+                          Icons.check_circle_outline,
+                          size: 18,
+                          color: AppColors.success,
                         ),
+                        const SizedBox(width: 10),
+                        Expanded(child: Text(tip, style: AppTextStyles.body)),
                       ],
                     ),
-                  );
-                }),
+                  ),
+                ),
               ],
             ),
           ),
           const SizedBox(height: 16),
-
-          // Example Section
-          Text('Example', style: AppTextStyles.label.copyWith(fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
           AppCard(
-            child: Container(
-              height: 120,
-              decoration: BoxDecoration(
-                color: AppColors.muted,
-                borderRadius: BorderRadius.circular(AppRadius.md),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                mode == 'weight-health'
-                    ? 'Side view with reference object'
-                    : 'Profile view for health assessment',
-                style: AppTextStyles.subtext.copyWith(color: AppColors.mutedForeground),
-              ),
+            backgroundColor: AppColors.pinkTint,
+            border: Border.all(
+              color: AppColors.signalPink.withValues(alpha: 0.3),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.info_outline, color: AppColors.signalPink),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    _goal.requiresReference
+                        ? 'Weight is available only after the reference and all eligibility checks pass.'
+                        : 'Health output is visual screening, not a veterinary diagnosis.',
+                    style: AppTextStyles.subtext,
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 24),
-
-          // Actions
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => context.go('/measurements'),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-                  ),
-                  child: const Text('Close'),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: () => context.push('/capture'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.signalPink,
-                    minimumSize: const Size.fromHeight(48),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-                  ),
-                  child: const Text('Start Capture'),
-                ),
-              ),
-            ],
+          ElevatedButton(
+            onPressed: () =>
+                context.push('/capture', extra: ScanFlowArgs(goal: _goal)),
+            child: const Text('Open camera'),
           ),
         ],
       ),

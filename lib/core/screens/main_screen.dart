@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+
+import '../database/app_database.dart';
+import '../database/database_scope.dart';
+import '../models/scan_flow.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../theme/app_theme.dart';
@@ -12,142 +16,223 @@ class MainScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final recentScans = [
-      {'id': 1, 'pig': 'Pig #042', 'date': '2 hours ago', 'weight': '45kg', 'health': 'Good'},
-      {'id': 2, 'pig': 'Pig #038', 'date': '4 hours ago', 'weight': '42kg', 'health': 'Monitor'},
-      {'id': 3, 'pig': 'Pig #035', 'date': 'Yesterday', 'weight': '48kg', 'health': 'Good'},
-    ];
-
     return AppScaffold(
       currentPath: '/',
       header: Container(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         width: double.infinity,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('INSTAHAM', style: AppTextStyles.headline.copyWith(fontSize: 24)),
+            Text(
+              'INSTAHAM',
+              style: AppTextStyles.headline.copyWith(fontSize: 24),
+            ),
             const SizedBox(height: 2),
             Text(
-              'Farm Health Monitoring',
-              style: AppTextStyles.subtext.copyWith(color: AppColors.mutedForeground),
+              'On-device pig screening records',
+              style: AppTextStyles.subtext.copyWith(
+                color: AppColors.mutedForeground,
+              ),
             ),
           ],
         ),
       ),
-      child: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-        children: [
-          // Welcome Card
-          AppCard(
-            backgroundColor: AppColors.signalPink,
-            border: Border.all(color: AppColors.signalPink),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Welcome Back',
-                  style: AppTextStyles.headline.copyWith(color: Colors.white, fontSize: 18),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Tap below to start a new scan',
-                  style: AppTextStyles.body.copyWith(color: Colors.white.withValues(alpha: 0.9)),
-                ),
-                const SizedBox(height: 12),
-                ElevatedButton(
-                  onPressed: () => context.push('/capture-guidance'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: AppColors.signalPink,
-                    elevation: 0,
-                    shape: const StadiumBorder(),
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  ),
-                  child: Text(
-                    'Start Capture',
-                    style: AppTextStyles.label.copyWith(
-                      color: AppColors.signalPink,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
+      child: StreamBuilder<List<ScanRecord>>(
+        stream: DatabaseScope.of(context).watchRecentScans(limit: 20),
+        builder: (context, snapshot) {
+          final scans = snapshot.data ?? const <ScanRecord>[];
+          final today = DateTime.now();
+          final scansToday = scans.where((scan) {
+            final date = scan.createdAt.toLocal();
+            return date.year == today.year &&
+                date.month == today.month &&
+                date.day == today.day;
+          }).length;
+          final needsReview = scans
+              .where(
+                (scan) =>
+                    scan.status == ScanStatuses.blocked ||
+                    scan.status == ScanStatuses.rejected,
+              )
+              .length;
 
-          // Stat Cards Grid
-          Row(
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
             children: [
-              const Expanded(
-                child: StatCard(
-                  label: 'Scans Today',
-                  value: '12',
-                  icon: Icon(Icons.bolt),
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: StatCard(
-                  label: 'Health Alerts',
-                  value: '2',
-                  icon: Icon(Icons.error_outline),
-                  status: StatCardStatus.warning,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          // Recent Scans
-          Text('Recent Scans', style: AppTextStyles.label.copyWith(fontWeight: FontWeight.w700)),
-          const SizedBox(height: 10),
-
-          ...recentScans.map((scan) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 8.0),
-              child: AppCard(
-                onTap: () => context.push('/analysis'),
-                padding: const EdgeInsets.all(16.0),
-                child: Row(
+              AppCard(
+                backgroundColor: AppColors.signalPink,
+                border: Border.all(color: AppColors.signalPink),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            scan['pig'] as String,
-                            style: AppTextStyles.label.copyWith(fontWeight: FontWeight.w600),
-                          ),
-                          Text(
-                            scan['date'] as String,
-                            style: AppTextStyles.subtext.copyWith(color: AppColors.mutedForeground),
-                          ),
-                        ],
+                    Text(
+                      'Start a new scan',
+                      style: AppTextStyles.headline.copyWith(
+                        color: Colors.white,
+                        fontSize: 19,
                       ),
                     ),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          scan['weight'] as String,
-                          style: AppTextStyles.numeric.copyWith(fontSize: 14),
-                        ),
-                        Text(
-                          scan['health'] as String,
-                          style: AppTextStyles.subtext.copyWith(color: AppColors.mutedForeground),
-                        ),
-                      ],
+                    const SizedBox(height: 4),
+                    Text(
+                      'Choose Weight + Health or Health Only in the camera.',
+                      style: AppTextStyles.body.copyWith(
+                        color: Colors.white.withValues(alpha: 0.9),
+                      ),
                     ),
-                    const SizedBox(width: 8),
-                    const Icon(Icons.chevron_right, size: 20, color: AppColors.mutedForeground),
+                    const SizedBox(height: 14),
+                    ElevatedButton.icon(
+                      onPressed: () => context.push('/capture'),
+                      icon: const Icon(Icons.camera_alt_outlined),
+                      label: const Text('Open camera'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: AppColors.signalPink,
+                      ),
+                    ),
                   ],
                 ),
               ),
-            );
-          }),
-        ],
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: StatCard(
+                      label: 'Scans Today',
+                      value: '$scansToday',
+                      icon: const Icon(Icons.bolt),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: StatCard(
+                      label: 'Needs Review',
+                      value: '$needsReview',
+                      icon: const Icon(Icons.error_outline),
+                      status: needsReview > 0
+                          ? StatCardStatus.warning
+                          : StatCardStatus.success,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Recent scans',
+                    style: AppTextStyles.label.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => context.go('/records'),
+                    child: const Text('View all'),
+                  ),
+                ],
+              ),
+              if (snapshot.connectionState == ConnectionState.waiting)
+                const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (scans.isEmpty)
+                AppCard(
+                  child: Column(
+                    children: [
+                      const Icon(
+                        Icons.inventory_2_outlined,
+                        size: 38,
+                        color: AppColors.mutedForeground,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'No scans saved yet',
+                        style: AppTextStyles.label.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Your first captured scan will appear here.',
+                        style: AppTextStyles.subtext.copyWith(
+                          color: AppColors.mutedForeground,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                ...scans.take(5).map((scan) => _RecentScanCard(scan: scan)),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _RecentScanCard extends StatelessWidget {
+  final ScanRecord scan;
+
+  const _RecentScanCard({required this.scan});
+
+  @override
+  Widget build(BuildContext context) {
+    final goal = scanGoalFromStorage(scan.goal);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: AppCard(
+        onTap: () => context.push(
+          '/analysis',
+          extra: ScanFlowArgs(
+            sessionId: scan.id,
+            goal: goal,
+            imagePath: scan.imagePath,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: AppColors.pinkTint,
+                borderRadius: BorderRadius.circular(AppRadius.md),
+              ),
+              child: Icon(
+                goal.requiresReference
+                    ? Icons.monitor_weight_outlined
+                    : Icons.health_and_safety_outlined,
+                color: AppColors.signalPink,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    scan.pigId == null
+                        ? 'Unassigned scan'
+                        : 'Pig ${scan.pigId}',
+                    style: AppTextStyles.label.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  Text(
+                    '${goal.label} · ${scan.status.replaceAll('_', ' ')}',
+                    style: AppTextStyles.subtext.copyWith(
+                      color: AppColors.mutedForeground,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: AppColors.mutedForeground),
+          ],
+        ),
       ),
     );
   }

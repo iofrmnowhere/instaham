@@ -5,14 +5,9 @@ import '../screens/privacy_screen.dart';
 import '../../features/capture/presentation/screens/capture_guidance_screen.dart';
 import '../../features/capture/presentation/screens/capture_screen.dart';
 import '../../features/results/presentation/screens/results_screen.dart';
-import '../../features/results/presentation/screens/reject_result_screen.dart';
-import '../../features/results/presentation/screens/skip_weight_screen.dart';
-import '../../features/results/presentation/screens/uncertain_result_screen.dart';
-import '../../features/results/presentation/screens/weight_blocked_screen.dart';
-import '../../features/health_assessment/presentation/screens/health_history_screen.dart';
-import '../../features/weight_estimation/presentation/screens/measurements_screen.dart';
 import '../../features/weight_estimation/presentation/screens/reference_marking_screen.dart';
-import '../../features/analytics/presentation/screens/analytics_screen.dart';
+import '../../features/records/presentation/screens/records_screen.dart';
+import '../models/scan_flow.dart';
 import 'app_routes.dart';
 
 abstract final class AppRouter {
@@ -25,7 +20,11 @@ abstract final class AppRouter {
       ),
       GoRoute(
         path: AppRoutes.capture,
-        builder: (context, state) => const CaptureScreen(),
+        builder: (context, state) => CaptureScreen(
+          initialArgs: state.extra is ScanFlowArgs
+              ? state.extra! as ScanFlowArgs
+              : null,
+        ),
       ),
       GoRoute(
         path: AppRoutes.captureGuidance,
@@ -33,23 +32,35 @@ abstract final class AppRouter {
       ),
       GoRoute(
         path: AppRoutes.analysis,
-        builder: (context, state) => const ResultsScreen(),
+        builder: (context, state) => ResultsScreen(
+          args: state.extra is ScanFlowArgs
+              ? state.extra! as ScanFlowArgs
+              : const ScanFlowArgs(),
+        ),
       ),
       GoRoute(
         path: AppRoutes.health,
-        builder: (context, state) => const HealthHistoryScreen(),
+        redirect: (context, state) => AppRoutes.records,
       ),
       GoRoute(
         path: AppRoutes.measurements,
-        builder: (context, state) => const MeasurementsScreen(),
+        redirect: (context, state) => AppRoutes.records,
+      ),
+      GoRoute(
+        path: AppRoutes.records,
+        builder: (context, state) => const RecordsScreen(),
       ),
       GoRoute(
         path: AppRoutes.referenceMarking,
-        builder: (context, state) => const ReferenceMarkingScreen(),
+        builder: (context, state) => ReferenceMarkingScreen(
+          args: state.extra is ScanFlowArgs
+              ? state.extra! as ScanFlowArgs
+              : const ScanFlowArgs(),
+        ),
       ),
       GoRoute(
         path: AppRoutes.analytics,
-        builder: (context, state) => const AnalyticsScreen(),
+        redirect: (context, state) => AppRoutes.records,
       ),
       GoRoute(
         path: AppRoutes.privacy,
@@ -57,19 +68,19 @@ abstract final class AppRouter {
       ),
       GoRoute(
         path: AppRoutes.rejectResult,
-        builder: (context, state) => const RejectResultScreen(),
+        redirect: (context, state) => AppRoutes.records,
       ),
       GoRoute(
         path: AppRoutes.skipWeight,
-        builder: (context, state) => const SkipWeightScreen(),
+        redirect: (context, state) => AppRoutes.records,
       ),
       GoRoute(
         path: AppRoutes.uncertainResult,
-        builder: (context, state) => const UncertainResultScreen(),
+        redirect: (context, state) => AppRoutes.records,
       ),
       GoRoute(
         path: AppRoutes.weightBlocked,
-        builder: (context, state) => const WeightBlockedScreen(),
+        redirect: (context, state) => AppRoutes.records,
       ),
     ],
   );

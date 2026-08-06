@@ -17,6 +17,33 @@ This project uses a **Content Modular Architecture (CMA)**. Each capability live
 - Features do not import from other features.
 - All ML models are wrapped in interfaces inside `lib/services/ml/`.
 
+## UX Source of Truth
+
+The implemented navigation, capture, reference-review, result, and persistence contracts are documented in:
+
+```text
+.agents/skills/content_modular_architecture/references/design_system.md
+```
+
+- Only `Weight + Health` and `Health Only` are capture modes.
+- Camera height is not a validated scale method.
+- The camera must expose a conventional dominant shutter.
+- Reference suggestions are never silently accepted; users confirm or adjust exactly two endpoints.
+- Automatic reference detection is optional/future. Manual marking is the required fallback.
+- Results must show independent branch states and must never invent scores or predictions.
+
+## Local Persistence & Backend Contract
+
+- Drift/SQLite in `lib/core/database/` is the local source of truth.
+- Shared scan-flow values live in `lib/core/models/scan_flow.dart`; feature modules may import core, but not one another.
+- Tables cover pigs, scan records, reference annotations, independent weight/health results, pipeline events, privacy preferences, and a sync outbox.
+- Database schema changes require a `schemaVersion` increment and an explicit migration.
+- Keep weight features stored and passed in the fixed order `RA, LC, BL, BW, E`.
+- Backend synchronization must use stable local IDs plus separate remote IDs and the outbox. Do not couple UI widgets directly to HTTP clients.
+- Research-image sharing and analytics default off. Never enqueue or upload images without explicit consent.
+- Retakes and recovery update the existing scan session rather than discarding valid reference/pig context.
+- Update the design-system reference and this contract whenever navigation, persistence, consent, or inference flow changes.
+
 ## Implementation Plan Guidelines
 When creating an implementation plan in this workspace, follow these rigorous guidelines:
 1. **Grounded in Source**: Trace plans directly from reference files (e.g., Next.js TSX files, design systems). Document exact props, state machines, icons, and layout specifics rather than guessing.

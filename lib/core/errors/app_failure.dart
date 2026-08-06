@@ -1,1 +1,24 @@
-﻿/// Sealed class for all domain failures in INSTAHAM.\nsealed class AppFailure {\n  final String message;\n  const AppFailure(this.message);\n}\n\nfinal class ImageLoadFailure extends AppFailure {\n  const ImageLoadFailure(super.message);\n}\n\nfinal class InferenceFailure extends AppFailure {\n  const InferenceFailure(super.message);\n}\n\nfinal class EligibilityFailure extends AppFailure {\n  final String failureKey; // e.g. 'no_pig', 'endpoints_too_close'\n  const EligibilityFailure(super.message, this.failureKey);\n}\n\nfinal class ModelLoadFailure extends AppFailure {\n  const ModelLoadFailure(super.message);\n}
+/// Base class for domain failures in INSTAHAM.
+sealed class AppFailure {
+  final String message;
+
+  const AppFailure(this.message);
+}
+
+final class ImageLoadFailure extends AppFailure {
+  const ImageLoadFailure(super.message);
+}
+
+final class InferenceFailure extends AppFailure {
+  const InferenceFailure(super.message);
+}
+
+final class EligibilityFailure extends AppFailure {
+  final String failureKey;
+
+  const EligibilityFailure(super.message, this.failureKey);
+}
+
+final class ModelLoadFailure extends AppFailure {
+  const ModelLoadFailure(super.message);
+}

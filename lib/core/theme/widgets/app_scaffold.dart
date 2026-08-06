@@ -23,12 +23,14 @@ class AppScaffold extends StatelessWidget {
       body: SafeArea(
         child: Column(
           children: [
-            if (header case final h?) h,
+            ?header,
             Expanded(child: child),
           ],
         ),
       ),
-      bottomNavigationBar: showNav ? AppBottomNav(currentPath: currentPath) : null,
+      bottomNavigationBar: showNav
+          ? AppBottomNav(currentPath: currentPath)
+          : null,
     );
   }
 }

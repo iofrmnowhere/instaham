@@ -6,10 +6,7 @@ import '../app_theme.dart';
 class StatusBadge extends StatelessWidget {
   final ResultStatus status;
 
-  const StatusBadge({
-    super.key,
-    required this.status,
-  });
+  const StatusBadge({super.key, required this.status});
 
   @override
   Widget build(BuildContext context) {
@@ -19,17 +16,17 @@ class StatusBadge extends StatelessWidget {
 
     switch (status) {
       case ResultStatus.success:
-        backgroundColor = AppColors.success.withOpacity(0.15);
+        backgroundColor = AppColors.success.withValues(alpha: 0.15);
         textColor = AppColors.success;
         text = 'Confirmed';
         break;
       case ResultStatus.uncertain:
-        backgroundColor = AppColors.uncertain.withOpacity(0.15);
+        backgroundColor = AppColors.uncertain.withValues(alpha: 0.15);
         textColor = AppColors.uncertain;
         text = 'Uncertain';
         break;
       case ResultStatus.blocked:
-        backgroundColor = AppColors.blocked.withOpacity(0.15);
+        backgroundColor = AppColors.blocked.withValues(alpha: 0.15);
         textColor = AppColors.blocked;
         text = 'Blocked';
         break;

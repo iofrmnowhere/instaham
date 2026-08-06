@@ -59,19 +59,17 @@ enum ResultStatus { success, uncertain, blocked }
 
 | Next.js route | Flutter Screen | Feature Module |
 |---|---|---|
-| `/` (home) | `HomeScreen` | *(in `app.dart` or `core/`)* |
+| `/` (home) | `MainScreen` | `core/screens/` |
 | `/capture` | `CaptureScreen` | `features/capture/` |
-| `/capture-guidance` | `CaptureGuidanceScreen` | `features/capture/` |
+| `/capture-guidance` | `CaptureGuidanceScreen` (optional help) | `features/capture/` |
 | `/analysis` | `ResultsScreen` | `features/results/` |
-| `/health` | `HealthHistoryScreen` | `features/health_assessment/` |
-| `/measurements` | `MeasurementsScreen` | `features/weight_estimation/` |
+| `/records` | `RecordsScreen` | `features/records/` |
+| `/health` | Redirect to `/records` | legacy route |
+| `/measurements` | Redirect to `/records` | legacy route |
 | `/reference-marking` | `ReferenceMarkingScreen` | `features/weight_estimation/` |
-| `/analytics` | `AnalyticsScreen` | *(future)* |
+| `/analytics` | Redirect to `/records` until implemented | *(future)* |
 | `/privacy` | `PrivacyScreen` | `core/` |
-| `/reject-result` | Inline in `ResultsScreen` | `features/results/` |
-| `/skip-weight` | Inline in `ResultsScreen` | `features/results/` |
-| `/uncertain-result` | Inline in `ResultsScreen` | `features/results/` |
-| `/weight-blocked` | Inline in `ResultsScreen` | `features/results/` |
+| Legacy result-state routes | Redirect to `/records` | states render inside `ResultsScreen` |
 
 ## Widget Mapping
 
@@ -86,3 +84,95 @@ enum ResultStatus { success, uncertain, blocked }
 | `Button` (default) | `FilledButton` | themed in `app_theme.dart` |
 | `Button` (outline) | `OutlinedButton` | themed in `app_theme.dart` |
 | `Button` (tertiary) | `TextButton` | themed in `app_theme.dart` |
+
+## Approved End-to-End Scan Flow
+
+```text
+Home / Records
+    |
+    v
+Camera: Weight + Health | Health Only
+    |-- Weight + Health -> choose known reference preset/custom length
+    |-- Health Only -> no reference setup
+    v
+Dominant centered shutter
+    v
+Photo review: Retake | Use photo
+    |-- Weight + Health -> verify or manually mark reference endpoints
+    |                      -> Confirm & analyze | Continue health only
+    |-- Health Only ------> analyze
+    v
+Independent weight and visual-health results
+    v
+Assign pig (optional) -> save in Records
+```
+
+### Camera control hierarchy
+
+- The only top-level capture modes are `Weight + Health` and `Health Only`.
+- The mode selector stays at the top of the camera and persists for the scan session.
+- A 76dp circular shutter is the dominant bottom control.
+- Reference configuration is a status/action chip, never a capture mode.
+- Weight guidance must say dorsal/top-down; never use side-on or broadside wording.
+- The former camera-height flow is not a weight scale method. Phone alignment can be a guidance signal only.
+- Guidance is contextual in the camera; the full guidance screen is optional help, not a required recurring gate.
+
+### Reference object review
+
+- Weight mode requires a preset or a custom positive straight length in centimeters before capture.
+- Custom setup asks for optional name and known length only. It does not require a separate reference photo or width.
+- The review uses the actual captured photo when an image path is available.
+- A validated future detector may provide normalized endpoint suggestions and confidence. Suggestions must be clearly labeled for review.
+- Without a detector or below its threshold, the user places exactly two endpoints manually.
+- Both endpoints use 44dp drag handles. Tapping a handle must not delete it.
+- The user can change object type/name/length, clear/reset points, retake, or continue with health only.
+- Confirmation requires the reference to be flat on the same floor plane as the pig.
+- Endpoint coordinates are stored normalized to the original image. `cm/pixel` is calculated only with original image dimensions; never use rendered preview dimensions as image pixels.
+- Automatic reference recognition is not present in the current model package. Manual confirmation remains mandatory until a separate detector is trained and validated.
+
+### Results and recovery
+
+- Weight and visual-health branches render independently.
+- Never show a fabricated health score, healthy-weight claim, diagnosis, or numeric output from a failed eligibility branch.
+- Visual health shows `Possible visual indicator`, model confidence, and uncertainty wording.
+- Pending model integration is shown as `Pending`; it is not replaced with mock numbers.
+- A blocked reference flow offers manual review or health-only continuation before forcing a retake.
+- Retake preserves session ID, selected goal, reference configuration, pig assignment, and usable prior inputs.
+- Records distinguish unassigned, pending, completed, blocked, rejected, and deleted states.
+
+## Local Persistence and Backend Boundary
+
+Drift/SQLite is the on-device source of truth. The database is defined in:
+
+```text
+lib/core/database/app_database.dart
+lib/core/database/database_scope.dart
+lib/core/models/scan_flow.dart
+```
+
+| Table | Purpose |
+|---|---|
+| `pigs` | Optional pig tag/display name and soft-delete metadata |
+| `scan_records` | Scan goal, lifecycle, image path, failure, timestamps, remote/sync state |
+| `reference_annotations` | Known length, normalized endpoints, source/confidence, user and floor-plane confirmation |
+| `weight_results` | Eligible output, failure reason, scale, and features in fixed `RA, LC, BL, BW, E` order |
+| `health_results` | Independent eligibility, visual class, confidence, uncertainty, and versions |
+| `pipeline_events` | Stage-level progress, failure, and retry audit trail |
+| `privacy_preferences` | Explicit research/analytics choices and declared inference location |
+| `sync_outbox_entries` | Backend-ready pending create/update/delete operations |
+
+Persistence rules:
+
+- Optional research-image sharing and usage analytics default to `false`.
+- The backend must consume the outbox and must not upload images unless explicit preference allows it.
+- Local IDs remain stable; remote IDs are separate mappings.
+- Deletion removes scans, annotations, results, pipeline events, pigs, and pending outbox entries while keeping privacy preferences.
+- Database migrations increment `schemaVersion`; destructive schema replacement is not allowed for released builds.
+- ML services write independent result rows and pipeline events. UI screens read stored results and do not manufacture placeholders.
+- Original image paths stay local unless upload consent and backend policy both permit transfer.
+
+## Current Integration Status
+
+- Implemented: design flow, scan-session persistence, reference confirmation UI, Records source of truth, pig assignment, truthful result states, privacy persistence, delete confirmation, and sync outbox schema.
+- Pending: hardware camera/image picker integration, EXIF correction, trained reference detector, concrete ML service implementations, and remote backend sync worker.
+- Until the model pipeline is integrated, result branches must remain visibly pending or unavailable.

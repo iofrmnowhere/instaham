@@ -5,6 +5,7 @@ abstract final class AppRoutes {
   static const String analysis = '/analysis';
   static const String health = '/health';
   static const String measurements = '/measurements';
+  static const String records = '/records';
   static const String referenceMarking = '/reference-marking';
   static const String analytics = '/analytics';
   static const String privacy = '/privacy';
