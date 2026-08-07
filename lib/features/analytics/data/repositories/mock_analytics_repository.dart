@@ -1,8 +1,12 @@
+import '../../domain/models/analytics_models.dart';
 import '../../domain/repositories/i_analytics_repository.dart';
 
 class MockAnalyticsRepository implements IAnalyticsRepository {
   @override
-  Future<Map<String, dynamic>> getAnalytics() async {
-    return {};
-  }
+  Stream<WeightAnalytics> watchWeightAnalytics() =>
+      Stream.value(WeightAnalytics.empty());
+
+  @override
+  Stream<HealthAnalytics> watchHealthAnalytics() =>
+      Stream.value(HealthAnalytics.empty());
 }

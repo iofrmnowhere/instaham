@@ -1,3 +1,6 @@
+import '../models/analytics_models.dart';
+
 abstract interface class IAnalyticsRepository {
-  Future<Map<String, dynamic>> getAnalytics();
+  Stream<WeightAnalytics> watchWeightAnalytics();
+  Stream<HealthAnalytics> watchHealthAnalytics();
 }

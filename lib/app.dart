@@ -3,6 +3,8 @@ import 'core/database/app_database.dart';
 import 'core/database/database_scope.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
+import 'features/analytics/data/repositories/drift_analytics_repository.dart';
+import 'features/analytics/presentation/analytics_scope.dart';
 
 class App extends StatefulWidget {
   final AppDatabase? database;
@@ -29,11 +31,14 @@ class _AppState extends State<App> {
   Widget build(BuildContext context) {
     return DatabaseScope(
       database: _database,
-      child: MaterialApp.router(
-        title: 'INSTAHAM',
-        theme: AppTheme.light,
-        routerConfig: AppRouter.router,
-        debugShowCheckedModeBanner: false,
+      child: AnalyticsScope(
+        repository: DriftAnalyticsRepository(_database),
+        child: MaterialApp.router(
+          title: 'INSTAHAM',
+          theme: AppTheme.light,
+          routerConfig: AppRouter.router,
+          debugShowCheckedModeBanner: false,
+        ),
       ),
     );
   }
