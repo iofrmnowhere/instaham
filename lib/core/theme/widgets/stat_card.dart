@@ -22,7 +22,8 @@ class StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isAlert = status == StatCardStatus.warning || status == StatCardStatus.error;
+    final isAlert =
+        status == StatCardStatus.warning || status == StatCardStatus.error;
 
     final backgroundColor = isAlert ? AppColors.pinkTint : AppColors.card;
     final borderColor = isAlert ? const Color(0xFFFBCFE8) : AppColors.border;

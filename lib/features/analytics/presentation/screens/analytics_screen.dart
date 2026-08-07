@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
-import '../../../../core/theme/app_theme.dart';
-import '../../../../core/theme/widgets/app_card.dart';
+import '../../../../core/theme/widgets/app_error_state.dart';
 import '../../../../core/theme/widgets/app_scaffold.dart';
-import '../../../../core/theme/widgets/stat_card.dart';
-import '../../domain/models/analytics_models.dart';
+import '../../domain/repositories/i_analytics_repository.dart';
 import '../analytics_scope.dart';
 import '../notifier/analytics_notifier.dart';
+import '../widgets/health_panel.dart';
+import '../widgets/weight_panel.dart';
 
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
@@ -18,15 +18,19 @@ class AnalyticsScreen extends StatefulWidget {
 }
 
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
+  IAnalyticsRepository? _currentRepository;
   AnalyticsNotifier? _notifier;
   String _selectedTab = 'weight';
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_notifier != null) return;
     final repository = AnalyticsScope.of(context);
-    _notifier = AnalyticsNotifier(repository);
+    if (_currentRepository != repository) {
+      _currentRepository = repository;
+      _notifier?.dispose();
+      _notifier = AnalyticsNotifier(repository);
+    }
   }
 
   @override
@@ -100,264 +104,26 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   return const Center(child: CircularProgressIndicator());
                 }
 
+                if (state.error != null) {
+                  return AppErrorState(message: state.error!);
+                }
+
                 return SingleChildScrollView(
                   padding: const EdgeInsets.fromLTRB(16.0, 0, 16.0, 24.0),
                   child: _selectedTab == 'weight'
-                      ? _WeightPanel(data: state.weight)
-                      : _HealthPanel(data: state.health),
+                      ? WeightPanel(
+                          data: state.weight,
+                          timeSeries: state.weightTimeSeries,
+                        )
+                      : HealthPanel(
+                          data: state.health,
+                          classBars: state.healthClassBars,
+                        ),
                 );
               },
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _WeightPanel extends StatelessWidget {
-  final WeightAnalytics data;
-
-  const _WeightPanel({required this.data});
-
-  @override
-  Widget build(BuildContext context) {
-    if (data.eligibleScans == 0) {
-      return const _AnalyticsEmptyState(
-        icon: Icons.monitor_weight_outlined,
-        title: 'No weight analytics yet',
-        subtitle:
-            'Collect scans with valid reference objects to view weight statistics.',
-      );
-    }
-
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: StatCard(
-                label: 'Total Scans',
-                value: '${data.totalScans}',
-                icon: const Icon(Icons.inventory_2_outlined),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: StatCard(
-                label: 'Avg Weight',
-                value: data.averageKg?.toStringAsFixed(1) ?? '—',
-                unit: 'kg',
-                icon: const Icon(Icons.scale_outlined),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: StatCard(
-                label: 'Min Weight',
-                value: data.minKg?.toStringAsFixed(1) ?? '—',
-                unit: 'kg',
-                icon: const Icon(Icons.arrow_downward_outlined),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: StatCard(
-                label: 'Max Weight',
-                value: data.maxKg?.toStringAsFixed(1) ?? '—',
-                unit: 'kg',
-                icon: const Icon(Icons.arrow_upward_outlined),
-              ),
-            ),
-          ],
-        ),
-        if (data.blockedScans > 0) ...[
-          const SizedBox(height: 8),
-          StatCard(
-            label: 'Ineligible / Blocked',
-            value: '${data.blockedScans}',
-            icon: const Icon(Icons.block_outlined),
-            status: StatCardStatus.warning,
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class _HealthPanel extends StatelessWidget {
-  final HealthAnalytics data;
-
-  const _HealthPanel({required this.data});
-
-  @override
-  Widget build(BuildContext context) {
-    if (data.eligibleScans == 0) {
-      return const _AnalyticsEmptyState(
-        icon: Icons.health_and_safety_outlined,
-        title: 'No health analytics yet',
-        subtitle:
-            'Health assessment trends will appear here as you perform pig health scans.',
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: StatCard(
-                label: 'Total Scans',
-                value: '${data.totalScans}',
-                icon: const Icon(Icons.inventory_2_outlined),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: StatCard(
-                label: 'Eligible',
-                value: '${data.eligibleScans}',
-                icon: const Icon(Icons.check_circle_outline),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: StatCard(
-                label: 'Uncertain',
-                value: '${data.uncertainScans}',
-                icon: const Icon(Icons.help_outline),
-                status: data.uncertainScans > 0 ? StatCardStatus.warning : null,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: StatCard(
-                label: 'Blocked',
-                value: '${data.blockedScans}',
-                icon: const Icon(Icons.block_outlined),
-                status: data.blockedScans > 0 ? StatCardStatus.warning : null,
-              ),
-            ),
-          ],
-        ),
-        if (data.classCounts.isNotEmpty) ...[
-          const SizedBox(height: 16),
-          AppCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Health Status Breakdown',
-                  style: AppTextStyles.label.copyWith(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 16,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                ...data.classCounts.entries.map((entry) {
-                  final count = entry.value;
-                  final ratio = data.eligibleScans > 0
-                      ? count / data.eligibleScans
-                      : 0.0;
-                  final isHealthy = entry.key.trim().toLowerCase() == 'healthy';
-                  final color = isHealthy
-                      ? AppColors.success
-                      : AppColors.uncertain;
-
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 12.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              entry.key,
-                              style: AppTextStyles.label.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            Text(
-                              '$count scan${count == 1 ? '' : 's'} (${(ratio * 100).toStringAsFixed(0)}%)',
-                              style: AppTextStyles.subtext.copyWith(
-                                color: AppColors.mutedForeground,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(AppRadius.sm),
-                          child: LinearProgressIndicator(
-                            value: ratio,
-                            minHeight: 8,
-                            backgroundColor: AppColors.muted,
-                            valueColor: AlwaysStoppedAnimation<Color>(color),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }),
-              ],
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class _AnalyticsEmptyState extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-
-  const _AnalyticsEmptyState({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(
-                color: AppColors.pinkTint,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, size: 32, color: AppColors.signalPink),
-            ),
-            const SizedBox(height: 16),
-            Text(title, style: AppTextStyles.headline.copyWith(fontSize: 19)),
-            const SizedBox(height: 6),
-            Text(
-              subtitle,
-              style: AppTextStyles.subtext.copyWith(
-                color: AppColors.mutedForeground,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
       ),
     );
   }

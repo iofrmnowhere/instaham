@@ -42,3 +42,17 @@ class HealthAnalytics {
     classCounts: {},
   );
 }
+
+class WeightDataPoint {
+  final DateTime date;
+  final double kg;
+
+  const WeightDataPoint({required this.date, required this.kg});
+}
+
+class HealthClassBar {
+  final String className;
+  final double percentage;
+
+  const HealthClassBar({required this.className, required this.percentage});
+}

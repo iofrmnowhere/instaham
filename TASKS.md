@@ -8,7 +8,7 @@ A living document to track the implementation progress of the INSTAHAM Flutter a
 - [x] **Web Support:** Compile and integrate WASM SQLite engine (`sqlite3.wasm`) and Drift worker (`drift_worker.dart.js`) for Flutter Web compatibility.
 - [x] **Navigation:** Implement `go_router` and a responsive 5-item `AppBottomNav` (Home, Analytics, Scan, Records, Privacy).
 - [x] **Core Screens:** Build `PrivacyScreen`, `RecordsScreen` (with empty states and sample data injection), and `ResultsScreen` (fixing async `setState` exceptions).
-- [x] **Analytics Module:** Build `AnalyticsScreen` with dual tabs for Weight and Health, driven by live Drift `StreamBuilder` aggregations.
+- [x] **Analytics Module:** Build `AnalyticsScreen` with dual tabs for Weight and Health, driven by live Drift streams. Features line/bar graphs (`fl_chart`), proper modular DI, and resilient error state handling.
 - [x] **Unit Testing:** Implement unit tests for SQLite database methods and analytics queries.
 
 ## 🟡 In Progress / Next Up

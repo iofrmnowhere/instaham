@@ -81,6 +81,7 @@ enum ResultStatus { success, uncertain, blocked }
 | `Badge` | `StatusBadge` | `core/theme/widgets/status_badge.dart` |
 | `BottomNav` | `AppBottomNav` | `core/router/widgets/app_bottom_nav.dart` |
 | `Card` | Flutter `Card` or custom `AppCard` | `core/theme/widgets/app_card.dart` |
+| `ErrorState` (generic) | `AppErrorState` | `core/theme/widgets/app_error_state.dart` |
 | `Button` (default) | `FilledButton` | themed in `app_theme.dart` |
 | `Button` (outline) | `OutlinedButton` | themed in `app_theme.dart` |
 | `Button` (tertiary) | `TextButton` | themed in `app_theme.dart` |
@@ -173,6 +174,6 @@ Persistence rules:
 
 ## Current Integration Status
 
-- Implemented: design flow, scan-session persistence, reference confirmation UI, Records source of truth, pig assignment, truthful result states, privacy persistence, delete confirmation, and sync outbox schema.
+- Implemented: design flow, scan-session persistence, reference confirmation UI, Records source of truth, pig assignment, truthful result states, privacy persistence, delete confirmation, sync outbox schema, and analytics module (with graphs).
 - Pending: hardware camera/image picker integration, EXIF correction, trained reference detector, concrete ML service implementations, and remote backend sync worker.
 - Until the model pipeline is integrated, result branches must remain visibly pending or unavailable.

@@ -580,6 +580,64 @@ class AppDatabase extends _$AppDatabase {
     });
   }
 
+  Stream<List<WeightDataPoint>> watchWeightTimeSeries() {
+    final query =
+        select(weightResults).join([
+            innerJoin(
+              scanRecords,
+              scanRecords.id.equalsExp(weightResults.scanId),
+            ),
+          ])
+          ..where(
+            scanRecords.deletedAt.isNull() &
+                weightResults.eligible.equals(true),
+          )
+          ..orderBy([OrderingTerm.asc(weightResults.createdAt)]);
+
+    return query.watch().map((rows) {
+      return rows
+          .map((row) {
+            final w = row.readTable(weightResults);
+            if (w.valueKg == null) return null;
+            return WeightDataPoint(date: w.createdAt, kg: w.valueKg!);
+          })
+          .whereType<WeightDataPoint>()
+          .toList();
+    });
+  }
+
+  Stream<List<HealthClassBar>> watchHealthClassBars() {
+    final query =
+        select(healthResults).join([
+          innerJoin(
+            scanRecords,
+            scanRecords.id.equalsExp(healthResults.scanId),
+          ),
+        ])..where(
+          scanRecords.deletedAt.isNull() & healthResults.eligible.equals(true),
+        );
+
+    return query.watch().map((rows) {
+      final results = rows.map((row) => row.readTable(healthResults)).toList();
+      if (results.isEmpty) return <HealthClassBar>[];
+
+      final totalEligible = results.length;
+      final Map<String, int> counts = {};
+
+      for (final r in results) {
+        final name = r.className?.trim();
+        if (name != null && name.isNotEmpty) {
+          counts[name] = (counts[name] ?? 0) + 1;
+        }
+      }
+
+      return counts.entries.map((entry) {
+        final percentage = (entry.value / totalEligible) * 100.0;
+        return HealthClassBar(className: entry.key, percentage: percentage);
+      }).toList();
+    });
+  }
+
   Future<LocalScanBundle?> loadScanBundle(String scanId) async {
     final scan = await (select(
       scanRecords,

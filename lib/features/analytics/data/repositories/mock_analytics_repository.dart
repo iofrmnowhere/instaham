@@ -9,4 +9,10 @@ class MockAnalyticsRepository implements IAnalyticsRepository {
   @override
   Stream<HealthAnalytics> watchHealthAnalytics() =>
       Stream.value(HealthAnalytics.empty());
+
+  @override
+  Stream<List<WeightDataPoint>> watchWeightTimeSeries() => Stream.value([]);
+
+  @override
+  Stream<List<HealthClassBar>> watchHealthClassBars() => Stream.value([]);
 }

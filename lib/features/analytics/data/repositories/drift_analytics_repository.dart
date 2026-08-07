@@ -12,4 +12,12 @@ class DriftAnalyticsRepository implements IAnalyticsRepository {
 
   @override
   Stream<HealthAnalytics> watchHealthAnalytics() => _db.watchHealthAnalytics();
+
+  @override
+  Stream<List<WeightDataPoint>> watchWeightTimeSeries() =>
+      _db.watchWeightTimeSeries();
+
+  @override
+  Stream<List<HealthClassBar>> watchHealthClassBars() =>
+      _db.watchHealthClassBars();
 }
