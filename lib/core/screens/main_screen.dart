@@ -39,7 +39,7 @@ class MainScreen extends StatelessWidget {
         ),
       ),
       child: StreamBuilder<List<ScanRecord>>(
-        stream: DatabaseScope.of(context).watchRecentScans(limit: 20),
+        stream: DatabaseScope.of(context).recordsDao.watchRecentScans(limit: 20),
         builder: (context, snapshot) {
           final scans = snapshot.data ?? const <ScanRecord>[];
           final today = DateTime.now();

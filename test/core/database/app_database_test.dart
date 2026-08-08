@@ -27,7 +27,7 @@ void main() {
 
     await database.deleteAllUserRecords();
 
-    expect(await database.loadScanBundle(scanId), isNull);
+    expect(await database.recordsDao.loadScanBundle(scanId), isNull);
     final retained = await database.getPrivacyPreferences();
     expect(retained.researchImageSharing, isTrue);
     expect(retained.inferenceMode, 'on_device');
@@ -74,7 +74,7 @@ void main() {
       displayName: 'Test pig',
     );
 
-    final bundle = await database.loadScanBundle(scanId);
+    final bundle = await database.recordsDao.loadScanBundle(scanId);
 
     expect(bundle, isNotNull);
     expect(bundle!.scan.status, ScanStatuses.analyzing);
@@ -93,7 +93,7 @@ void main() {
 
   test('inserts complete sample scan record', () async {
     final scanId = await database.insertSampleRecord();
-    final bundle = await database.loadScanBundle(scanId);
+    final bundle = await database.recordsDao.loadScanBundle(scanId);
 
     expect(bundle, isNotNull);
     expect(bundle!.scan.status, ScanStatuses.completed);

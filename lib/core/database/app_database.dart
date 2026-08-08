@@ -5,6 +5,7 @@ import 'package:drift_flutter/drift_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../features/analytics/data/analytics_dao.dart';
+import '../../features/records/data/records_dao.dart';
 import '../models/scan_flow.dart';
 
 part 'app_database.g.dart';
@@ -140,22 +141,6 @@ class SyncOutboxEntries extends Table {
   DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
 }
 
-class LocalScanBundle {
-  final ScanRecord scan;
-  final Pig? pig;
-  final ReferenceAnnotation? reference;
-  final WeightResult? weight;
-  final HealthResult? health;
-
-  const LocalScanBundle({
-    required this.scan,
-    this.pig,
-    this.reference,
-    this.weight,
-    this.health,
-  });
-}
-
 @DriftDatabase(
   tables: [
     Pigs,
@@ -167,7 +152,7 @@ class LocalScanBundle {
     PrivacyPreferences,
     SyncOutboxEntries,
   ],
-  daos: [AnalyticsDao],
+  daos: [AnalyticsDao, RecordsDao],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor]) : super(executor ?? _openConnection());
@@ -480,44 +465,6 @@ class AppDatabase extends _$AppDatabase {
     );
     await updateScanStatus(scanId, ScanStatuses.completed);
     return scanId;
-  }
-
-  Stream<List<ScanRecord>> watchRecentScans({int limit = 100}) {
-    final query = select(scanRecords)
-      ..where((row) => row.deletedAt.isNull())
-      ..orderBy([(row) => OrderingTerm.desc(row.updatedAt)])
-      ..limit(limit);
-    return query.watch();
-  }
-
-  Future<LocalScanBundle?> loadScanBundle(String scanId) async {
-    final scan = await (select(
-      scanRecords,
-    )..where((row) => row.id.equals(scanId))).getSingleOrNull();
-    if (scan == null) return null;
-
-    final pig = scan.pigId == null
-        ? null
-        : await (select(
-            pigs,
-          )..where((row) => row.id.equals(scan.pigId!))).getSingleOrNull();
-    final reference = await (select(
-      referenceAnnotations,
-    )..where((row) => row.scanId.equals(scanId))).getSingleOrNull();
-    final weight = await (select(
-      weightResults,
-    )..where((row) => row.scanId.equals(scanId))).getSingleOrNull();
-    final health = await (select(
-      healthResults,
-    )..where((row) => row.scanId.equals(scanId))).getSingleOrNull();
-
-    return LocalScanBundle(
-      scan: scan,
-      pig: pig,
-      reference: reference,
-      weight: weight,
-      health: health,
-    );
   }
 
   Future<PrivacyPreference> getPrivacyPreferences() async {

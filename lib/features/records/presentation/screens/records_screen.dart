@@ -8,7 +8,11 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/widgets/app_card.dart';
+import '../../../../core/theme/widgets/app_error_state.dart';
 import '../../../../core/theme/widgets/app_scaffold.dart';
+import '../../domain/repositories/i_records_repository.dart';
+import '../notifier/records_notifier.dart';
+import '../records_scope.dart';
 
 class RecordsScreen extends StatefulWidget {
   const RecordsScreen({super.key});
@@ -18,10 +22,33 @@ class RecordsScreen extends StatefulWidget {
 }
 
 class _RecordsScreenState extends State<RecordsScreen> {
+  IRecordsRepository? _currentRepository;
+  RecordsNotifier? _notifier;
   String _filter = 'all';
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final repository = RecordsScope.of(context);
+    if (_currentRepository != repository) {
+      _currentRepository = repository;
+      _notifier?.dispose();
+      _notifier = RecordsNotifier(repository);
+    }
+  }
+
+  @override
+  void dispose() {
+    _notifier?.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (_notifier == null) {
+      return const SizedBox.shrink();
+    }
+
     return AppScaffold(
       currentPath: '/records',
       header: Container(
@@ -57,12 +84,20 @@ class _RecordsScreenState extends State<RecordsScreen> {
           ],
         ),
       ),
-      child: StreamBuilder<List<ScanRecord>>(
-        stream: DatabaseScope.of(context).watchRecentScans(),
-        builder: (context, snapshot) {
-          final records = (snapshot.data ?? const <ScanRecord>[]).where((
-            record,
-          ) {
+      child: ListenableBuilder(
+        listenable: _notifier!,
+        builder: (context, _) {
+          final state = _notifier!.state;
+
+          if (state.isLoading) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (state.error != null) {
+            return AppErrorState(message: state.error!);
+          }
+
+          final records = state.records.where((record) {
             if (_filter == 'review') {
               return record.status == ScanStatuses.blocked ||
                   record.status == ScanStatuses.rejected;
@@ -91,9 +126,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
               ),
               const SizedBox(height: 12),
               Expanded(
-                child: snapshot.connectionState == ConnectionState.waiting
-                    ? const Center(child: CircularProgressIndicator())
-                    : records.isEmpty
+                child: records.isEmpty
                     ? _EmptyRecords(filter: _filter)
                     : ListView.separated(
                         padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),

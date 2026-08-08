@@ -6,6 +6,9 @@ import 'core/theme/app_theme.dart';
 import 'features/analytics/data/repositories/drift_analytics_repository.dart';
 import 'features/analytics/presentation/analytics_scope.dart';
 
+import 'features/records/data/repositories/drift_records_repository.dart';
+import 'features/records/presentation/records_scope.dart';
+
 class App extends StatefulWidget {
   final AppDatabase? database;
 
@@ -31,13 +34,16 @@ class _AppState extends State<App> {
   Widget build(BuildContext context) {
     return DatabaseScope(
       database: _database,
-      child: AnalyticsScope(
-        repository: DriftAnalyticsRepository(_database.analyticsDao),
-        child: MaterialApp.router(
-          title: 'INSTAHAM',
-          theme: AppTheme.light,
-          routerConfig: AppRouter.router,
-          debugShowCheckedModeBanner: false,
+      child: RecordsScope(
+        repository: DriftRecordsRepository(_database.recordsDao),
+        child: AnalyticsScope(
+          repository: DriftAnalyticsRepository(_database.analyticsDao),
+          child: MaterialApp.router(
+            title: 'INSTAHAM',
+            theme: AppTheme.light,
+            routerConfig: AppRouter.router,
+            debugShowCheckedModeBanner: false,
+          ),
         ),
       ),
     );

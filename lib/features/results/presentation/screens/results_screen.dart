@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/database/app_database.dart';
 import '../../../../core/database/database_scope.dart';
+import '../../../../core/models/local_scan_bundle.dart';
 import '../../../../core/models/scan_flow.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
@@ -37,7 +38,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
     final id = widget.args.sessionId;
     final future = id == null
         ? Future<LocalScanBundle?>.value(null)
-        : _database!.loadScanBundle(id);
+        : _database!.recordsDao.loadScanBundle(id);
     setState(() {
       _bundle = future;
     });
