@@ -5175,6 +5175,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $PrivacyPreferencesTable(this);
   late final $SyncOutboxEntriesTable syncOutboxEntries =
       $SyncOutboxEntriesTable(this);
+  late final AnalyticsDao analyticsDao = AnalyticsDao(this as AppDatabase);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();

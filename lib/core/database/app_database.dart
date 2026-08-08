@@ -4,7 +4,7 @@ import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 
-import '../../features/analytics/domain/models/analytics_models.dart';
+import '../../features/analytics/data/analytics_dao.dart';
 import '../models/scan_flow.dart';
 
 part 'app_database.g.dart';
@@ -167,6 +167,7 @@ class LocalScanBundle {
     PrivacyPreferences,
     SyncOutboxEntries,
   ],
+  daos: [AnalyticsDao],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor]) : super(executor ?? _openConnection());
@@ -487,155 +488,6 @@ class AppDatabase extends _$AppDatabase {
       ..orderBy([(row) => OrderingTerm.desc(row.updatedAt)])
       ..limit(limit);
     return query.watch();
-  }
-
-  Stream<WeightAnalytics> watchWeightAnalytics() {
-    final query = select(weightResults).join([
-      innerJoin(scanRecords, scanRecords.id.equalsExp(weightResults.scanId)),
-    ])..where(scanRecords.deletedAt.isNull());
-
-    return query.watch().map((rows) {
-      final results = rows.map((row) => row.readTable(weightResults)).toList();
-      if (results.isEmpty) return WeightAnalytics.empty();
-
-      final totalScans = results.length;
-      final eligibleRows = results.where((r) => r.eligible).toList();
-      final eligibleScans = eligibleRows.length;
-      final blockedScans = totalScans - eligibleScans;
-
-      if (eligibleRows.isEmpty) {
-        return WeightAnalytics(
-          totalScans: totalScans,
-          eligibleScans: 0,
-          blockedScans: blockedScans,
-        );
-      }
-
-      final values = eligibleRows
-          .map((r) => r.valueKg)
-          .whereType<double>()
-          .toList();
-
-      if (values.isEmpty) {
-        return WeightAnalytics(
-          totalScans: totalScans,
-          eligibleScans: eligibleScans,
-          blockedScans: blockedScans,
-        );
-      }
-
-      final sum = values.reduce((a, b) => a + b);
-      final avg = sum / values.length;
-      final minVal = values.reduce(min);
-      final maxVal = values.reduce(max);
-
-      return WeightAnalytics(
-        totalScans: totalScans,
-        eligibleScans: eligibleScans,
-        blockedScans: blockedScans,
-        averageKg: avg,
-        minKg: minVal,
-        maxKg: maxVal,
-      );
-    });
-  }
-
-  Stream<HealthAnalytics> watchHealthAnalytics() {
-    final query = select(healthResults).join([
-      innerJoin(scanRecords, scanRecords.id.equalsExp(healthResults.scanId)),
-    ])..where(scanRecords.deletedAt.isNull());
-
-    return query.watch().map((rows) {
-      final results = rows.map((row) => row.readTable(healthResults)).toList();
-      if (results.isEmpty) return HealthAnalytics.empty();
-
-      final totalScans = results.length;
-      int eligibleScans = 0;
-      int uncertainScans = 0;
-      int blockedScans = 0;
-      final Map<String, int> classCounts = {};
-
-      for (final r in results) {
-        if (!r.eligible) {
-          blockedScans++;
-        } else {
-          eligibleScans++;
-          if (r.uncertain) {
-            uncertainScans++;
-          }
-          final name = r.className?.trim();
-          if (name != null && name.isNotEmpty) {
-            classCounts[name] = (classCounts[name] ?? 0) + 1;
-          }
-        }
-      }
-
-      return HealthAnalytics(
-        totalScans: totalScans,
-        eligibleScans: eligibleScans,
-        uncertainScans: uncertainScans,
-        blockedScans: blockedScans,
-        classCounts: classCounts,
-      );
-    });
-  }
-
-  Stream<List<WeightDataPoint>> watchWeightTimeSeries() {
-    final query =
-        select(weightResults).join([
-            innerJoin(
-              scanRecords,
-              scanRecords.id.equalsExp(weightResults.scanId),
-            ),
-          ])
-          ..where(
-            scanRecords.deletedAt.isNull() &
-                weightResults.eligible.equals(true),
-          )
-          ..orderBy([OrderingTerm.asc(weightResults.createdAt)]);
-
-    return query.watch().map((rows) {
-      return rows
-          .map((row) {
-            final w = row.readTable(weightResults);
-            if (w.valueKg == null) return null;
-            return WeightDataPoint(date: w.createdAt, kg: w.valueKg!);
-          })
-          .whereType<WeightDataPoint>()
-          .toList();
-    });
-  }
-
-  Stream<List<HealthClassBar>> watchHealthClassBars() {
-    final query =
-        select(healthResults).join([
-          innerJoin(
-            scanRecords,
-            scanRecords.id.equalsExp(healthResults.scanId),
-          ),
-        ])..where(
-          scanRecords.deletedAt.isNull() & healthResults.eligible.equals(true),
-        );
-
-    return query.watch().map((rows) {
-      final results = rows.map((row) => row.readTable(healthResults)).toList();
-      if (results.isEmpty) return <HealthClassBar>[];
-
-      final totalEligible = results.length;
-      final Map<String, int> counts = {};
-
-      for (final r in results) {
-        final name = r.className?.trim();
-        if (name != null && name.isNotEmpty) {
-          counts[name] = (counts[name] ?? 0) + 1;
-        }
-      }
-
-      return counts.entries.map((entry) {
-        final percentage = (entry.value / totalEligible) * 100.0;
-        return HealthClassBar(className: entry.key, percentage: percentage);
-      }).toList();
-    });
   }
 
   Future<LocalScanBundle?> loadScanBundle(String scanId) async {

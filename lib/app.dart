@@ -32,7 +32,7 @@ class _AppState extends State<App> {
     return DatabaseScope(
       database: _database,
       child: AnalyticsScope(
-        repository: DriftAnalyticsRepository(_database),
+        repository: DriftAnalyticsRepository(_database.analyticsDao),
         child: MaterialApp.router(
           title: 'INSTAHAM',
           theme: AppTheme.light,
