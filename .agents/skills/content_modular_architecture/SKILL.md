@@ -51,7 +51,9 @@ lib/
     ├── health_assessment/        # Health classification + uncertainty handling
     ├── segmentation/             # YOLO mask extraction + eligibility checks
     ├── weight_estimation/        # Reference UI, feature extraction, XGBoost
-    └── results/                  # Combined results display
+    ├── results/                  # Combined results display
+    ├── analytics/                # Historical charts, graphs, and aggregate statistics
+    └── records/                  # Saved past scans and local device history
 ```
 
 ---
@@ -130,6 +132,16 @@ features/<feature>/
 - Displays the combined `PipelineResultEntity`.
 - Shows weight (if eligible) and health classification.
 - Handles all blocked, uncertain, and retake states with specific messages.
+
+### `analytics/`
+- Handles querying historical health and weight trends.
+- Encapsulates queries in `AnalyticsDao` to isolate from `AppDatabase`.
+- Renders `fl_chart` driven UI with independent Weight and Health tabs.
+
+### `records/`
+- Manages the local device history of past scans.
+- Encapsulates queries in `RecordsDao` and shares core `LocalScanBundle` models.
+- Provides list filtering (All, Completed, Needs Review).
 
 ---
 
