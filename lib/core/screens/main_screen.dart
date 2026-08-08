@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../database/app_database.dart';
 import '../database/database_scope.dart';
 import '../models/scan_flow.dart';
+import '../models/scan_with_pig.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../theme/app_theme.dart';
@@ -38,22 +38,24 @@ class MainScreen extends StatelessWidget {
           ],
         ),
       ),
-      child: StreamBuilder<List<ScanRecord>>(
-        stream: DatabaseScope.of(context).recordsDao.watchRecentScans(limit: 20),
+      child: StreamBuilder<List<ScanWithPig>>(
+        stream: DatabaseScope.of(
+          context,
+        ).recordsDao.watchRecentScans(limit: 20),
         builder: (context, snapshot) {
-          final scans = snapshot.data ?? const <ScanRecord>[];
+          final items = snapshot.data ?? const <ScanWithPig>[];
           final today = DateTime.now();
-          final scansToday = scans.where((scan) {
-            final date = scan.createdAt.toLocal();
+          final scansToday = items.where((item) {
+            final date = item.scan.createdAt.toLocal();
             return date.year == today.year &&
                 date.month == today.month &&
                 date.day == today.day;
           }).length;
-          final needsReview = scans
+          final needsReview = items
               .where(
-                (scan) =>
-                    scan.status == ScanStatuses.blocked ||
-                    scan.status == ScanStatuses.rejected,
+                (item) =>
+                    item.scan.status == ScanStatuses.blocked ||
+                    item.scan.status == ScanStatuses.rejected,
               )
               .length;
 
@@ -137,7 +139,7 @@ class MainScreen extends StatelessWidget {
                   padding: EdgeInsets.all(24),
                   child: Center(child: CircularProgressIndicator()),
                 )
-              else if (scans.isEmpty)
+              else if (items.isEmpty)
                 AppCard(
                   child: Column(
                     children: [
@@ -164,7 +166,7 @@ class MainScreen extends StatelessWidget {
                   ),
                 )
               else
-                ...scans.take(5).map((scan) => _RecentScanCard(scan: scan)),
+                ...items.take(5).map((item) => _RecentScanCard(item: item)),
             ],
           );
         },
@@ -174,12 +176,13 @@ class MainScreen extends StatelessWidget {
 }
 
 class _RecentScanCard extends StatelessWidget {
-  final ScanRecord scan;
+  final ScanWithPig item;
 
-  const _RecentScanCard({required this.scan});
+  const _RecentScanCard({required this.item});
 
   @override
   Widget build(BuildContext context) {
+    final scan = item.scan;
     final goal = scanGoalFromStorage(scan.goal);
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -214,9 +217,7 @@ class _RecentScanCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    scan.pigId == null
-                        ? 'Unassigned scan'
-                        : 'Pig ${scan.pigId}',
+                    item.displayPigName,
                     style: AppTextStyles.label.copyWith(
                       fontWeight: FontWeight.w700,
                     ),

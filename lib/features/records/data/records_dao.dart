@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 
 import '../../../../core/database/app_database.dart';
 import '../../../../core/models/local_scan_bundle.dart';
+import '../../../../core/models/scan_with_pig.dart';
 
 part 'records_dao.g.dart';
 
@@ -17,12 +18,23 @@ part 'records_dao.g.dart';
 class RecordsDao extends DatabaseAccessor<AppDatabase> with _$RecordsDaoMixin {
   RecordsDao(super.db);
 
-  Stream<List<ScanRecord>> watchRecentScans({int limit = 100}) {
-    final query = select(db.scanRecords)
-      ..where((row) => row.deletedAt.isNull())
-      ..orderBy([(row) => OrderingTerm.desc(row.updatedAt)])
-      ..limit(limit);
-    return query.watch();
+  Stream<List<ScanWithPig>> watchRecentScans({int limit = 100}) {
+    final query =
+        select(db.scanRecords).join([
+            leftOuterJoin(db.pigs, db.pigs.id.equalsExp(db.scanRecords.pigId)),
+          ])
+          ..where(db.scanRecords.deletedAt.isNull())
+          ..orderBy([OrderingTerm.desc(db.scanRecords.updatedAt)])
+          ..limit(limit);
+
+    return query.watch().map((rows) {
+      return rows.map((row) {
+        return ScanWithPig(
+          scan: row.readTable(db.scanRecords),
+          pig: row.readTableOrNull(db.pigs),
+        );
+      }).toList();
+    });
   }
 
   Future<LocalScanBundle?> loadScanBundle(String scanId) async {

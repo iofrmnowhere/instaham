@@ -422,48 +422,116 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<String> insertSampleRecord() async {
-    final scanId = await createDraftScan(goal: ScanGoal.weightAndHealth);
+    final isWeightAndHealth = _random.nextDouble() < 0.7;
+    final goal = isWeightAndHealth
+        ? ScanGoal.weightAndHealth
+        : ScanGoal.healthOnly;
+
+    final scanId = await createDraftScan(goal: goal);
     await markCaptured(scanId, imagePath: null);
-    await saveReferenceAnnotation(
-      scanId: scanId,
-      reference: ReferenceSelection.meterStick,
-      startX: 0.1,
-      startY: 0.25,
-      endX: 0.9,
-      endY: 0.25,
-      pixelLength: 800,
-      cmPerPixel: 0.125,
-      source: 'manual',
-      detectorConfidence: 0.95,
-      sameFloorPlaneConfirmed: true,
+
+    final isWeightEligible = isWeightAndHealth && _random.nextDouble() >= 0.2;
+
+    if (isWeightAndHealth) {
+      final isMeterStick = _random.nextBool();
+      final reference = isMeterStick
+          ? ReferenceSelection.meterStick
+          : ReferenceSelection.poracStick;
+      final pixelLength = 600.0 + _random.nextInt(401);
+      final cmPerPixel = reference.lengthCm / pixelLength;
+
+      await saveReferenceAnnotation(
+        scanId: scanId,
+        reference: reference,
+        startX: 0.1,
+        startY: 0.25,
+        endX: 0.9,
+        endY: 0.25,
+        pixelLength: pixelLength,
+        cmPerPixel: cmPerPixel,
+        source: 'manual',
+        detectorConfidence: 0.95,
+        sameFloorPlaneConfirmed: true,
+      );
+
+      if (isWeightEligible) {
+        final valueKg = double.parse(
+          (40.0 + _random.nextDouble() * 90.0).toStringAsFixed(1),
+        );
+        final ra = double.parse(
+          (0.15 + _random.nextDouble() * 0.45).toStringAsFixed(2),
+        );
+        final lc = double.parse(
+          (0.80 + _random.nextDouble() * 0.70).toStringAsFixed(2),
+        );
+        final bl = double.parse(
+          (0.50 + _random.nextDouble() * 0.60).toStringAsFixed(2),
+        );
+        final bw = double.parse(
+          (0.25 + _random.nextDouble() * 0.35).toStringAsFixed(2),
+        );
+        final e = double.parse(
+          (0.60 + _random.nextDouble() * 0.35).toStringAsFixed(2),
+        );
+
+        await saveWeightResult(
+          scanId: scanId,
+          eligible: true,
+          valueKg: valueKg,
+          referenceLengthCm: reference.lengthCm,
+          referencePixelLength: pixelLength,
+          cmPerPixel: cmPerPixel,
+          ra: ra,
+          lc: lc,
+          bl: bl,
+          bw: bw,
+          e: e,
+          modelVersion: 'xgb-weight-v1',
+        );
+      } else {
+        await saveWeightResult(
+          scanId: scanId,
+          eligible: false,
+          failureReason: 'Pig mask truncated at image border.',
+          modelVersion: 'xgb-weight-v1',
+        );
+      }
+    }
+
+    final healthClasses = [
+      'Healthy',
+      'Suspected ASF',
+      'Skin Lesion',
+      'Poor Body Condition',
+    ];
+    final className = healthClasses[_random.nextInt(healthClasses.length)];
+    final confidence = double.parse(
+      (0.55 + _random.nextDouble() * 0.43).toStringAsFixed(2),
     );
-    await saveWeightResult(
-      scanId: scanId,
-      eligible: true,
-      valueKg: 85.5,
-      referenceLengthCm: 100.0,
-      referencePixelLength: 800.0,
-      cmPerPixel: 0.125,
-      ra: 0.45,
-      lc: 1.10,
-      bl: 0.85,
-      bw: 0.42,
-      e: 0.78,
-      modelVersion: 'xgb-weight-v1',
-    );
+    final uncertain = confidence < 0.70;
+
     await saveHealthResult(
       scanId: scanId,
       eligible: true,
-      className: 'Healthy',
-      confidence: 0.94,
+      className: className,
+      confidence: confidence,
+      uncertain: uncertain,
       modelVersion: 'mobilenet-health-v1',
     );
+
+    final tagNum = 100 + _random.nextInt(900);
+    final tag = 'TAG-$tagNum';
     await assignPig(
       scanId: scanId,
-      tag: 'TAG-101',
-      displayName: 'Sample Pig #101',
+      tag: tag,
+      displayName: 'Sample Pig #$tagNum',
     );
-    await updateScanStatus(scanId, ScanStatuses.completed);
+
+    final finalStatus = (!isWeightAndHealth || isWeightEligible)
+        ? ScanStatuses.completed
+        : ScanStatuses.blocked;
+
+    await updateScanStatus(scanId, finalStatus);
     return scanId;
   }
 

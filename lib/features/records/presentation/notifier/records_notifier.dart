@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 
-import '../../../../core/database/app_database.dart';
+import '../../../../core/models/scan_with_pig.dart';
 import '../../domain/repositories/i_records_repository.dart';
 
 class RecordsState {
-  final List<ScanRecord> records;
+  final List<ScanWithPig> records;
   final bool isLoading;
   final String? error;
 
@@ -21,7 +21,7 @@ class RecordsState {
 
 class RecordsNotifier extends ChangeNotifier {
   final IRecordsRepository _repository;
-  StreamSubscription<List<ScanRecord>>? _subscription;
+  StreamSubscription<List<ScanWithPig>>? _subscription;
 
   RecordsState _state = RecordsState.loading();
   RecordsState get state => _state;

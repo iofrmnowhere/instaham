@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../../core/database/app_database.dart';
 import '../../../../core/database/database_scope.dart';
 import '../../../../core/models/scan_flow.dart';
+import '../../../../core/models/scan_with_pig.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/theme/app_theme.dart';
@@ -97,7 +97,8 @@ class _RecordsScreenState extends State<RecordsScreen> {
             return AppErrorState(message: state.error!);
           }
 
-          final records = state.records.where((record) {
+          final records = state.records.where((item) {
+            final record = item.scan;
             if (_filter == 'review') {
               return record.status == ScanStatuses.blocked ||
                   record.status == ScanStatuses.rejected;
@@ -133,7 +134,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
                         itemCount: records.length,
                         separatorBuilder: (_, _) => const SizedBox(height: 8),
                         itemBuilder: (context, index) =>
-                            _RecordCard(record: records[index]),
+                            _RecordCard(item: records[index]),
                       ),
               ),
             ],
@@ -145,12 +146,13 @@ class _RecordsScreenState extends State<RecordsScreen> {
 }
 
 class _RecordCard extends StatelessWidget {
-  final ScanRecord record;
+  final ScanWithPig item;
 
-  const _RecordCard({required this.record});
+  const _RecordCard({required this.item});
 
   @override
   Widget build(BuildContext context) {
+    final record = item.scan;
     final goal = scanGoalFromStorage(record.goal);
     return AppCard(
       onTap: () => context.push(
@@ -183,9 +185,7 @@ class _RecordCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  record.pigId == null
-                      ? 'Unassigned scan'
-                      : 'Pig ${record.pigId}',
+                  item.displayPigName,
                   style: AppTextStyles.label.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
