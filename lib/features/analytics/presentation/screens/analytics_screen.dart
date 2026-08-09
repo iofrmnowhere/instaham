@@ -113,52 +113,64 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
             child: Row(
               children: [
-                DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _selectedTab,
-                    icon: const Icon(Icons.arrow_drop_down),
-                    style: AppTextStyles.label.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.foreground,
-                      fontSize: 16,
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12.0,
+                    vertical: 6.0,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.card,
+                    borderRadius: BorderRadius.circular(20.0),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      isDense: true,
+                      value: _selectedTab,
+                      icon: const Icon(Icons.arrow_drop_down),
+                      style: AppTextStyles.label.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.foreground,
+                        fontSize: 15,
+                      ),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() => _selectedTab = value);
+                        }
+                      },
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'overview',
+                          child: Row(
+                            children: [
+                              Icon(Icons.analytics_outlined, size: 18),
+                              SizedBox(width: 8),
+                              Text('Overview'),
+                            ],
+                          ),
+                        ),
+                        DropdownMenuItem(
+                          value: 'weight',
+                          child: Row(
+                            children: [
+                              Icon(Icons.monitor_weight_outlined, size: 18),
+                              SizedBox(width: 8),
+                              Text('Weight Analytics'),
+                            ],
+                          ),
+                        ),
+                        DropdownMenuItem(
+                          value: 'health',
+                          child: Row(
+                            children: [
+                              Icon(Icons.health_and_safety_outlined, size: 18),
+                              SizedBox(width: 8),
+                              Text('Health Analytics'),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() => _selectedTab = value);
-                      }
-                    },
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'overview',
-                        child: Row(
-                          children: [
-                            Icon(Icons.analytics_outlined, size: 20),
-                            SizedBox(width: 8),
-                            Text('Overview'),
-                          ],
-                        ),
-                      ),
-                      DropdownMenuItem(
-                        value: 'weight',
-                        child: Row(
-                          children: [
-                            Icon(Icons.monitor_weight_outlined, size: 20),
-                            SizedBox(width: 8),
-                            Text('Weight Analytics'),
-                          ],
-                        ),
-                      ),
-                      DropdownMenuItem(
-                        value: 'health',
-                        child: Row(
-                          children: [
-                            Icon(Icons.health_and_safety_outlined, size: 20),
-                            SizedBox(width: 8),
-                            Text('Health Analytics'),
-                          ],
-                        ),
-                      ),
-                    ],
                   ),
                 ),
                 const Spacer(),
@@ -225,7 +237,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 20.0) +
+                const EdgeInsets.only(top: 10.0),
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(
