@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 
 import '../../../../core/database/app_database.dart';
 import '../../../../core/models/local_scan_bundle.dart';
+import '../../../../core/models/pig_suggestion.dart';
 import '../../../../core/models/scan_with_pig.dart';
 
 part 'records_dao.g.dart';
@@ -65,5 +66,26 @@ class RecordsDao extends DatabaseAccessor<AppDatabase> with _$RecordsDaoMixin {
       weight: weight,
       health: health,
     );
+  }
+
+  Stream<List<PigSuggestion>> watchPigSuggestions(String query) {
+    final trimmed = query.trim().toLowerCase();
+    final selectQuery = select(db.pigs)..where((p) => p.deletedAt.isNull());
+    return selectQuery.watch().map((rows) {
+      return rows
+          .map((p) {
+            final name = p.displayName?.trim() ?? '';
+            final tag = p.tag?.trim() ?? '';
+            final label = name.isNotEmpty
+                ? name
+                : (tag.isNotEmpty ? tag : 'Pig ${p.id}');
+            return PigSuggestion(id: p.id, displayLabel: label);
+          })
+          .where((suggestion) {
+            if (trimmed.isEmpty) return true;
+            return suggestion.displayLabel.toLowerCase().contains(trimmed);
+          })
+          .toList();
+    });
   }
 }

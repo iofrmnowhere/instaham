@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/database/database_scope.dart';
+import '../../../../core/models/pig_suggestion.dart';
 import '../../../../core/models/scan_flow.dart';
 import '../../../../core/models/scan_with_pig.dart';
 import '../../../../core/theme/app_colors.dart';
@@ -14,6 +15,8 @@ import '../../domain/repositories/i_records_repository.dart';
 import '../notifier/records_notifier.dart';
 import '../records_scope.dart';
 
+enum _RecordsDateFilter { allTime, thisMonth, thisWeek }
+
 class RecordsScreen extends StatefulWidget {
   const RecordsScreen({super.key});
 
@@ -25,6 +28,11 @@ class _RecordsScreenState extends State<RecordsScreen> {
   IRecordsRepository? _currentRepository;
   RecordsNotifier? _notifier;
   String _filter = 'all';
+  _RecordsDateFilter _dateFilter = _RecordsDateFilter.allTime;
+  bool _searchOpen = false;
+  String _searchQuery = '';
+  String? _selectedPigId;
+  String? _selectedPigLabel;
 
   @override
   void didChangeDependencies() {
@@ -41,6 +49,45 @@ class _RecordsScreenState extends State<RecordsScreen> {
   void dispose() {
     _notifier?.dispose();
     super.dispose();
+  }
+
+  void _cycleDateFilter() {
+    setState(() {
+      switch (_dateFilter) {
+        case _RecordsDateFilter.allTime:
+          _dateFilter = _RecordsDateFilter.thisMonth;
+          break;
+        case _RecordsDateFilter.thisMonth:
+          _dateFilter = _RecordsDateFilter.thisWeek;
+          break;
+        case _RecordsDateFilter.thisWeek:
+          _dateFilter = _RecordsDateFilter.allTime;
+          break;
+      }
+    });
+  }
+
+  String get _dateFilterLabel {
+    switch (_dateFilter) {
+      case _RecordsDateFilter.allTime:
+        return 'All Time';
+      case _RecordsDateFilter.thisMonth:
+        return 'Last 30 Days';
+      case _RecordsDateFilter.thisWeek:
+        return 'Last 7 Days';
+    }
+  }
+
+  String get _statusFilterLabel {
+    switch (_filter) {
+      case 'complete':
+        return 'Completed';
+      case 'review':
+        return 'Needs Review';
+      case 'all':
+      default:
+        return 'All Statuses';
+    }
   }
 
   @override
@@ -84,62 +131,316 @@ class _RecordsScreenState extends State<RecordsScreen> {
           ],
         ),
       ),
-      child: ListenableBuilder(
-        listenable: _notifier!,
-        builder: (context, _) {
-          final state = _notifier!.state;
-
-          if (state.isLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (state.error != null) {
-            return AppErrorState(message: state.error!);
-          }
-
-          final records = state.records.where((item) {
-            final record = item.scan;
-            if (_filter == 'review') {
-              return record.status == ScanStatuses.blocked ||
-                  record.status == ScanStatuses.rejected;
-            }
-            if (_filter == 'complete') {
-              return record.status == ScanStatuses.completed;
-            }
-            return true;
-          }).toList();
-
-          return Column(
-            children: [
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: SegmentedButton<String>(
-                  segments: const [
-                    ButtonSegment(value: 'all', label: Text('All')),
-                    ButtonSegment(value: 'complete', label: Text('Completed')),
-                    ButtonSegment(value: 'review', label: Text('Needs review')),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12.0,
+                    vertical: 6.0,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.card,
+                    borderRadius: BorderRadius.circular(20.0),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      isDense: true,
+                      value: _filter,
+                      icon: const Icon(Icons.arrow_drop_down),
+                      style: AppTextStyles.label.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.foreground,
+                        fontSize: 15,
+                      ),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() => _filter = value);
+                        }
+                      },
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'all',
+                          child: Row(
+                            children: [
+                              Icon(Icons.inventory_2_outlined, size: 18),
+                              SizedBox(width: 8),
+                              Text('All Records'),
+                            ],
+                          ),
+                        ),
+                        DropdownMenuItem(
+                          value: 'complete',
+                          child: Row(
+                            children: [
+                              Icon(Icons.check_circle_outline, size: 18),
+                              SizedBox(width: 8),
+                              Text('Completed'),
+                            ],
+                          ),
+                        ),
+                        DropdownMenuItem(
+                          value: 'review',
+                          child: Row(
+                            children: [
+                              Icon(Icons.warning_amber_outlined, size: 18),
+                              SizedBox(width: 8),
+                              Text('Needs Review'),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                Stack(
+                  alignment: Alignment.topRight,
+                  children: [
+                    IconButton(
+                      tooltip: 'Filter: $_dateFilterLabel',
+                      icon: Icon(
+                        Icons.filter_list,
+                        color: _dateFilter != _RecordsDateFilter.allTime
+                            ? AppColors.signalPink
+                            : AppColors.foreground,
+                      ),
+                      onPressed: _cycleDateFilter,
+                    ),
+                    if (_dateFilter != _RecordsDateFilter.allTime)
+                      Positioned(
+                        right: 8,
+                        top: 8,
+                        child: Container(
+                          width: 8,
+                          height: 8,
+                          decoration: const BoxDecoration(
+                            color: AppColors.signalPink,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ),
                   ],
-                  selected: {_filter},
-                  onSelectionChanged: (value) =>
-                      setState(() => _filter = value.first),
+                ),
+                IconButton(
+                  tooltip: _selectedPigId != null
+                      ? 'Pig: $_selectedPigLabel (tap to clear)'
+                      : 'Search pig',
+                  icon: Icon(
+                    _selectedPigId != null
+                        ? Icons.person
+                        : (_searchOpen ? Icons.close : Icons.search),
+                    color: _selectedPigId != null
+                        ? AppColors.signalPink
+                        : AppColors.foreground,
+                  ),
+                  onPressed: () {
+                    if (_selectedPigId != null) {
+                      setState(() {
+                        _selectedPigId = null;
+                        _selectedPigLabel = null;
+                        _searchOpen = false;
+                        _searchQuery = '';
+                      });
+                    } else {
+                      setState(() {
+                        _searchOpen = !_searchOpen;
+                        if (!_searchOpen) {
+                          _searchQuery = '';
+                        }
+                      });
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 20.0) +
+                const EdgeInsets.only(top: 10.0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Showing $_dateFilterLabel • $_statusFilterLabel${_selectedPigLabel != null ? ' • Pig: $_selectedPigLabel' : ''}',
+                style: AppTextStyles.subtext.copyWith(
+                  color: AppColors.mutedForeground,
+                  fontSize: 12,
                 ),
               ),
-              const SizedBox(height: 12),
-              Expanded(
-                child: records.isEmpty
-                    ? _EmptyRecords(filter: _filter)
+            ),
+          ),
+          if (_searchOpen)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16.0, 4.0, 16.0, 8.0),
+              child: Card(
+                elevation: 2,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      autofocus: true,
+                      decoration: InputDecoration(
+                        hintText: 'Search pig by display name...',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.clear),
+                          onPressed: () {
+                            setState(() {
+                              _searchQuery = '';
+                            });
+                          },
+                        ),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                      ),
+                      onChanged: (value) {
+                        setState(() {
+                          _searchQuery = value;
+                        });
+                      },
+                    ),
+                    const Divider(height: 1),
+                    StreamBuilder<List<PigSuggestion>>(
+                      stream: _currentRepository?.watchPigSuggestions(
+                        _searchQuery,
+                      ),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const Padding(
+                            padding: EdgeInsets.all(12.0),
+                            child: SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          );
+                        }
+                        final suggestions = snapshot.data ?? [];
+                        if (suggestions.isEmpty) {
+                          return ListTile(
+                            title: Text(
+                              'No matching pigs',
+                              style: AppTextStyles.subtext.copyWith(
+                                color: AppColors.mutedForeground,
+                              ),
+                            ),
+                            onTap: () {
+                              setState(() {
+                                _selectedPigId = 'non_existent_id';
+                                _selectedPigLabel = _searchQuery;
+                                _searchOpen = false;
+                              });
+                            },
+                          );
+                        }
+                        return Container(
+                          constraints: const BoxConstraints(maxHeight: 180),
+                          child: ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: suggestions.length,
+                            itemBuilder: (context, index) {
+                              final pig = suggestions[index];
+                              return ListTile(
+                                dense: true,
+                                title: Text(pig.displayLabel),
+                                onTap: () {
+                                  setState(() {
+                                    _selectedPigId = pig.id;
+                                    _selectedPigLabel = pig.displayLabel;
+                                    _searchOpen = false;
+                                  });
+                                },
+                              );
+                            },
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          const SizedBox(height: 8.0),
+          Expanded(
+            child: ListenableBuilder(
+              listenable: _notifier!,
+              builder: (context, _) {
+                final state = _notifier!.state;
+
+                if (state.isLoading) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                if (state.error != null) {
+                  return AppErrorState(message: state.error!);
+                }
+
+                final now = DateTime.now();
+                final records = state.records.where((item) {
+                  final record = item.scan;
+
+                  if (_filter == 'review') {
+                    if (record.status != ScanStatuses.blocked &&
+                        record.status != ScanStatuses.rejected) {
+                      return false;
+                    }
+                  } else if (_filter == 'complete') {
+                    if (record.status != ScanStatuses.completed) {
+                      return false;
+                    }
+                  }
+
+                  if (_dateFilter == _RecordsDateFilter.thisMonth) {
+                    final cutoff = now.subtract(const Duration(days: 30));
+                    if (record.updatedAt.isBefore(cutoff)) {
+                      return false;
+                    }
+                  } else if (_dateFilter == _RecordsDateFilter.thisWeek) {
+                    final cutoff = now.subtract(const Duration(days: 7));
+                    if (record.updatedAt.isBefore(cutoff)) {
+                      return false;
+                    }
+                  }
+
+                  if (_selectedPigId != null) {
+                    final matchesPig =
+                        item.pig?.id == _selectedPigId ||
+                        record.pigId == _selectedPigId;
+                    if (!matchesPig) {
+                      return false;
+                    }
+                  }
+
+                  return true;
+                }).toList();
+
+                final hasActiveFilters =
+                    _filter != 'all' ||
+                    _dateFilter != _RecordsDateFilter.allTime ||
+                    _selectedPigId != null;
+
+                return records.isEmpty
+                    ? _EmptyRecords(hasActiveFilters: hasActiveFilters)
                     : ListView.separated(
                         padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
                         itemCount: records.length,
                         separatorBuilder: (_, _) => const SizedBox(height: 8),
                         itemBuilder: (context, index) =>
                             _RecordCard(item: records[index]),
-                      ),
-              ),
-            ],
-          );
-        },
+                      );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -250,9 +551,9 @@ class _StatusPill extends StatelessWidget {
 }
 
 class _EmptyRecords extends StatelessWidget {
-  final String filter;
+  final bool hasActiveFilters;
 
-  const _EmptyRecords({required this.filter});
+  const _EmptyRecords({required this.hasActiveFilters});
 
   @override
   Widget build(BuildContext context) {
@@ -269,12 +570,12 @@ class _EmptyRecords extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              filter == 'all' ? 'No scans saved yet' : 'No matching records',
+              !hasActiveFilters ? 'No scans saved yet' : 'No matching records',
               style: AppTextStyles.headline.copyWith(fontSize: 19),
             ),
             const SizedBox(height: 6),
             Text(
-              filter == 'all'
+              !hasActiveFilters
                   ? 'New scans will appear here after capture.'
                   : 'Try a different filter to see more records.',
               textAlign: TextAlign.center,
@@ -282,7 +583,7 @@ class _EmptyRecords extends StatelessWidget {
                 color: AppColors.mutedForeground,
               ),
             ),
-            if (filter == 'all') ...[
+            if (!hasActiveFilters) ...[
               const SizedBox(height: 18),
               Wrap(
                 spacing: 8,

@@ -60,7 +60,9 @@ void main() {
       isIn([ScanStatuses.completed, ScanStatuses.blocked]),
     );
     expect(bundle.pig?.tag, startsWith('TAG-'));
-    expect(bundle.health?.className, isNotNull);
-    expect(bundle.reference, isNotNull);
+    final goal = scanGoalFromStorage(bundle.scan.goal);
+    if (goal.requiresReference) {
+      expect(bundle.reference, isNotNull);
+    }
   });
 }

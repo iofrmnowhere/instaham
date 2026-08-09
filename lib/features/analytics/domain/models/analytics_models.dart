@@ -1,3 +1,5 @@
+export '../../../../core/models/pig_suggestion.dart';
+
 class WeightAnalytics {
   final int totalScans;
   final int eligibleScans;
@@ -58,10 +60,3 @@ class HealthClassBar {
 }
 
 enum AnalyticsDateFilter { allTime, thisMonth, thisWeek }
-
-class PigSuggestion {
-  final String id;
-  final String displayLabel;
-
-  const PigSuggestion({required this.id, required this.displayLabel});
-}
