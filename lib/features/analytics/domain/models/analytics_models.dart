@@ -56,3 +56,12 @@ class HealthClassBar {
 
   const HealthClassBar({required this.className, required this.percentage});
 }
+
+enum AnalyticsDateFilter { allTime, thisMonth, thisWeek }
+
+class PigSuggestion {
+  final String id;
+  final String displayLabel;
+
+  const PigSuggestion({required this.id, required this.displayLabel});
+}

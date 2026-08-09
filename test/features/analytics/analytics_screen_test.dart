@@ -21,6 +21,13 @@ void main() {
         find.text('Track trends and patterns for weight and health'),
         findsOneWidget,
       );
+      expect(find.text('No analytics yet'), findsOneWidget);
+
+      await tester.tap(find.byType(DropdownButton<String>));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Weight Analytics').last);
+      await tester.pumpAndSettle();
       expect(find.text('No weight analytics yet'), findsOneWidget);
     },
   );

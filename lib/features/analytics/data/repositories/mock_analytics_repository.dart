@@ -3,16 +3,34 @@ import '../../domain/repositories/i_analytics_repository.dart';
 
 class MockAnalyticsRepository implements IAnalyticsRepository {
   @override
-  Stream<WeightAnalytics> watchWeightAnalytics() =>
-      Stream.value(WeightAnalytics.empty());
+  Stream<WeightAnalytics> watchWeightAnalytics({
+    DateTime? since,
+    String? pigId,
+  }) => Stream.value(WeightAnalytics.empty());
 
   @override
-  Stream<HealthAnalytics> watchHealthAnalytics() =>
-      Stream.value(HealthAnalytics.empty());
+  Stream<HealthAnalytics> watchHealthAnalytics({
+    DateTime? since,
+    String? pigId,
+  }) => Stream.value(HealthAnalytics.empty());
 
   @override
-  Stream<List<WeightDataPoint>> watchWeightTimeSeries() => Stream.value([]);
+  Stream<List<WeightDataPoint>> watchWeightTimeSeries({
+    DateTime? since,
+    String? pigId,
+  }) => Stream.value([]);
 
   @override
-  Stream<List<HealthClassBar>> watchHealthClassBars() => Stream.value([]);
+  Stream<List<HealthClassBar>> watchHealthClassBars({
+    DateTime? since,
+    String? pigId,
+  }) => Stream.value([]);
+
+  @override
+  Stream<int> watchTotalScanRecords({DateTime? since, String? pigId}) =>
+      Stream.value(0);
+
+  @override
+  Stream<List<PigSuggestion>> watchPigSuggestions(String query) =>
+      Stream.value([]);
 }

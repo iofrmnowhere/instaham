@@ -9,6 +9,8 @@ class AnalyticsState {
   final HealthAnalytics health;
   final List<WeightDataPoint> weightTimeSeries;
   final List<HealthClassBar> healthClassBars;
+  final int totalScanRecords;
+  final int filteredScanRecords;
   final bool isLoading;
   final String? error;
 
@@ -17,6 +19,8 @@ class AnalyticsState {
     required this.health,
     required this.weightTimeSeries,
     required this.healthClassBars,
+    this.totalScanRecords = 0,
+    this.filteredScanRecords = 0,
     this.isLoading = false,
     this.error,
   });
@@ -26,6 +30,8 @@ class AnalyticsState {
     health: HealthAnalytics.empty(),
     weightTimeSeries: const [],
     healthClassBars: const [],
+    totalScanRecords: 0,
+    filteredScanRecords: 0,
     isLoading: true,
     error: null,
   );
@@ -38,6 +44,11 @@ class AnalyticsNotifier extends ChangeNotifier {
   StreamSubscription<HealthAnalytics>? _healthSub;
   StreamSubscription<List<WeightDataPoint>>? _timeSeriesSub;
   StreamSubscription<List<HealthClassBar>>? _classBarsSub;
+  StreamSubscription<int>? _totalScansSub;
+  StreamSubscription<int>? _filteredScansSub;
+
+  AnalyticsDateFilter _dateFilter = AnalyticsDateFilter.allTime;
+  String? _pigId;
 
   AnalyticsState _state = AnalyticsState.loading();
   AnalyticsState get state => _state;
@@ -46,114 +57,228 @@ class AnalyticsNotifier extends ChangeNotifier {
     _initSubscriptions();
   }
 
-  void _initSubscriptions() {
-    _weightSub = _repository.watchWeightAnalytics().listen(
-      (weightData) {
-        _state = AnalyticsState(
-          weight: weightData,
-          health: _state.health,
-          weightTimeSeries: _state.weightTimeSeries,
-          healthClassBars: _state.healthClassBars,
-          isLoading: false,
-          error: null,
-        );
-        notifyListeners();
-      },
-      onError: (e) {
-        _state = AnalyticsState(
-          weight: _state.weight,
-          health: _state.health,
-          weightTimeSeries: _state.weightTimeSeries,
-          healthClassBars: _state.healthClassBars,
-          isLoading: false,
-          error: 'Failed to load weight analytics: $e',
-        );
-        notifyListeners();
-      },
-    );
-
-    _healthSub = _repository.watchHealthAnalytics().listen(
-      (healthData) {
-        _state = AnalyticsState(
-          weight: _state.weight,
-          health: healthData,
-          weightTimeSeries: _state.weightTimeSeries,
-          healthClassBars: _state.healthClassBars,
-          isLoading: false,
-          error: null,
-        );
-        notifyListeners();
-      },
-      onError: (e) {
-        _state = AnalyticsState(
-          weight: _state.weight,
-          health: _state.health,
-          weightTimeSeries: _state.weightTimeSeries,
-          healthClassBars: _state.healthClassBars,
-          isLoading: false,
-          error: 'Failed to load health analytics: $e',
-        );
-        notifyListeners();
-      },
-    );
-
-    _timeSeriesSub = _repository.watchWeightTimeSeries().listen(
-      (points) {
-        _state = AnalyticsState(
-          weight: _state.weight,
-          health: _state.health,
-          weightTimeSeries: points,
-          healthClassBars: _state.healthClassBars,
-          isLoading: false,
-          error: null,
-        );
-        notifyListeners();
-      },
-      onError: (e) {
-        _state = AnalyticsState(
-          weight: _state.weight,
-          health: _state.health,
-          weightTimeSeries: _state.weightTimeSeries,
-          healthClassBars: _state.healthClassBars,
-          isLoading: false,
-          error: 'Failed to load weight trends: $e',
-        );
-        notifyListeners();
-      },
-    );
-
-    _classBarsSub = _repository.watchHealthClassBars().listen(
-      (bars) {
-        _state = AnalyticsState(
-          weight: _state.weight,
-          health: _state.health,
-          weightTimeSeries: _state.weightTimeSeries,
-          healthClassBars: bars,
-          isLoading: false,
-          error: null,
-        );
-        notifyListeners();
-      },
-      onError: (e) {
-        _state = AnalyticsState(
-          weight: _state.weight,
-          health: _state.health,
-          weightTimeSeries: _state.weightTimeSeries,
-          healthClassBars: _state.healthClassBars,
-          isLoading: false,
-          error: 'Failed to load health breakdown: $e',
-        );
-        notifyListeners();
-      },
-    );
+  DateTime? _calculateSince(AnalyticsDateFilter dateFilter) {
+    final now = DateTime.now();
+    switch (dateFilter) {
+      case AnalyticsDateFilter.allTime:
+        return null;
+      case AnalyticsDateFilter.thisMonth:
+        return now.subtract(const Duration(days: 30));
+      case AnalyticsDateFilter.thisWeek:
+        return now.subtract(const Duration(days: 7));
+    }
   }
 
-  @override
-  void dispose() {
+  void setFilters({required AnalyticsDateFilter dateFilter, String? pigId}) {
+    _dateFilter = dateFilter;
+    _pigId = pigId;
+    _cancelSubscriptions();
+    _initSubscriptions();
+  }
+
+  void _cancelSubscriptions() {
     _weightSub?.cancel();
     _healthSub?.cancel();
     _timeSeriesSub?.cancel();
     _classBarsSub?.cancel();
+    _totalScansSub?.cancel();
+    _filteredScansSub?.cancel();
+  }
+
+  void _initSubscriptions() {
+    final since = _calculateSince(_dateFilter);
+    final pigId = _pigId;
+
+    _weightSub = _repository
+        .watchWeightAnalytics(since: since, pigId: pigId)
+        .listen(
+          (weightData) {
+            _state = AnalyticsState(
+              weight: weightData,
+              health: _state.health,
+              weightTimeSeries: _state.weightTimeSeries,
+              healthClassBars: _state.healthClassBars,
+              totalScanRecords: _state.totalScanRecords,
+              filteredScanRecords: _state.filteredScanRecords,
+              isLoading: false,
+              error: null,
+            );
+            notifyListeners();
+          },
+          onError: (e) {
+            _state = AnalyticsState(
+              weight: _state.weight,
+              health: _state.health,
+              weightTimeSeries: _state.weightTimeSeries,
+              healthClassBars: _state.healthClassBars,
+              totalScanRecords: _state.totalScanRecords,
+              filteredScanRecords: _state.filteredScanRecords,
+              isLoading: false,
+              error: 'Failed to load weight analytics: $e',
+            );
+            notifyListeners();
+          },
+        );
+
+    _healthSub = _repository
+        .watchHealthAnalytics(since: since, pigId: pigId)
+        .listen(
+          (healthData) {
+            _state = AnalyticsState(
+              weight: _state.weight,
+              health: healthData,
+              weightTimeSeries: _state.weightTimeSeries,
+              healthClassBars: _state.healthClassBars,
+              totalScanRecords: _state.totalScanRecords,
+              filteredScanRecords: _state.filteredScanRecords,
+              isLoading: false,
+              error: null,
+            );
+            notifyListeners();
+          },
+          onError: (e) {
+            _state = AnalyticsState(
+              weight: _state.weight,
+              health: _state.health,
+              weightTimeSeries: _state.weightTimeSeries,
+              healthClassBars: _state.healthClassBars,
+              totalScanRecords: _state.totalScanRecords,
+              filteredScanRecords: _state.filteredScanRecords,
+              isLoading: false,
+              error: 'Failed to load health analytics: $e',
+            );
+            notifyListeners();
+          },
+        );
+
+    _timeSeriesSub = _repository
+        .watchWeightTimeSeries(since: since, pigId: pigId)
+        .listen(
+          (points) {
+            _state = AnalyticsState(
+              weight: _state.weight,
+              health: _state.health,
+              weightTimeSeries: points,
+              healthClassBars: _state.healthClassBars,
+              totalScanRecords: _state.totalScanRecords,
+              filteredScanRecords: _state.filteredScanRecords,
+              isLoading: false,
+              error: null,
+            );
+            notifyListeners();
+          },
+          onError: (e) {
+            _state = AnalyticsState(
+              weight: _state.weight,
+              health: _state.health,
+              weightTimeSeries: _state.weightTimeSeries,
+              healthClassBars: _state.healthClassBars,
+              totalScanRecords: _state.totalScanRecords,
+              filteredScanRecords: _state.filteredScanRecords,
+              isLoading: false,
+              error: 'Failed to load weight trends: $e',
+            );
+            notifyListeners();
+          },
+        );
+
+    _classBarsSub = _repository
+        .watchHealthClassBars(since: since, pigId: pigId)
+        .listen(
+          (bars) {
+            _state = AnalyticsState(
+              weight: _state.weight,
+              health: _state.health,
+              weightTimeSeries: _state.weightTimeSeries,
+              healthClassBars: bars,
+              totalScanRecords: _state.totalScanRecords,
+              filteredScanRecords: _state.filteredScanRecords,
+              isLoading: false,
+              error: null,
+            );
+            notifyListeners();
+          },
+          onError: (e) {
+            _state = AnalyticsState(
+              weight: _state.weight,
+              health: _state.health,
+              weightTimeSeries: _state.weightTimeSeries,
+              healthClassBars: _state.healthClassBars,
+              totalScanRecords: _state.totalScanRecords,
+              filteredScanRecords: _state.filteredScanRecords,
+              isLoading: false,
+              error: 'Failed to load health breakdown: $e',
+            );
+            notifyListeners();
+          },
+        );
+
+    _totalScansSub = _repository
+        .watchTotalScanRecords(since: null, pigId: pigId)
+        .listen(
+          (count) {
+            _state = AnalyticsState(
+              weight: _state.weight,
+              health: _state.health,
+              weightTimeSeries: _state.weightTimeSeries,
+              healthClassBars: _state.healthClassBars,
+              totalScanRecords: count,
+              filteredScanRecords: _state.filteredScanRecords,
+              isLoading: false,
+              error: null,
+            );
+            notifyListeners();
+          },
+          onError: (e) {
+            _state = AnalyticsState(
+              weight: _state.weight,
+              health: _state.health,
+              weightTimeSeries: _state.weightTimeSeries,
+              healthClassBars: _state.healthClassBars,
+              totalScanRecords: _state.totalScanRecords,
+              filteredScanRecords: _state.filteredScanRecords,
+              isLoading: false,
+              error: 'Failed to load total scan records: $e',
+            );
+            notifyListeners();
+          },
+        );
+
+    _filteredScansSub = _repository
+        .watchTotalScanRecords(since: since, pigId: pigId)
+        .listen(
+          (count) {
+            _state = AnalyticsState(
+              weight: _state.weight,
+              health: _state.health,
+              weightTimeSeries: _state.weightTimeSeries,
+              healthClassBars: _state.healthClassBars,
+              totalScanRecords: _state.totalScanRecords,
+              filteredScanRecords: count,
+              isLoading: false,
+              error: null,
+            );
+            notifyListeners();
+          },
+          onError: (e) {
+            _state = AnalyticsState(
+              weight: _state.weight,
+              health: _state.health,
+              weightTimeSeries: _state.weightTimeSeries,
+              healthClassBars: _state.healthClassBars,
+              totalScanRecords: _state.totalScanRecords,
+              filteredScanRecords: _state.filteredScanRecords,
+              isLoading: false,
+              error: 'Failed to load filtered scan records: $e',
+            );
+            notifyListeners();
+          },
+        );
+  }
+
+  @override
+  void dispose() {
+    _cancelSubscriptions();
     super.dispose();
   }
 }

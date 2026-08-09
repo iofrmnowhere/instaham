@@ -4,10 +4,12 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/theme/widgets/app_error_state.dart';
 import '../../../../core/theme/widgets/app_scaffold.dart';
+import '../../domain/models/analytics_models.dart';
 import '../../domain/repositories/i_analytics_repository.dart';
 import '../analytics_scope.dart';
 import '../notifier/analytics_notifier.dart';
 import '../widgets/health_panel.dart';
+import '../widgets/overview_panel.dart';
 import '../widgets/weight_panel.dart';
 
 class AnalyticsScreen extends StatefulWidget {
@@ -20,7 +22,12 @@ class AnalyticsScreen extends StatefulWidget {
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
   IAnalyticsRepository? _currentRepository;
   AnalyticsNotifier? _notifier;
-  String _selectedTab = 'weight';
+  String _selectedTab = 'overview';
+  AnalyticsDateFilter _dateFilter = AnalyticsDateFilter.allTime;
+  bool _searchOpen = false;
+  String _searchQuery = '';
+  String? _selectedPigId;
+  String? _selectedPigLabel;
 
   @override
   void didChangeDependencies() {
@@ -30,6 +37,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       _currentRepository = repository;
       _notifier?.dispose();
       _notifier = AnalyticsNotifier(repository);
+      _applyFilters();
     }
   }
 
@@ -37,6 +45,38 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   void dispose() {
     _notifier?.dispose();
     super.dispose();
+  }
+
+  void _applyFilters() {
+    _notifier?.setFilters(dateFilter: _dateFilter, pigId: _selectedPigId);
+  }
+
+  void _cycleDateFilter() {
+    setState(() {
+      switch (_dateFilter) {
+        case AnalyticsDateFilter.allTime:
+          _dateFilter = AnalyticsDateFilter.thisMonth;
+          break;
+        case AnalyticsDateFilter.thisMonth:
+          _dateFilter = AnalyticsDateFilter.thisWeek;
+          break;
+        case AnalyticsDateFilter.thisWeek:
+          _dateFilter = AnalyticsDateFilter.allTime;
+          break;
+      }
+    });
+    _applyFilters();
+  }
+
+  String get _dateFilterLabel {
+    switch (_dateFilter) {
+      case AnalyticsDateFilter.allTime:
+        return 'All Time';
+      case AnalyticsDateFilter.thisMonth:
+        return 'Last 30 Days';
+      case AnalyticsDateFilter.thisWeek:
+        return 'Last 7 Days';
+    }
   }
 
   @override
@@ -71,29 +111,231 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: SizedBox(
-              width: double.infinity,
-              child: SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment<String>(
-                    value: 'weight',
-                    label: Text('Weight Analytics'),
-                    icon: Icon(Icons.monitor_weight_outlined),
+            child: Row(
+              children: [
+                DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _selectedTab,
+                    icon: const Icon(Icons.arrow_drop_down),
+                    style: AppTextStyles.label.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.foreground,
+                      fontSize: 16,
+                    ),
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() => _selectedTab = value);
+                      }
+                    },
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'overview',
+                        child: Row(
+                          children: [
+                            Icon(Icons.analytics_outlined, size: 20),
+                            SizedBox(width: 8),
+                            Text('Overview'),
+                          ],
+                        ),
+                      ),
+                      DropdownMenuItem(
+                        value: 'weight',
+                        child: Row(
+                          children: [
+                            Icon(Icons.monitor_weight_outlined, size: 20),
+                            SizedBox(width: 8),
+                            Text('Weight Analytics'),
+                          ],
+                        ),
+                      ),
+                      DropdownMenuItem(
+                        value: 'health',
+                        child: Row(
+                          children: [
+                            Icon(Icons.health_and_safety_outlined, size: 20),
+                            SizedBox(width: 8),
+                            Text('Health Analytics'),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  ButtonSegment<String>(
-                    value: 'health',
-                    label: Text('Health Analytics'),
-                    icon: Icon(Icons.health_and_safety_outlined),
+                ),
+                const Spacer(),
+                Stack(
+                  alignment: Alignment.topRight,
+                  children: [
+                    IconButton(
+                      tooltip: 'Filter: $_dateFilterLabel',
+                      icon: Icon(
+                        Icons.filter_list,
+                        color: _dateFilter != AnalyticsDateFilter.allTime
+                            ? AppColors.signalPink
+                            : AppColors.foreground,
+                      ),
+                      onPressed: _cycleDateFilter,
+                    ),
+                    if (_dateFilter != AnalyticsDateFilter.allTime)
+                      Positioned(
+                        right: 8,
+                        top: 8,
+                        child: Container(
+                          width: 8,
+                          height: 8,
+                          decoration: const BoxDecoration(
+                            color: AppColors.signalPink,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                IconButton(
+                  tooltip: _selectedPigId != null
+                      ? 'Pig: $_selectedPigLabel (tap to clear)'
+                      : 'Search pig',
+                  icon: Icon(
+                    _selectedPigId != null
+                        ? Icons.person
+                        : (_searchOpen ? Icons.close : Icons.search),
+                    color: _selectedPigId != null
+                        ? AppColors.signalPink
+                        : AppColors.foreground,
                   ),
-                ],
-                selected: {_selectedTab},
-                onSelectionChanged: (selection) {
-                  setState(() => _selectedTab = selection.first);
-                },
+                  onPressed: () {
+                    if (_selectedPigId != null) {
+                      setState(() {
+                        _selectedPigId = null;
+                        _selectedPigLabel = null;
+                        _searchOpen = false;
+                        _searchQuery = '';
+                      });
+                      _applyFilters();
+                    } else {
+                      setState(() {
+                        _searchOpen = !_searchOpen;
+                        if (!_searchOpen) {
+                          _searchQuery = '';
+                        }
+                      });
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Showing $_dateFilterLabel${_selectedPigLabel != null ? ' • Pig: $_selectedPigLabel' : ''}',
+                style: AppTextStyles.subtext.copyWith(
+                  color: AppColors.mutedForeground,
+                  fontSize: 12,
+                ),
               ),
             ),
           ),
-          const SizedBox(height: 16.0),
+
+          if (_searchOpen)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16.0, 4.0, 16.0, 8.0),
+              child: Card(
+                elevation: 2,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      autofocus: true,
+                      decoration: InputDecoration(
+                        hintText: 'Search pig by display name...',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.clear),
+                          onPressed: () {
+                            setState(() {
+                              _searchQuery = '';
+                            });
+                          },
+                        ),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                      ),
+                      onChanged: (value) {
+                        setState(() {
+                          _searchQuery = value;
+                        });
+                      },
+                    ),
+                    const Divider(height: 1),
+                    StreamBuilder<List<PigSuggestion>>(
+                      stream: _currentRepository?.watchPigSuggestions(
+                        _searchQuery,
+                      ),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const Padding(
+                            padding: EdgeInsets.all(12.0),
+                            child: SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          );
+                        }
+                        final suggestions = snapshot.data ?? [];
+                        if (suggestions.isEmpty) {
+                          return ListTile(
+                            title: Text(
+                              'No matching pigs',
+                              style: AppTextStyles.subtext.copyWith(
+                                color: AppColors.mutedForeground,
+                              ),
+                            ),
+                            onTap: () {
+                              setState(() {
+                                _selectedPigId = 'non_existent_id';
+                                _selectedPigLabel = _searchQuery;
+                                _searchOpen = false;
+                              });
+                              _applyFilters();
+                            },
+                          );
+                        }
+                        return Container(
+                          constraints: const BoxConstraints(maxHeight: 180),
+                          child: ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: suggestions.length,
+                            itemBuilder: (context, index) {
+                              final pig = suggestions[index];
+                              return ListTile(
+                                dense: true,
+                                title: Text(pig.displayLabel),
+                                onTap: () {
+                                  setState(() {
+                                    _selectedPigId = pig.id;
+                                    _selectedPigLabel = pig.displayLabel;
+                                    _searchOpen = false;
+                                  });
+                                  _applyFilters();
+                                },
+                              );
+                            },
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          const SizedBox(height: 8.0),
           Expanded(
             child: ListenableBuilder(
               listenable: _notifier!,
@@ -108,17 +350,32 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   return AppErrorState(message: state.error!);
                 }
 
+                Widget panel;
+                if (_selectedTab == 'overview') {
+                  panel = OverviewPanel(
+                    totalScanRecords: state.totalScanRecords,
+                    filteredScanRecords: state.filteredScanRecords,
+                    dateFilter: _dateFilter,
+                    weightData: state.weight,
+                    healthData: state.health,
+                    weightTimeSeries: state.weightTimeSeries,
+                    healthClassBars: state.healthClassBars,
+                  );
+                } else if (_selectedTab == 'weight') {
+                  panel = WeightPanel(
+                    data: state.weight,
+                    timeSeries: state.weightTimeSeries,
+                  );
+                } else {
+                  panel = HealthPanel(
+                    data: state.health,
+                    classBars: state.healthClassBars,
+                  );
+                }
+
                 return SingleChildScrollView(
                   padding: const EdgeInsets.fromLTRB(16.0, 0, 16.0, 24.0),
-                  child: _selectedTab == 'weight'
-                      ? WeightPanel(
-                          data: state.weight,
-                          timeSeries: state.weightTimeSeries,
-                        )
-                      : HealthPanel(
-                          data: state.health,
-                          classBars: state.healthClassBars,
-                        ),
+                  child: panel,
                 );
               },
             ),

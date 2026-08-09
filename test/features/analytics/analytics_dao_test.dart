@@ -102,4 +102,20 @@ void main() {
       expect(stats.classCounts['Sick'], 1);
     },
   );
+
+  test(
+    'watchTotalScanRecords counts active non-deleted scan records',
+    () async {
+      await database.createDraftScan(goal: ScanGoal.weightAndHealth);
+      await database.createDraftScan(goal: ScanGoal.weightAndHealth);
+
+      final s3 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
+      await (database.update(database.scanRecords)
+            ..where((row) => row.id.equals(s3)))
+          .write(ScanRecordsCompanion(deletedAt: Value(DateTime.now())));
+
+      final count = await dao.watchTotalScanRecords().first;
+      expect(count, 2);
+    },
+  );
 }

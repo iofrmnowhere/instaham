@@ -8,16 +8,34 @@ class DriftAnalyticsRepository implements IAnalyticsRepository {
   DriftAnalyticsRepository(this._dao);
 
   @override
-  Stream<WeightAnalytics> watchWeightAnalytics() => _dao.watchWeightAnalytics();
+  Stream<WeightAnalytics> watchWeightAnalytics({
+    DateTime? since,
+    String? pigId,
+  }) => _dao.watchWeightAnalytics(since: since, pigId: pigId);
 
   @override
-  Stream<HealthAnalytics> watchHealthAnalytics() => _dao.watchHealthAnalytics();
+  Stream<HealthAnalytics> watchHealthAnalytics({
+    DateTime? since,
+    String? pigId,
+  }) => _dao.watchHealthAnalytics(since: since, pigId: pigId);
 
   @override
-  Stream<List<WeightDataPoint>> watchWeightTimeSeries() =>
-      _dao.watchWeightTimeSeries();
+  Stream<List<WeightDataPoint>> watchWeightTimeSeries({
+    DateTime? since,
+    String? pigId,
+  }) => _dao.watchWeightTimeSeries(since: since, pigId: pigId);
 
   @override
-  Stream<List<HealthClassBar>> watchHealthClassBars() =>
-      _dao.watchHealthClassBars();
+  Stream<List<HealthClassBar>> watchHealthClassBars({
+    DateTime? since,
+    String? pigId,
+  }) => _dao.watchHealthClassBars(since: since, pigId: pigId);
+
+  @override
+  Stream<int> watchTotalScanRecords({DateTime? since, String? pigId}) =>
+      _dao.watchTotalScanRecords(since: since, pigId: pigId);
+
+  @override
+  Stream<List<PigSuggestion>> watchPigSuggestions(String query) =>
+      _dao.watchPigSuggestions(query);
 }
