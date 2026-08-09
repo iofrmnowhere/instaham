@@ -71,6 +71,13 @@ enum ResultStatus { success, uncertain, blocked }
 | `/privacy` | `PrivacyScreen` | `core/` |
 | Legacy result-state routes | Redirect to `/records` | states render inside `ResultsScreen` |
 
+### Screen Deviations from Next.js UI Reference
+
+- **Analytics Screen (`/analytics`)**:
+  - Uses a left-aligned `DropdownButton` for tab selection (Overview, Weight, Health) instead of a `SegmentedButton` to save horizontal space for filters.
+  - Includes a cyclical date Filter button (All Time, Last 30 Days, Last 7 Days) and a Pig Search toggle button in the top right toolbar.
+  - The `OverviewPanel` uses a 2x2 grid of `StatCard` widgets (Total Scans, Filtered Scans, Avg Weight, Not Healthy) to maintain consistency with the Weight and Health panels.
+
 ## Widget Mapping
 
 | Next.js Component | Flutter Widget | Location |
