@@ -287,6 +287,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     ),
                     const Divider(height: 1),
                     StreamBuilder<List<PigSuggestion>>(
+                      key: ValueKey(_searchQuery),
                       stream: _currentRepository?.watchPigSuggestions(
                         _searchQuery,
                       ),

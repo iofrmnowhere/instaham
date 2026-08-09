@@ -57,25 +57,37 @@ class _ResultsScreenState extends State<ResultsScreen> {
   }
 
   Future<void> _assignPig(LocalScanBundle bundle) async {
-    final tagController = TextEditingController();
-    final nameController = TextEditingController();
+    final isEditing = bundle.pig != null;
+    final currentTag = bundle.pig?.tag ?? '';
+    final currentName = bundle.pig?.displayName ?? bundle.pig?.tag ?? '';
+
+    final tagController = TextEditingController(text: currentTag);
+    final nameController = TextEditingController(
+      text: isEditing ? currentName : '',
+    );
+
     final result = await showDialog<List<String>>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Assign this scan'),
+        title: Text(isEditing ? 'Change pig display name' : 'Assign this scan'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(
-              controller: tagController,
-              autofocus: true,
-              decoration: const InputDecoration(labelText: 'Pig tag or ID'),
-            ),
-            const SizedBox(height: 12),
+            if (!isEditing) ...[
+              TextField(
+                controller: tagController,
+                autofocus: true,
+                decoration: const InputDecoration(labelText: 'Pig tag or ID'),
+              ),
+              const SizedBox(height: 12),
+            ],
             TextField(
               controller: nameController,
-              decoration: const InputDecoration(
-                labelText: 'Display name (optional)',
+              autofocus: isEditing,
+              decoration: InputDecoration(
+                labelText: isEditing
+                    ? 'Display name'
+                    : 'Display name (optional)',
               ),
             ),
           ],
@@ -87,13 +99,14 @@ class _ResultsScreenState extends State<ResultsScreen> {
           ),
           FilledButton(
             onPressed: () {
-              if (tagController.text.trim().isEmpty) return;
+              final tag = tagController.text.trim();
+              if (tag.isEmpty && !isEditing) return;
               Navigator.pop(dialogContext, [
-                tagController.text.trim(),
+                isEditing ? currentTag : tag,
                 nameController.text.trim(),
               ]);
             },
-            child: const Text('Assign'),
+            child: Text(isEditing ? 'Save' : 'Assign'),
           ),
         ],
       ),

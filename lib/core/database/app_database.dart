@@ -328,13 +328,14 @@ class AppDatabase extends _$AppDatabase {
     )..where((row) => row.tag.equals(normalizedTag))).getSingleOrNull();
     final pigId = existing?.id ?? newLocalId('pig');
     final now = DateTime.now();
+    final resolvedName = displayName?.trim().isNotEmpty == true
+        ? displayName!.trim()
+        : normalizedTag;
     await into(pigs).insertOnConflictUpdate(
       PigsCompanion(
         id: Value(pigId),
         tag: Value(normalizedTag),
-        displayName: Value(
-          displayName?.trim().isEmpty == true ? null : displayName?.trim(),
-        ),
+        displayName: Value(resolvedName),
         createdAt: Value(existing?.createdAt ?? now),
         updatedAt: Value(now),
       ),
