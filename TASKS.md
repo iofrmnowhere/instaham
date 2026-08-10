@@ -13,7 +13,7 @@ A living document to track the implementation progress of the INSTAHAM Flutter a
 
 ## 🟡 In Progress / Next Up
 - [ ] **Camera Flow:** Implement `CaptureScreen` and `CaptureGuidanceScreen` with `camera` plugin.
-- [ ] **Capture Mode Selector:** Add persistent toggle for "Weight + Health" vs "Health Only" during capture.
+- [x] **Capture Mode Selector:** Add persistent toggle for "Reference Mode" vs "Height Mode" during capture.
 
 ## 🔴 To Do (ML Pipeline & Inference)
 - [ ] **Pipeline Orchestration:** Implement the `InferencePipeline` class to manage the sequence of models.

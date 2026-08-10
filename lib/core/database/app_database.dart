@@ -227,15 +227,6 @@ class AppDatabase extends _$AppDatabase {
     return id;
   }
 
-  Future<void> updateScanGoal(String scanId, ScanGoal goal) {
-    return (update(scanRecords)..where((row) => row.id.equals(scanId))).write(
-      ScanRecordsCompanion(
-        goal: Value(goal.storageValue),
-        updatedAt: Value(DateTime.now()),
-      ),
-    );
-  }
-
   Future<void> markCaptured(String scanId, {String? imagePath}) async {
     final now = DateTime.now();
     await (update(scanRecords)..where((row) => row.id.equals(scanId))).write(
@@ -423,80 +414,75 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<String> insertSampleRecord() async {
-    final isWeightAndHealth = _random.nextDouble() < 0.7;
-    final goal = isWeightAndHealth
-        ? ScanGoal.weightAndHealth
-        : ScanGoal.healthOnly;
+    const goal = ScanGoal.weightAndHealth;
 
     final scanId = await createDraftScan(goal: goal);
     await markCaptured(scanId, imagePath: null);
 
-    final isWeightEligible = isWeightAndHealth && _random.nextDouble() >= 0.2;
+    final isWeightEligible = _random.nextDouble() >= 0.2;
 
-    if (isWeightAndHealth) {
-      final isMeterStick = _random.nextBool();
-      final reference = isMeterStick
-          ? ReferenceSelection.meterStick
-          : ReferenceSelection.poracStick;
-      final pixelLength = 600.0 + _random.nextInt(401);
-      final cmPerPixel = reference.lengthCm / pixelLength;
+    final isMeterStick = _random.nextBool();
+    final reference = isMeterStick
+        ? ReferenceSelection.meterStick
+        : ReferenceSelection.poracStick;
+    final pixelLength = 600.0 + _random.nextInt(401);
+    final cmPerPixel = reference.lengthCm / pixelLength;
 
-      await saveReferenceAnnotation(
-        scanId: scanId,
-        reference: reference,
-        startX: 0.1,
-        startY: 0.25,
-        endX: 0.9,
-        endY: 0.25,
-        pixelLength: pixelLength,
-        cmPerPixel: cmPerPixel,
-        source: 'manual',
-        detectorConfidence: 0.95,
-        sameFloorPlaneConfirmed: true,
+    await saveReferenceAnnotation(
+      scanId: scanId,
+      reference: reference,
+      startX: 0.1,
+      startY: 0.25,
+      endX: 0.9,
+      endY: 0.25,
+      pixelLength: pixelLength,
+      cmPerPixel: cmPerPixel,
+      source: 'manual',
+      detectorConfidence: 0.95,
+      sameFloorPlaneConfirmed: true,
+    );
+
+    if (isWeightEligible) {
+      final valueKg = double.parse(
+        (40.0 + _random.nextDouble() * 90.0).toStringAsFixed(1),
+      );
+      final ra = double.parse(
+        (0.15 + _random.nextDouble() * 0.45).toStringAsFixed(2),
+      );
+      final lc = double.parse(
+        (0.80 + _random.nextDouble() * 0.70).toStringAsFixed(2),
+      );
+      final bl = double.parse(
+        (0.50 + _random.nextDouble() * 0.60).toStringAsFixed(2),
+      );
+      final bw = double.parse(
+        (0.25 + _random.nextDouble() * 0.35).toStringAsFixed(2),
+      );
+      final e = double.parse(
+        (0.60 + _random.nextDouble() * 0.35).toStringAsFixed(2),
       );
 
-      if (isWeightEligible) {
-        final valueKg = double.parse(
-          (40.0 + _random.nextDouble() * 90.0).toStringAsFixed(1),
-        );
-        final ra = double.parse(
-          (0.15 + _random.nextDouble() * 0.45).toStringAsFixed(2),
-        );
-        final lc = double.parse(
-          (0.80 + _random.nextDouble() * 0.70).toStringAsFixed(2),
-        );
-        final bl = double.parse(
-          (0.50 + _random.nextDouble() * 0.60).toStringAsFixed(2),
-        );
-        final bw = double.parse(
-          (0.25 + _random.nextDouble() * 0.35).toStringAsFixed(2),
-        );
-        final e = double.parse(
-          (0.60 + _random.nextDouble() * 0.35).toStringAsFixed(2),
-        );
-
-        await saveWeightResult(
-          scanId: scanId,
-          eligible: true,
-          valueKg: valueKg,
-          referenceLengthCm: reference.lengthCm,
-          referencePixelLength: pixelLength,
-          cmPerPixel: cmPerPixel,
-          ra: ra,
-          lc: lc,
-          bl: bl,
-          bw: bw,
-          e: e,
-          modelVersion: 'xgb-weight-v1',
-        );
-      } else {
-        await saveWeightResult(
-          scanId: scanId,
-          eligible: false,
-          failureReason: 'Pig mask truncated at image border.',
-          modelVersion: 'xgb-weight-v1',
-        );
-      }
+      await saveWeightResult(
+        scanId: scanId,
+        eligible: true,
+        valueKg: valueKg,
+        referenceLengthCm: reference.lengthCm,
+        referencePixelLength: pixelLength,
+        cmPerPixel: cmPerPixel,
+        ra: ra,
+        lc: lc,
+        bl: bl,
+        bw: bw,
+        e: e,
+        modelVersion: 'xgb-weight-v1',
+      );
+    } else {
+      await saveWeightResult(
+        scanId: scanId,
+        eligible: false,
+        failureReason: 'Pig mask truncated at image border.',
+        modelVersion: 'xgb-weight-v1',
+      );
     }
 
     final healthClasses = [
@@ -528,7 +514,7 @@ class AppDatabase extends _$AppDatabase {
       displayName: 'Sample Pig #$tagNum',
     );
 
-    final finalStatus = (!isWeightAndHealth || isWeightEligible)
+    final finalStatus = isWeightEligible
         ? ScanStatuses.completed
         : ScanStatuses.blocked;
 

@@ -13,7 +13,6 @@ The application should route every submitted pig image into one of three outcome
 | Image outcome | Weight estimation | Visual health assessment |
 |---|---:|---:|
 | Valid dorsal/top-down image | Allowed only after all weight checks pass | Allowed |
-| Health-only image, such as a useful side or close-up view | Not allowed | Allowed |
 | Rejected or unusable image | Not allowed | Not allowed; request another image |
 
 The central rule is:
@@ -339,7 +338,7 @@ The future app will need:
 - two-point endpoint selection and adjustment;
 - a confirmation overlay;
 - validation that the entire reference is visible;
-- a clear option to cancel weight estimation and continue with health only.
+- a clear option to switch between reference mode and height mode.
 
 Automatic reference-object recognition is not produced by the current notebooks. Unless a separate reference detector is trained later, endpoint marking must remain manual.
 
@@ -417,17 +416,10 @@ The app should instruct the user to:
 - avoid severe shadows, blur, and obstruction;
 - avoid cutting off the head, tail, or body.
 
-### Health-only mode
+### General capture guidelines
 
-The app should instruct the user to:
-
-- capture the visibly affected area clearly;
-- use good lighting;
-- avoid motion blur;
-- take additional angles when the affected skin is not clearly visible;
-- include enough context to show that the image belongs to a pig.
-
-The app should permit a user to submit separate images for weight and health. One image should not be forced to satisfy both tasks.
+- The app uses a single capture flow for both weight and health.
+- Instruct users to capture the whole pig from above when possible, but allow side angles if the primary goal is a health assessment (weight will simply be skipped if the view is not suitable).
 
 ---
 
@@ -454,7 +446,7 @@ The safest fallback is:
 ```text
 Do not show a forced prediction.
 Explain what failed.
-Ask for another image or allow health-only processing where appropriate.
+Ask for another image or proceed with health processing if the image is still usable for visual assessment.
 ```
 
 ---

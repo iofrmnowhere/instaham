@@ -1,23 +1,16 @@
-enum ScanGoal { weightAndHealth, healthOnly }
+import 'measurement_mode.dart';
+
+enum ScanGoal { weightAndHealth }
 
 extension ScanGoalPresentation on ScanGoal {
-  String get storageValue => switch (this) {
-    ScanGoal.weightAndHealth => 'weight_health',
-    ScanGoal.healthOnly => 'health_only',
-  };
+  String get storageValue => 'weight_health';
 
-  String get label => switch (this) {
-    ScanGoal.weightAndHealth => 'Weight + Health',
-    ScanGoal.healthOnly => 'Health Only',
-  };
+  String get label => 'Weight + Health';
 
-  bool get requiresReference => this == ScanGoal.weightAndHealth;
+  bool get requiresReference => true;
 }
 
-ScanGoal scanGoalFromStorage(String value) => switch (value) {
-  'health_only' => ScanGoal.healthOnly,
-  _ => ScanGoal.weightAndHealth,
-};
+ScanGoal scanGoalFromStorage(String value) => ScanGoal.weightAndHealth;
 
 abstract final class ScanStatuses {
   static const draft = 'draft';
@@ -73,6 +66,8 @@ class ReferenceSuggestion {
 class ScanFlowArgs {
   final String? sessionId;
   final ScanGoal goal;
+  final MeasurementMode measurementMode;
+  final double? cameraHeightCm;
   final ReferenceSelection? reference;
   final String? imagePath;
   final int? imageWidthPx;
@@ -82,6 +77,8 @@ class ScanFlowArgs {
   const ScanFlowArgs({
     this.sessionId,
     this.goal = ScanGoal.weightAndHealth,
+    this.measurementMode = MeasurementMode.referenceObject,
+    this.cameraHeightCm,
     this.reference,
     this.imagePath,
     this.imageWidthPx,
@@ -92,6 +89,8 @@ class ScanFlowArgs {
   ScanFlowArgs copyWith({
     String? sessionId,
     ScanGoal? goal,
+    MeasurementMode? measurementMode,
+    double? cameraHeightCm,
     ReferenceSelection? reference,
     String? imagePath,
     int? imageWidthPx,
@@ -103,6 +102,8 @@ class ScanFlowArgs {
     return ScanFlowArgs(
       sessionId: sessionId ?? this.sessionId,
       goal: goal ?? this.goal,
+      measurementMode: measurementMode ?? this.measurementMode,
+      cameraHeightCm: cameraHeightCm ?? this.cameraHeightCm,
       reference: clearReference ? null : reference ?? this.reference,
       imagePath: imagePath ?? this.imagePath,
       imageWidthPx: imageWidthPx ?? this.imageWidthPx,

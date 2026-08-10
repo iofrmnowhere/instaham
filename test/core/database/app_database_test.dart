@@ -23,7 +23,9 @@ void main() {
       usageAnalytics: false,
       inferenceMode: 'on_device',
     );
-    final scanId = await database.createDraftScan(goal: ScanGoal.healthOnly);
+    final scanId = await database.createDraftScan(
+      goal: ScanGoal.weightAndHealth,
+    );
 
     await database.deleteAllUserRecords();
 

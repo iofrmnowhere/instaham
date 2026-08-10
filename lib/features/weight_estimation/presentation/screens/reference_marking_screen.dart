@@ -238,29 +238,6 @@ class _ReferenceMarkingScreenState extends State<ReferenceMarkingScreen> {
     );
   }
 
-  Future<void> _continueHealthOnly() async {
-    final sessionId = widget.args.sessionId;
-    if (sessionId == null) return;
-    final database = DatabaseScope.of(context);
-    await database.updateScanGoal(sessionId, ScanGoal.healthOnly);
-    await database.updateScanStatus(sessionId, ScanStatuses.analyzing);
-    await database.addPipelineEvent(
-      sessionId,
-      'reference_review',
-      'skipped',
-      message: 'User continued with visual health assessment only.',
-    );
-    if (mounted) {
-      context.push(
-        '/analysis',
-        extra: widget.args.copyWith(
-          goal: ScanGoal.healthOnly,
-          clearReference: true,
-        ),
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final pixelLength = _originalPixelLength;
@@ -437,15 +414,15 @@ class _ReferenceMarkingScreenState extends State<ReferenceMarkingScreen> {
                   type: MaterialType.transparency,
                   child: CheckboxListTile(
                     contentPadding: EdgeInsets.zero,
-                  value: _sameFloorPlane,
-                  activeColor: AppColors.signalPink,
-                  controlAffinity: ListTileControlAffinity.leading,
-                  onChanged: (value) =>
-                      setState(() => _sameFloorPlane = value ?? false),
-                  title: Text(
-                    'Reference is flat on the same floor plane as the pig',
-                    style: AppTextStyles.label,
-                  ),
+                    value: _sameFloorPlane,
+                    activeColor: AppColors.signalPink,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    onChanged: (value) =>
+                        setState(() => _sameFloorPlane = value ?? false),
+                    title: Text(
+                      'Reference is flat on the same floor plane as the pig',
+                      style: AppTextStyles.label,
+                    ),
                   ),
                 ),
                 if (_error != null)
@@ -498,12 +475,6 @@ class _ReferenceMarkingScreenState extends State<ReferenceMarkingScreen> {
                       ),
                     ),
                   ],
-                ),
-                TextButton(
-                  onPressed: _continueHealthOnly,
-                  child: const Text(
-                    'Skip weight and continue with health only',
-                  ),
                 ),
               ],
             ),

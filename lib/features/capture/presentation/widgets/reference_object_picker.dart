@@ -18,6 +18,24 @@ class ReferenceObjectPicker extends StatelessWidget {
     required this.onBack,
   });
 
+  static Future<Object?> pushFullScreen(BuildContext context) {
+    return Navigator.push<Object>(
+      context,
+      MaterialPageRoute(
+        builder: (pageContext) => Scaffold(
+          backgroundColor: AppColors.background,
+          body: SafeArea(
+            child: ReferenceObjectPicker(
+              onSelect: (selection) => Navigator.pop(pageContext, selection),
+              onCustom: () => Navigator.pop(pageContext, 'custom'),
+              onBack: () => Navigator.pop(pageContext),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     const presets = [

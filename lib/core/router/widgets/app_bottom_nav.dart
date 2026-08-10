@@ -48,7 +48,7 @@ class AppBottomNav extends StatelessWidget {
   Widget build(BuildContext context) {
     final location = currentPath ?? GoRouterState.of(context).uri.path;
     return Container(
-      height: 68,
+      height: 80,
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
       decoration: const BoxDecoration(
         color: AppColors.card,

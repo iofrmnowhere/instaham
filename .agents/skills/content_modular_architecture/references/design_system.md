@@ -99,16 +99,16 @@ enum ResultStatus { success, uncertain, blocked }
 Home / Records
     |
     v
-Camera: Weight + Health | Health Only
-    |-- Weight + Health -> choose known reference preset/custom length
-    |-- Health Only -> no reference setup
+Camera: Reference Mode | Height Mode
+    |-- Reference Mode -> choose known reference preset/custom length
+    |-- Height Mode -> input camera height
     v
 Dominant centered shutter
     v
 Photo review: Retake | Use photo
-    |-- Weight + Health -> verify or manually mark reference endpoints
-    |                      -> Confirm & analyze | Continue health only
-    |-- Health Only ------> analyze
+    |-- Reference Mode -> verify or manually mark reference endpoints
+    |                      -> Confirm & analyze
+    |-- Height Mode ------> analyze
     v
 Independent weight and visual-health results
     v
@@ -117,12 +117,12 @@ Assign pig (optional) -> save in Records
 
 ### Camera control hierarchy
 
-- The only top-level capture modes are `Weight + Health` and `Health Only`.
+- The only top-level capture modes are `Reference Mode` and `Height Mode`.
 - The mode selector stays at the top of the camera and persists for the scan session.
 - A 76dp circular shutter is the dominant bottom control.
-- Reference configuration is a status/action chip, never a capture mode.
+- Reference configuration is a status/action chip in Reference Mode.
 - Weight guidance must say dorsal/top-down; never use side-on or broadside wording.
-- The former camera-height flow is not a weight scale method. Phone alignment can be a guidance signal only.
+- Height mode will estimate scale from phone height and alignment (pending future model).
 - Guidance is contextual in the camera; the full guidance screen is optional help, not a required recurring gate.
 
 ### Reference object review
@@ -133,7 +133,7 @@ Assign pig (optional) -> save in Records
 - A validated future detector may provide normalized endpoint suggestions and confidence. Suggestions must be clearly labeled for review.
 - Without a detector or below its threshold, the user places exactly two endpoints manually.
 - Both endpoints use 44dp drag handles. Tapping a handle must not delete it.
-- The user can change object type/name/length, clear/reset points, retake, or continue with health only.
+- The user can change object type/name/length, clear/reset points, retake, or continue.
 - Confirmation requires the reference to be flat on the same floor plane as the pig.
 - Endpoint coordinates are stored normalized to the original image. `cm/pixel` is calculated only with original image dimensions; never use rendered preview dimensions as image pixels.
 - Automatic reference recognition is not present in the current model package. Manual confirmation remains mandatory until a separate detector is trained and validated.
@@ -144,7 +144,7 @@ Assign pig (optional) -> save in Records
 - Never show a fabricated health score, healthy-weight claim, diagnosis, or numeric output from a failed eligibility branch.
 - Visual health shows `Possible visual indicator`, model confidence, and uncertainty wording.
 - Pending model integration is shown as `Pending`; it is not replaced with mock numbers.
-- A blocked reference flow offers manual review or health-only continuation before forcing a retake.
+- A blocked reference flow offers manual review before forcing a retake.
 - Retake preserves session ID, selected goal, reference configuration, pig assignment, and usable prior inputs.
 - Records distinguish unassigned, pending, completed, blocked, rejected, and deleted states.
 

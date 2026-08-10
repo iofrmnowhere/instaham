@@ -20,7 +20,7 @@ void main() {
     'watchRecentScans excludes soft-deleted records and orders by updatedAt desc',
     () async {
       final s1 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
-      final s2 = await database.createDraftScan(goal: ScanGoal.healthOnly);
+      final s2 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
       final s3 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
 
       // Soft delete s2
@@ -37,7 +37,7 @@ void main() {
 
   test('watchRecentScans respects limit', () async {
     for (var i = 0; i < 5; i++) {
-      await database.createDraftScan(goal: ScanGoal.healthOnly);
+      await database.createDraftScan(goal: ScanGoal.weightAndHealth);
     }
 
     final scans = await dao.watchRecentScans(limit: 3).first;

@@ -7,31 +7,18 @@ import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/theme/widgets/app_card.dart';
 import '../../../../core/theme/widgets/app_scaffold.dart';
 
-class CaptureGuidanceScreen extends StatefulWidget {
+class CaptureGuidanceScreen extends StatelessWidget {
   const CaptureGuidanceScreen({super.key});
 
   @override
-  State<CaptureGuidanceScreen> createState() => _CaptureGuidanceScreenState();
-}
-
-class _CaptureGuidanceScreenState extends State<CaptureGuidanceScreen> {
-  ScanGoal _goal = ScanGoal.weightAndHealth;
-
-  @override
   Widget build(BuildContext context) {
-    final tips = _goal == ScanGoal.weightAndHealth
-        ? const [
-            'Photograph one pig from directly above.',
-            'Keep the complete head, body, and tail inside the frame.',
-            'Place a known straight reference flat beside the pig.',
-            'Keep both reference endpoints visible.',
-            'Keep the phone parallel to the ground and avoid blur.',
-          ]
-        : const [
-            'Capture the visibly affected area clearly.',
-            'Include enough context to show that the image belongs to a pig.',
-            'Use even lighting and avoid motion blur.',
-          ];
+    const tips = [
+      'Photograph one pig from directly above.',
+      'Keep the complete head, body, and tail inside the frame.',
+      'Place a known straight reference flat beside the pig (or set camera height).',
+      'Keep both reference endpoints visible when using a reference object.',
+      'Keep the phone parallel to the ground and avoid blur.',
+    ];
 
     return AppScaffold(
       showNav: false,
@@ -56,19 +43,6 @@ class _CaptureGuidanceScreenState extends State<CaptureGuidanceScreen> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          SegmentedButton<ScanGoal>(
-            segments: ScanGoal.values
-                .map(
-                  (goal) => ButtonSegment<ScanGoal>(
-                    value: goal,
-                    label: Text(goal.label),
-                  ),
-                )
-                .toList(),
-            selected: {_goal},
-            onSelectionChanged: (value) => setState(() => _goal = value.first),
-          ),
-          const SizedBox(height: 16),
           AppCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -112,9 +86,7 @@ class _CaptureGuidanceScreenState extends State<CaptureGuidanceScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    _goal.requiresReference
-                        ? 'Weight is available only after the reference and all eligibility checks pass.'
-                        : 'Health output is visual screening, not a veterinary diagnosis.',
+                    'Weight is available only after scale calibration and all eligibility checks pass.',
                     style: AppTextStyles.subtext,
                   ),
                 ),
@@ -124,7 +96,7 @@ class _CaptureGuidanceScreenState extends State<CaptureGuidanceScreen> {
           const SizedBox(height: 24),
           ElevatedButton(
             onPressed: () =>
-                context.push('/capture', extra: ScanFlowArgs(goal: _goal)),
+                context.push('/capture', extra: const ScanFlowArgs()),
             child: const Text('Open camera'),
           ),
         ],
