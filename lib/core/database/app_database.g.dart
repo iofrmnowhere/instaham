@@ -5161,6 +5161,312 @@ class SyncOutboxEntriesCompanion extends UpdateCompanion<SyncOutboxEntry> {
   }
 }
 
+class $CustomReferencesTable extends CustomReferences
+    with TableInfo<$CustomReferencesTable, CustomReference> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $CustomReferencesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _lengthCmMeta = const VerificationMeta(
+    'lengthCm',
+  );
+  @override
+  late final GeneratedColumn<double> lengthCm = GeneratedColumn<double>(
+    'length_cm',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [id, name, lengthCm, createdAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'custom_references';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CustomReference> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('length_cm')) {
+      context.handle(
+        _lengthCmMeta,
+        lengthCm.isAcceptableOrUnknown(data['length_cm']!, _lengthCmMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_lengthCmMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  CustomReference map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CustomReference(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      lengthCm: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}length_cm'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+    );
+  }
+
+  @override
+  $CustomReferencesTable createAlias(String alias) {
+    return $CustomReferencesTable(attachedDatabase, alias);
+  }
+}
+
+class CustomReference extends DataClass implements Insertable<CustomReference> {
+  final String id;
+  final String name;
+  final double lengthCm;
+  final DateTime createdAt;
+  const CustomReference({
+    required this.id,
+    required this.name,
+    required this.lengthCm,
+    required this.createdAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['name'] = Variable<String>(name);
+    map['length_cm'] = Variable<double>(lengthCm);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    return map;
+  }
+
+  CustomReferencesCompanion toCompanion(bool nullToAbsent) {
+    return CustomReferencesCompanion(
+      id: Value(id),
+      name: Value(name),
+      lengthCm: Value(lengthCm),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory CustomReference.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CustomReference(
+      id: serializer.fromJson<String>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      lengthCm: serializer.fromJson<double>(json['lengthCm']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'name': serializer.toJson<String>(name),
+      'lengthCm': serializer.toJson<double>(lengthCm),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+    };
+  }
+
+  CustomReference copyWith({
+    String? id,
+    String? name,
+    double? lengthCm,
+    DateTime? createdAt,
+  }) => CustomReference(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    lengthCm: lengthCm ?? this.lengthCm,
+    createdAt: createdAt ?? this.createdAt,
+  );
+  CustomReference copyWithCompanion(CustomReferencesCompanion data) {
+    return CustomReference(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      lengthCm: data.lengthCm.present ? data.lengthCm.value : this.lengthCm,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CustomReference(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('lengthCm: $lengthCm, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, name, lengthCm, createdAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CustomReference &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.lengthCm == this.lengthCm &&
+          other.createdAt == this.createdAt);
+}
+
+class CustomReferencesCompanion extends UpdateCompanion<CustomReference> {
+  final Value<String> id;
+  final Value<String> name;
+  final Value<double> lengthCm;
+  final Value<DateTime> createdAt;
+  final Value<int> rowid;
+  const CustomReferencesCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.lengthCm = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  CustomReferencesCompanion.insert({
+    required String id,
+    required String name,
+    required double lengthCm,
+    this.createdAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       name = Value(name),
+       lengthCm = Value(lengthCm);
+  static Insertable<CustomReference> custom({
+    Expression<String>? id,
+    Expression<String>? name,
+    Expression<double>? lengthCm,
+    Expression<DateTime>? createdAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (lengthCm != null) 'length_cm': lengthCm,
+      if (createdAt != null) 'created_at': createdAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  CustomReferencesCompanion copyWith({
+    Value<String>? id,
+    Value<String>? name,
+    Value<double>? lengthCm,
+    Value<DateTime>? createdAt,
+    Value<int>? rowid,
+  }) {
+    return CustomReferencesCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      lengthCm: lengthCm ?? this.lengthCm,
+      createdAt: createdAt ?? this.createdAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (lengthCm.present) {
+      map['length_cm'] = Variable<double>(lengthCm.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CustomReferencesCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('lengthCm: $lengthCm, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -5175,8 +5481,14 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $PrivacyPreferencesTable(this);
   late final $SyncOutboxEntriesTable syncOutboxEntries =
       $SyncOutboxEntriesTable(this);
+  late final $CustomReferencesTable customReferences = $CustomReferencesTable(
+    this,
+  );
   late final AnalyticsDao analyticsDao = AnalyticsDao(this as AppDatabase);
   late final RecordsDao recordsDao = RecordsDao(this as AppDatabase);
+  late final CustomReferencesDao customReferencesDao = CustomReferencesDao(
+    this as AppDatabase,
+  );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -5190,6 +5502,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     pipelineEvents,
     privacyPreferences,
     syncOutboxEntries,
+    customReferences,
   ];
 }
 
@@ -8786,6 +9099,193 @@ typedef $$SyncOutboxEntriesTableProcessedTableManager =
       SyncOutboxEntry,
       PrefetchHooks Function()
     >;
+typedef $$CustomReferencesTableCreateCompanionBuilder =
+    CustomReferencesCompanion Function({
+      required String id,
+      required String name,
+      required double lengthCm,
+      Value<DateTime> createdAt,
+      Value<int> rowid,
+    });
+typedef $$CustomReferencesTableUpdateCompanionBuilder =
+    CustomReferencesCompanion Function({
+      Value<String> id,
+      Value<String> name,
+      Value<double> lengthCm,
+      Value<DateTime> createdAt,
+      Value<int> rowid,
+    });
+
+class $$CustomReferencesTableFilterComposer
+    extends Composer<_$AppDatabase, $CustomReferencesTable> {
+  $$CustomReferencesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get lengthCm => $composableBuilder(
+    column: $table.lengthCm,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$CustomReferencesTableOrderingComposer
+    extends Composer<_$AppDatabase, $CustomReferencesTable> {
+  $$CustomReferencesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get lengthCm => $composableBuilder(
+    column: $table.lengthCm,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$CustomReferencesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $CustomReferencesTable> {
+  $$CustomReferencesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<double> get lengthCm =>
+      $composableBuilder(column: $table.lengthCm, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+}
+
+class $$CustomReferencesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $CustomReferencesTable,
+          CustomReference,
+          $$CustomReferencesTableFilterComposer,
+          $$CustomReferencesTableOrderingComposer,
+          $$CustomReferencesTableAnnotationComposer,
+          $$CustomReferencesTableCreateCompanionBuilder,
+          $$CustomReferencesTableUpdateCompanionBuilder,
+          (
+            CustomReference,
+            BaseReferences<
+              _$AppDatabase,
+              $CustomReferencesTable,
+              CustomReference
+            >,
+          ),
+          CustomReference,
+          PrefetchHooks Function()
+        > {
+  $$CustomReferencesTableTableManager(
+    _$AppDatabase db,
+    $CustomReferencesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$CustomReferencesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$CustomReferencesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$CustomReferencesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<double> lengthCm = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => CustomReferencesCompanion(
+                id: id,
+                name: name,
+                lengthCm: lengthCm,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String name,
+                required double lengthCm,
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => CustomReferencesCompanion.insert(
+                id: id,
+                name: name,
+                lengthCm: lengthCm,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$CustomReferencesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $CustomReferencesTable,
+      CustomReference,
+      $$CustomReferencesTableFilterComposer,
+      $$CustomReferencesTableOrderingComposer,
+      $$CustomReferencesTableAnnotationComposer,
+      $$CustomReferencesTableCreateCompanionBuilder,
+      $$CustomReferencesTableUpdateCompanionBuilder,
+      (
+        CustomReference,
+        BaseReferences<_$AppDatabase, $CustomReferencesTable, CustomReference>,
+      ),
+      CustomReference,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -8805,4 +9305,6 @@ class $AppDatabaseManager {
       $$PrivacyPreferencesTableTableManager(_db, _db.privacyPreferences);
   $$SyncOutboxEntriesTableTableManager get syncOutboxEntries =>
       $$SyncOutboxEntriesTableTableManager(_db, _db.syncOutboxEntries);
+  $$CustomReferencesTableTableManager get customReferences =>
+      $$CustomReferencesTableTableManager(_db, _db.customReferences);
 }

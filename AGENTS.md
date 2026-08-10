@@ -73,3 +73,7 @@ Include:
 - Behavior implemented.
 - Validation run.
 - Known limitations or intentionally deferred work.
+
+## Planning rules
+
+- Always include a 1-10 plan rating at the bottom of any implementation plan you generate, noting pros and cons.

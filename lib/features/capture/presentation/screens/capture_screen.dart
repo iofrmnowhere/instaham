@@ -12,7 +12,6 @@ import '../../../../core/theme/widgets/app_scaffold.dart';
 import '../../data/capture_preferences.dart';
 import '../widgets/height_mode_alignment.dart';
 import '../widgets/height_mode_settings.dart';
-import '../widgets/reference_object_details.dart';
 import '../widgets/reference_object_picker.dart';
 
 class CaptureScreen extends StatefulWidget {
@@ -70,35 +69,10 @@ class _CaptureScreenState extends State<CaptureScreen> {
   Future<String> _ensureSession() async => _sessionId ?? _createSession();
 
   Future<void> _openReferenceConfig() async {
-    final result = await ReferenceObjectPicker.pushFullScreen(context);
-    if (!mounted) return;
-    if (result == 'custom') {
-      await _showCustomReference();
-    } else if (result is ReferenceSelection) {
-      setState(() => _reference = result);
-      await CapturePreferences.saveReference(result);
-    }
-  }
-
-  Future<void> _showCustomReference() async {
-    final selection = await showModalBottomSheet<ReferenceSelection>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
-        ),
-        child: ReferenceObjectDetails(
-          onConfirm: (value) => Navigator.pop(sheetContext, value),
-          onBack: () => Navigator.pop(sheetContext),
-        ),
-      ),
-    );
-    if (selection != null && mounted) {
-      setState(() => _reference = selection);
-      await CapturePreferences.saveReference(selection);
-    }
+    final result = await ReferenceObjectPicker.showAsBottomSheet(context);
+    if (!mounted || result == null) return;
+    setState(() => _reference = result);
+    await CapturePreferences.saveReference(result);
   }
 
   Future<void> _openHeightConfig() async {

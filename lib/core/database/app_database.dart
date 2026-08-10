@@ -5,6 +5,7 @@ import 'package:drift_flutter/drift_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../features/analytics/data/analytics_dao.dart';
+import '../../features/capture/data/custom_references_dao.dart';
 import '../../features/records/data/records_dao.dart';
 import '../models/scan_flow.dart';
 
@@ -141,6 +142,16 @@ class SyncOutboxEntries extends Table {
   DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
 }
 
+class CustomReferences extends Table {
+  TextColumn get id => text()();
+  TextColumn get name => text()();
+  RealColumn get lengthCm => real()();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
 @DriftDatabase(
   tables: [
     Pigs,
@@ -151,8 +162,9 @@ class SyncOutboxEntries extends Table {
     PipelineEvents,
     PrivacyPreferences,
     SyncOutboxEntries,
+    CustomReferences,
   ],
-  daos: [AnalyticsDao, RecordsDao],
+  daos: [AnalyticsDao, RecordsDao, CustomReferencesDao],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor]) : super(executor ?? _openConnection());
@@ -160,11 +172,16 @@ class AppDatabase extends _$AppDatabase {
   static final Random _random = Random.secure();
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (migrator) => migrator.createAll(),
+    onUpgrade: (migrator, from, to) async {
+      if (from < 2) {
+        await migrator.createTable(customReferences);
+      }
+    },
     beforeOpen: (_) async {
       await customStatement('PRAGMA foreign_keys = ON');
       await ensurePrivacyDefaults();

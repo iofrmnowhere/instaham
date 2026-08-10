@@ -121,6 +121,7 @@ Assign pig (optional) -> save in Records
 - The mode selector stays at the top of the camera and persists for the scan session.
 - A 76dp circular shutter is the dominant bottom control.
 - Reference configuration is a status/action chip in Reference Mode.
+- Reference selection displays as a 70% height modal bottom sheet. Custom reference configuration happens in-place to preserve container size.
 - Weight guidance must say dorsal/top-down; never use side-on or broadside wording.
 - Height mode will estimate scale from phone height and alignment (pending future model).
 - Guidance is contextual in the camera; the full guidance screen is optional help, not a required recurring gate.

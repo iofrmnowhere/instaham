@@ -134,7 +134,7 @@ class _ReferenceObjectDetailsState extends State<ReferenceObjectDetails> {
               style: ElevatedButton.styleFrom(
                 minimumSize: const Size.fromHeight(52),
               ),
-              child: const Text('Use this reference'),
+              child: const Text('Save and Use this reference'),
             ),
           ],
         ),

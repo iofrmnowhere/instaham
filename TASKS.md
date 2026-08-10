@@ -11,9 +11,11 @@ A living document to track the implementation progress of the INSTAHAM Flutter a
 - [x] **Analytics Module:** Build `AnalyticsScreen` with three tabs (Overview, Weight, Health), driven by live Drift streams via `AnalyticsDao`. Features line/bar graphs (`fl_chart`), date range filtering, pig search autocomplete, proper modular DI, and resilient error state handling.
 - [x] **Unit Testing:** Implement unit tests for SQLite database methods, `AnalyticsDao`, and `RecordsDao` queries.
 
+- [x] **Capture Mode Selector:** Added persistent toggle for "Reference Mode" vs "Height Mode" during capture, removing the deprecated "Health Only" mode.
+- [x] **Custom Reference Objects:** Implemented in-place UI form for adding custom reference objects and persisted them locally in Drift via `CustomReferencesDao`.
+
 ## 🟡 In Progress / Next Up
 - [ ] **Camera Flow:** Implement `CaptureScreen` and `CaptureGuidanceScreen` with `camera` plugin.
-- [x] **Capture Mode Selector:** Add persistent toggle for "Reference Mode" vs "Height Mode" during capture.
 
 ## 🔴 To Do (ML Pipeline & Inference)
 - [ ] **Pipeline Orchestration:** Implement the `InferencePipeline` class to manage the sequence of models.
