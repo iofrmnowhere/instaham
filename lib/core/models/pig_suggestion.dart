@@ -1,6 +1,7 @@
 class PigSuggestion {
-  final String id;
-  final String displayLabel;
+  final String displayName;
 
-  const PigSuggestion({required this.id, required this.displayLabel});
+  const PigSuggestion({required this.displayName});
+
+  String get displayLabel => displayName;
 }

@@ -72,20 +72,22 @@ class RecordsDao extends DatabaseAccessor<AppDatabase> with _$RecordsDaoMixin {
     final trimmed = query.trim().toLowerCase();
     final selectQuery = select(db.pigs)..where((p) => p.deletedAt.isNull());
     return selectQuery.watch().map((rows) {
-      return rows
-          .map((p) {
-            final name = p.displayName?.trim() ?? '';
-            final tag = p.tag?.trim() ?? '';
-            final label = name.isNotEmpty
-                ? name
-                : (tag.isNotEmpty ? tag : 'Pig ${p.id}');
-            return PigSuggestion(id: p.id, displayLabel: label);
-          })
-          .where((suggestion) {
-            if (trimmed.isEmpty) return true;
-            return suggestion.displayLabel.toLowerCase().contains(trimmed);
-          })
-          .toList();
+      final seen = <String>{};
+      final result = <PigSuggestion>[];
+      for (final p in rows) {
+        final name = p.displayName?.trim() ?? '';
+        final tag = p.tag?.trim() ?? '';
+        final label = name.isNotEmpty
+            ? name
+            : (tag.isNotEmpty ? tag : 'Pig ${p.id}');
+        if (trimmed.isNotEmpty && !label.toLowerCase().contains(trimmed)) {
+          continue;
+        }
+        if (seen.add(label)) {
+          result.add(PigSuggestion(displayName: label));
+        }
+      }
+      return result;
     });
   }
 }

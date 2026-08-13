@@ -31,8 +31,8 @@ class _RecordsScreenState extends State<RecordsScreen> {
   _RecordsDateFilter _dateFilter = _RecordsDateFilter.allTime;
   bool _searchOpen = false;
   String _searchQuery = '';
-  String? _selectedPigId;
-  String? _selectedPigLabel;
+  String? _selectedPigName;
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   void didChangeDependencies() {
@@ -47,6 +47,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
 
   @override
   void dispose() {
+    _searchController.dispose();
     _notifier?.dispose();
     super.dispose();
   }
@@ -227,30 +228,31 @@ class _RecordsScreenState extends State<RecordsScreen> {
                   ],
                 ),
                 IconButton(
-                  tooltip: _selectedPigId != null
-                      ? 'Pig: $_selectedPigLabel (tap to clear)'
+                  tooltip: _selectedPigName != null
+                      ? 'Pig: $_selectedPigName (tap to clear)'
                       : 'Search pig',
                   icon: Icon(
-                    _selectedPigId != null
+                    _selectedPigName != null
                         ? Icons.person
                         : (_searchOpen ? Icons.close : Icons.search),
-                    color: _selectedPigId != null
+                    color: _selectedPigName != null
                         ? AppColors.signalPink
                         : AppColors.foreground,
                   ),
                   onPressed: () {
-                    if (_selectedPigId != null) {
+                    if (_selectedPigName != null) {
                       setState(() {
-                        _selectedPigId = null;
-                        _selectedPigLabel = null;
+                        _selectedPigName = null;
                         _searchOpen = false;
                         _searchQuery = '';
+                        _searchController.clear();
                       });
                     } else {
                       setState(() {
                         _searchOpen = !_searchOpen;
                         if (!_searchOpen) {
                           _searchQuery = '';
+                          _searchController.clear();
                         }
                       });
                     }
@@ -266,7 +268,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                'Showing $_dateFilterLabel • $_statusFilterLabel${_selectedPigLabel != null ? ' • Pig: $_selectedPigLabel' : ''}',
+                'Showing $_dateFilterLabel • $_statusFilterLabel${_selectedPigName != null ? ' • Pig: $_selectedPigName' : ''}',
                 style: AppTextStyles.subtext.copyWith(
                   color: AppColors.mutedForeground,
                   fontSize: 12,
@@ -283,6 +285,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     TextField(
+                      controller: _searchController,
                       autofocus: true,
                       decoration: InputDecoration(
                         hintText: 'Search pig by display name...',
@@ -290,6 +293,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
                         suffixIcon: IconButton(
                           icon: const Icon(Icons.clear),
                           onPressed: () {
+                            _searchController.clear();
                             setState(() {
                               _searchQuery = '';
                             });
@@ -336,8 +340,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
                             ),
                             onTap: () {
                               setState(() {
-                                _selectedPigId = 'non_existent_id';
-                                _selectedPigLabel = _searchQuery;
+                                _selectedPigName = _searchQuery;
                                 _searchOpen = false;
                               });
                             },
@@ -355,8 +358,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
                                 title: Text(pig.displayLabel),
                                 onTap: () {
                                   setState(() {
-                                    _selectedPigId = pig.id;
-                                    _selectedPigLabel = pig.displayLabel;
+                                    _selectedPigName = pig.displayName;
                                     _searchOpen = false;
                                   });
                                 },
@@ -412,11 +414,13 @@ class _RecordsScreenState extends State<RecordsScreen> {
                     }
                   }
 
-                  if (_selectedPigId != null) {
-                    final matchesPig =
-                        item.pig?.id == _selectedPigId ||
-                        record.pigId == _selectedPigId;
-                    if (!matchesPig) {
+                  if (_selectedPigName != null) {
+                    final pigName =
+                        item.pig?.displayName?.trim() ??
+                        item.pig?.tag?.trim() ??
+                        '';
+                    if (pigName.toLowerCase() !=
+                        _selectedPigName!.toLowerCase()) {
                       return false;
                     }
                   }
@@ -427,7 +431,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
                 final hasActiveFilters =
                     _filter != 'all' ||
                     _dateFilter != _RecordsDateFilter.allTime ||
-                    _selectedPigId != null;
+                    _selectedPigName != null;
 
                 return records.isEmpty
                     ? _EmptyRecords(hasActiveFilters: hasActiveFilters)
@@ -435,8 +439,10 @@ class _RecordsScreenState extends State<RecordsScreen> {
                         padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
                         itemCount: records.length,
                         separatorBuilder: (_, _) => const SizedBox(height: 8),
-                        itemBuilder: (context, index) =>
-                            _RecordCard(item: records[index]),
+                        itemBuilder: (context, index) => _RecordCard(
+                          item: records[index],
+                          disambiguate: _selectedPigName != null,
+                        ),
                       );
               },
             ),
@@ -449,8 +455,9 @@ class _RecordsScreenState extends State<RecordsScreen> {
 
 class _RecordCard extends StatelessWidget {
   final ScanWithPig item;
+  final bool disambiguate;
 
-  const _RecordCard({required this.item});
+  const _RecordCard({required this.item, this.disambiguate = false});
 
   @override
   Widget build(BuildContext context) {
@@ -487,7 +494,7 @@ class _RecordCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  item.displayPigName,
+                  item.pigLabel(disambiguate: disambiguate),
                   style: AppTextStyles.label.copyWith(
                     fontWeight: FontWeight.w700,
                   ),

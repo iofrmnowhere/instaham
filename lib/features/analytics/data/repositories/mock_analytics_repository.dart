@@ -5,30 +5,32 @@ class MockAnalyticsRepository implements IAnalyticsRepository {
   @override
   Stream<WeightAnalytics> watchWeightAnalytics({
     DateTime? since,
-    String? pigId,
+    String? pigDisplayName,
   }) => Stream.value(WeightAnalytics.empty());
 
   @override
   Stream<HealthAnalytics> watchHealthAnalytics({
     DateTime? since,
-    String? pigId,
+    String? pigDisplayName,
   }) => Stream.value(HealthAnalytics.empty());
 
   @override
   Stream<List<WeightDataPoint>> watchWeightTimeSeries({
     DateTime? since,
-    String? pigId,
+    String? pigDisplayName,
   }) => Stream.value([]);
 
   @override
   Stream<List<HealthClassBar>> watchHealthClassBars({
     DateTime? since,
-    String? pigId,
+    String? pigDisplayName,
   }) => Stream.value([]);
 
   @override
-  Stream<int> watchTotalScanRecords({DateTime? since, String? pigId}) =>
-      Stream.value(0);
+  Stream<int> watchTotalScanRecords({
+    DateTime? since,
+    String? pigDisplayName,
+  }) => Stream.value(0);
 
   @override
   Stream<List<PigSuggestion>> watchPigSuggestions(String query) =>

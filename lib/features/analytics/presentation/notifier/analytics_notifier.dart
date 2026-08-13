@@ -48,7 +48,7 @@ class AnalyticsNotifier extends ChangeNotifier {
   StreamSubscription<int>? _filteredScansSub;
 
   AnalyticsDateFilter _dateFilter = AnalyticsDateFilter.allTime;
-  String? _pigId;
+  String? _pigDisplayName;
 
   AnalyticsState _state = AnalyticsState.loading();
   AnalyticsState get state => _state;
@@ -69,9 +69,12 @@ class AnalyticsNotifier extends ChangeNotifier {
     }
   }
 
-  void setFilters({required AnalyticsDateFilter dateFilter, String? pigId}) {
+  void setFilters({
+    required AnalyticsDateFilter dateFilter,
+    String? pigDisplayName,
+  }) {
     _dateFilter = dateFilter;
-    _pigId = pigId;
+    _pigDisplayName = pigDisplayName;
     _cancelSubscriptions();
     _initSubscriptions();
   }
@@ -87,10 +90,10 @@ class AnalyticsNotifier extends ChangeNotifier {
 
   void _initSubscriptions() {
     final since = _calculateSince(_dateFilter);
-    final pigId = _pigId;
+    final pigDisplayName = _pigDisplayName;
 
     _weightSub = _repository
-        .watchWeightAnalytics(since: since, pigId: pigId)
+        .watchWeightAnalytics(since: since, pigDisplayName: pigDisplayName)
         .listen(
           (weightData) {
             _state = AnalyticsState(
@@ -121,7 +124,7 @@ class AnalyticsNotifier extends ChangeNotifier {
         );
 
     _healthSub = _repository
-        .watchHealthAnalytics(since: since, pigId: pigId)
+        .watchHealthAnalytics(since: since, pigDisplayName: pigDisplayName)
         .listen(
           (healthData) {
             _state = AnalyticsState(
@@ -152,7 +155,7 @@ class AnalyticsNotifier extends ChangeNotifier {
         );
 
     _timeSeriesSub = _repository
-        .watchWeightTimeSeries(since: since, pigId: pigId)
+        .watchWeightTimeSeries(since: since, pigDisplayName: pigDisplayName)
         .listen(
           (points) {
             _state = AnalyticsState(
@@ -183,7 +186,7 @@ class AnalyticsNotifier extends ChangeNotifier {
         );
 
     _classBarsSub = _repository
-        .watchHealthClassBars(since: since, pigId: pigId)
+        .watchHealthClassBars(since: since, pigDisplayName: pigDisplayName)
         .listen(
           (bars) {
             _state = AnalyticsState(
@@ -214,7 +217,7 @@ class AnalyticsNotifier extends ChangeNotifier {
         );
 
     _totalScansSub = _repository
-        .watchTotalScanRecords(since: null, pigId: pigId)
+        .watchTotalScanRecords(since: null, pigDisplayName: pigDisplayName)
         .listen(
           (count) {
             _state = AnalyticsState(
@@ -245,7 +248,7 @@ class AnalyticsNotifier extends ChangeNotifier {
         );
 
     _filteredScansSub = _repository
-        .watchTotalScanRecords(since: since, pigId: pigId)
+        .watchTotalScanRecords(since: since, pigDisplayName: pigDisplayName)
         .listen(
           (count) {
             _state = AnalyticsState(

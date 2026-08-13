@@ -65,4 +65,19 @@ void main() {
       expect(bundle.reference, isNotNull);
     }
   });
+
+  test(
+    'watchPigSuggestions deduplicates pigs with same display name',
+    () async {
+      final s1 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
+      final s2 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
+
+      await database.assignPig(scanId: s1, tag: 'TAG-1', displayName: 'Bella');
+      await database.assignPig(scanId: s2, tag: 'TAG-2', displayName: 'Bella');
+
+      final suggestions = await dao.watchPigSuggestions('Bella').first;
+      expect(suggestions.length, 1);
+      expect(suggestions.first.displayName, 'Bella');
+    },
+  );
 }

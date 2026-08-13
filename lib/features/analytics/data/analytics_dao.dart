@@ -11,28 +11,39 @@ class AnalyticsDao extends DatabaseAccessor<AppDatabase>
     with _$AnalyticsDaoMixin {
   AnalyticsDao(super.db);
 
-  Expression<bool> _filterPredicate({DateTime? since, String? pigId}) {
+  Expression<bool> _filterPredicate({DateTime? since, String? pigDisplayName}) {
     Expression<bool> predicate = db.scanRecords.deletedAt.isNull();
     if (since != null) {
       predicate =
           predicate & db.scanRecords.createdAt.isBiggerOrEqualValue(since);
     }
-    if (pigId != null) {
-      predicate = predicate & db.scanRecords.pigId.equals(pigId);
+    if (pigDisplayName != null) {
+      final lower = pigDisplayName.toLowerCase();
+      predicate =
+          predicate &
+          db.scanRecords.pigId.isInQuery(
+            selectOnly(db.pigs)
+              ..addColumns([db.pigs.id])
+              ..where(
+                db.pigs.deletedAt.isNull() &
+                    (db.pigs.displayName.lower().equals(lower) |
+                        db.pigs.tag.lower().equals(lower)),
+              ),
+          );
     }
     return predicate;
   }
 
   Stream<WeightAnalytics> watchWeightAnalytics({
     DateTime? since,
-    String? pigId,
+    String? pigDisplayName,
   }) {
     final query = select(db.weightResults).join([
       innerJoin(
         db.scanRecords,
         db.scanRecords.id.equalsExp(db.weightResults.scanId),
       ),
-    ])..where(_filterPredicate(since: since, pigId: pigId));
+    ])..where(_filterPredicate(since: since, pigDisplayName: pigDisplayName));
 
     return query.watch().map((rows) {
       final results = rows
@@ -84,14 +95,14 @@ class AnalyticsDao extends DatabaseAccessor<AppDatabase>
 
   Stream<HealthAnalytics> watchHealthAnalytics({
     DateTime? since,
-    String? pigId,
+    String? pigDisplayName,
   }) {
     final query = select(db.healthResults).join([
       innerJoin(
         db.scanRecords,
         db.scanRecords.id.equalsExp(db.healthResults.scanId),
       ),
-    ])..where(_filterPredicate(since: since, pigId: pigId));
+    ])..where(_filterPredicate(since: since, pigDisplayName: pigDisplayName));
 
     return query.watch().map((rows) {
       final results = rows
@@ -132,7 +143,7 @@ class AnalyticsDao extends DatabaseAccessor<AppDatabase>
 
   Stream<List<WeightDataPoint>> watchWeightTimeSeries({
     DateTime? since,
-    String? pigId,
+    String? pigDisplayName,
   }) {
     final query =
         select(db.weightResults).join([
@@ -142,7 +153,7 @@ class AnalyticsDao extends DatabaseAccessor<AppDatabase>
             ),
           ])
           ..where(
-            _filterPredicate(since: since, pigId: pigId) &
+            _filterPredicate(since: since, pigDisplayName: pigDisplayName) &
                 db.weightResults.eligible.equals(true),
           )
           ..orderBy([OrderingTerm.asc(db.weightResults.createdAt)]);
@@ -161,7 +172,7 @@ class AnalyticsDao extends DatabaseAccessor<AppDatabase>
 
   Stream<List<HealthClassBar>> watchHealthClassBars({
     DateTime? since,
-    String? pigId,
+    String? pigDisplayName,
   }) {
     final query =
         select(db.healthResults).join([
@@ -170,7 +181,7 @@ class AnalyticsDao extends DatabaseAccessor<AppDatabase>
             db.scanRecords.id.equalsExp(db.healthResults.scanId),
           ),
         ])..where(
-          _filterPredicate(since: since, pigId: pigId) &
+          _filterPredicate(since: since, pigDisplayName: pigDisplayName) &
               db.healthResults.eligible.equals(true),
         );
 
@@ -197,9 +208,11 @@ class AnalyticsDao extends DatabaseAccessor<AppDatabase>
     });
   }
 
-  Stream<int> watchTotalScanRecords({DateTime? since, String? pigId}) {
+  Stream<int> watchTotalScanRecords({DateTime? since, String? pigDisplayName}) {
     final query = select(db.scanRecords)
-      ..where((r) => _filterPredicate(since: since, pigId: pigId));
+      ..where(
+        (r) => _filterPredicate(since: since, pigDisplayName: pigDisplayName),
+      );
     return query.watch().map((rows) => rows.length);
   }
 
@@ -207,20 +220,22 @@ class AnalyticsDao extends DatabaseAccessor<AppDatabase>
     final trimmed = query.trim().toLowerCase();
     final selectQuery = select(db.pigs)..where((p) => p.deletedAt.isNull());
     return selectQuery.watch().map((rows) {
-      return rows
-          .map((p) {
-            final name = p.displayName?.trim() ?? '';
-            final tag = p.tag?.trim() ?? '';
-            final label = name.isNotEmpty
-                ? name
-                : (tag.isNotEmpty ? tag : 'Pig ${p.id}');
-            return PigSuggestion(id: p.id, displayLabel: label);
-          })
-          .where((suggestion) {
-            if (trimmed.isEmpty) return true;
-            return suggestion.displayLabel.toLowerCase().contains(trimmed);
-          })
-          .toList();
+      final seen = <String>{};
+      final result = <PigSuggestion>[];
+      for (final p in rows) {
+        final name = p.displayName?.trim() ?? '';
+        final tag = p.tag?.trim() ?? '';
+        final label = name.isNotEmpty
+            ? name
+            : (tag.isNotEmpty ? tag : 'Pig ${p.id}');
+        if (trimmed.isNotEmpty && !label.toLowerCase().contains(trimmed)) {
+          continue;
+        }
+        if (seen.add(label)) {
+          result.add(PigSuggestion(displayName: label));
+        }
+      }
+      return result;
     });
   }
 }

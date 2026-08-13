@@ -118,4 +118,45 @@ void main() {
       expect(count, 2);
     },
   );
+
+  test(
+    'watchWeightAnalytics filters by pigDisplayName across multiple pigs',
+    () async {
+      final s1 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
+      await database.assignPig(scanId: s1, tag: 'TAG-1', displayName: 'Bella');
+      await database.saveWeightResult(
+        scanId: s1,
+        eligible: true,
+        valueKg: 80.0,
+      );
+
+      final s2 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
+      await database.assignPig(scanId: s2, tag: 'TAG-2', displayName: 'Bella');
+      await database.saveWeightResult(
+        scanId: s2,
+        eligible: true,
+        valueKg: 100.0,
+      );
+
+      final s3 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
+      await database.assignPig(scanId: s3, tag: 'TAG-3', displayName: 'Max');
+      await database.saveWeightResult(
+        scanId: s3,
+        eligible: true,
+        valueKg: 150.0,
+      );
+
+      final statsBella = await dao
+          .watchWeightAnalytics(pigDisplayName: 'Bella')
+          .first;
+      expect(statsBella.totalScans, 2);
+      expect(statsBella.averageKg, 90.0);
+
+      final statsMax = await dao
+          .watchWeightAnalytics(pigDisplayName: 'Max')
+          .first;
+      expect(statsMax.totalScans, 1);
+      expect(statsMax.averageKg, 150.0);
+    },
+  );
 }

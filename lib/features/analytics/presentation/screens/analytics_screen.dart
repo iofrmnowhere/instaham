@@ -26,8 +26,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   AnalyticsDateFilter _dateFilter = AnalyticsDateFilter.allTime;
   bool _searchOpen = false;
   String _searchQuery = '';
-  String? _selectedPigId;
-  String? _selectedPigLabel;
+  String? _selectedPigName;
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   void didChangeDependencies() {
@@ -43,12 +43,16 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   @override
   void dispose() {
+    _searchController.dispose();
     _notifier?.dispose();
     super.dispose();
   }
 
   void _applyFilters() {
-    _notifier?.setFilters(dateFilter: _dateFilter, pigId: _selectedPigId);
+    _notifier?.setFilters(
+      dateFilter: _dateFilter,
+      pigDisplayName: _selectedPigName,
+    );
   }
 
   void _cycleDateFilter() {
@@ -203,24 +207,24 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   ],
                 ),
                 IconButton(
-                  tooltip: _selectedPigId != null
-                      ? 'Pig: $_selectedPigLabel (tap to clear)'
+                  tooltip: _selectedPigName != null
+                      ? 'Pig: $_selectedPigName (tap to clear)'
                       : 'Search pig',
                   icon: Icon(
-                    _selectedPigId != null
+                    _selectedPigName != null
                         ? Icons.person
                         : (_searchOpen ? Icons.close : Icons.search),
-                    color: _selectedPigId != null
+                    color: _selectedPigName != null
                         ? AppColors.signalPink
                         : AppColors.foreground,
                   ),
                   onPressed: () {
-                    if (_selectedPigId != null) {
+                    if (_selectedPigName != null) {
                       setState(() {
-                        _selectedPigId = null;
-                        _selectedPigLabel = null;
+                        _selectedPigName = null;
                         _searchOpen = false;
                         _searchQuery = '';
+                        _searchController.clear();
                       });
                       _applyFilters();
                     } else {
@@ -228,6 +232,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         _searchOpen = !_searchOpen;
                         if (!_searchOpen) {
                           _searchQuery = '';
+                          _searchController.clear();
                         }
                       });
                     }
@@ -243,7 +248,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                'Showing $_dateFilterLabel${_selectedPigLabel != null ? ' • Pig: $_selectedPigLabel' : ''}',
+                'Showing $_dateFilterLabel${_selectedPigName != null ? ' • Pig: $_selectedPigName' : ''}',
                 style: AppTextStyles.subtext.copyWith(
                   color: AppColors.mutedForeground,
                   fontSize: 12,
@@ -261,6 +266,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     TextField(
+                      controller: _searchController,
                       autofocus: true,
                       decoration: InputDecoration(
                         hintText: 'Search pig by display name...',
@@ -268,6 +274,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         suffixIcon: IconButton(
                           icon: const Icon(Icons.clear),
                           onPressed: () {
+                            _searchController.clear();
                             setState(() {
                               _searchQuery = '';
                             });
@@ -314,8 +321,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                             ),
                             onTap: () {
                               setState(() {
-                                _selectedPigId = 'non_existent_id';
-                                _selectedPigLabel = _searchQuery;
+                                _selectedPigName = _searchQuery;
                                 _searchOpen = false;
                               });
                               _applyFilters();
@@ -334,8 +340,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                 title: Text(pig.displayLabel),
                                 onTap: () {
                                   setState(() {
-                                    _selectedPigId = pig.id;
-                                    _selectedPigLabel = pig.displayLabel;
+                                    _selectedPigName = pig.displayName;
                                     _searchOpen = false;
                                   });
                                   _applyFilters();
