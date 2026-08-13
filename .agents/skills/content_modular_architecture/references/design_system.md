@@ -162,7 +162,7 @@ lib/core/models/scan_flow.dart
 | Table | Purpose |
 |---|---|
 | `pigs` | Optional pig tag/display name and soft-delete metadata |
-| `scan_records` | Scan goal, lifecycle, image path, failure, timestamps, remote/sync state |
+| `scan_records` | Scan goal, lifecycle, image path, measurement mode, camera height, failure, timestamps, remote/sync state |
 | `reference_annotations` | Known length, normalized endpoints, source/confidence, user and floor-plane confirmation |
 | `weight_results` | Eligible output, failure reason, scale, and features in fixed `RA, LC, BL, BW, E` order |
 | `health_results` | Independent eligibility, visual class, confidence, uncertainty, and versions |

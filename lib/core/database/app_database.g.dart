@@ -470,6 +470,28 @@ class $ScanRecordsTable extends ScanRecords
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _measurementModeMeta = const VerificationMeta(
+    'measurementMode',
+  );
+  @override
+  late final GeneratedColumn<String> measurementMode = GeneratedColumn<String>(
+    'measurement_mode',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _cameraHeightCmMeta = const VerificationMeta(
+    'cameraHeightCm',
+  );
+  @override
+  late final GeneratedColumn<double> cameraHeightCm = GeneratedColumn<double>(
+    'camera_height_cm',
+    aliasedName,
+    true,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _failureCodeMeta = const VerificationMeta(
     'failureCode',
   );
@@ -577,6 +599,8 @@ class $ScanRecordsTable extends ScanRecords
     goal,
     status,
     imagePath,
+    measurementMode,
+    cameraHeightCm,
     failureCode,
     failureMessage,
     notes,
@@ -628,6 +652,24 @@ class $ScanRecordsTable extends ScanRecords
       context.handle(
         _imagePathMeta,
         imagePath.isAcceptableOrUnknown(data['image_path']!, _imagePathMeta),
+      );
+    }
+    if (data.containsKey('measurement_mode')) {
+      context.handle(
+        _measurementModeMeta,
+        measurementMode.isAcceptableOrUnknown(
+          data['measurement_mode']!,
+          _measurementModeMeta,
+        ),
+      );
+    }
+    if (data.containsKey('camera_height_cm')) {
+      context.handle(
+        _cameraHeightCmMeta,
+        cameraHeightCm.isAcceptableOrUnknown(
+          data['camera_height_cm']!,
+          _cameraHeightCmMeta,
+        ),
       );
     }
     if (data.containsKey('failure_code')) {
@@ -719,6 +761,14 @@ class $ScanRecordsTable extends ScanRecords
         DriftSqlType.string,
         data['${effectivePrefix}image_path'],
       ),
+      measurementMode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}measurement_mode'],
+      ),
+      cameraHeightCm: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}camera_height_cm'],
+      ),
       failureCode: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}failure_code'],
@@ -770,6 +820,8 @@ class ScanRecord extends DataClass implements Insertable<ScanRecord> {
   final String goal;
   final String status;
   final String? imagePath;
+  final String? measurementMode;
+  final double? cameraHeightCm;
   final String? failureCode;
   final String? failureMessage;
   final String? notes;
@@ -785,6 +837,8 @@ class ScanRecord extends DataClass implements Insertable<ScanRecord> {
     required this.goal,
     required this.status,
     this.imagePath,
+    this.measurementMode,
+    this.cameraHeightCm,
     this.failureCode,
     this.failureMessage,
     this.notes,
@@ -806,6 +860,12 @@ class ScanRecord extends DataClass implements Insertable<ScanRecord> {
     map['status'] = Variable<String>(status);
     if (!nullToAbsent || imagePath != null) {
       map['image_path'] = Variable<String>(imagePath);
+    }
+    if (!nullToAbsent || measurementMode != null) {
+      map['measurement_mode'] = Variable<String>(measurementMode);
+    }
+    if (!nullToAbsent || cameraHeightCm != null) {
+      map['camera_height_cm'] = Variable<double>(cameraHeightCm);
     }
     if (!nullToAbsent || failureCode != null) {
       map['failure_code'] = Variable<String>(failureCode);
@@ -842,6 +902,12 @@ class ScanRecord extends DataClass implements Insertable<ScanRecord> {
       imagePath: imagePath == null && nullToAbsent
           ? const Value.absent()
           : Value(imagePath),
+      measurementMode: measurementMode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(measurementMode),
+      cameraHeightCm: cameraHeightCm == null && nullToAbsent
+          ? const Value.absent()
+          : Value(cameraHeightCm),
       failureCode: failureCode == null && nullToAbsent
           ? const Value.absent()
           : Value(failureCode),
@@ -877,6 +943,8 @@ class ScanRecord extends DataClass implements Insertable<ScanRecord> {
       goal: serializer.fromJson<String>(json['goal']),
       status: serializer.fromJson<String>(json['status']),
       imagePath: serializer.fromJson<String?>(json['imagePath']),
+      measurementMode: serializer.fromJson<String?>(json['measurementMode']),
+      cameraHeightCm: serializer.fromJson<double?>(json['cameraHeightCm']),
       failureCode: serializer.fromJson<String?>(json['failureCode']),
       failureMessage: serializer.fromJson<String?>(json['failureMessage']),
       notes: serializer.fromJson<String?>(json['notes']),
@@ -897,6 +965,8 @@ class ScanRecord extends DataClass implements Insertable<ScanRecord> {
       'goal': serializer.toJson<String>(goal),
       'status': serializer.toJson<String>(status),
       'imagePath': serializer.toJson<String?>(imagePath),
+      'measurementMode': serializer.toJson<String?>(measurementMode),
+      'cameraHeightCm': serializer.toJson<double?>(cameraHeightCm),
       'failureCode': serializer.toJson<String?>(failureCode),
       'failureMessage': serializer.toJson<String?>(failureMessage),
       'notes': serializer.toJson<String?>(notes),
@@ -915,6 +985,8 @@ class ScanRecord extends DataClass implements Insertable<ScanRecord> {
     String? goal,
     String? status,
     Value<String?> imagePath = const Value.absent(),
+    Value<String?> measurementMode = const Value.absent(),
+    Value<double?> cameraHeightCm = const Value.absent(),
     Value<String?> failureCode = const Value.absent(),
     Value<String?> failureMessage = const Value.absent(),
     Value<String?> notes = const Value.absent(),
@@ -930,6 +1002,12 @@ class ScanRecord extends DataClass implements Insertable<ScanRecord> {
     goal: goal ?? this.goal,
     status: status ?? this.status,
     imagePath: imagePath.present ? imagePath.value : this.imagePath,
+    measurementMode: measurementMode.present
+        ? measurementMode.value
+        : this.measurementMode,
+    cameraHeightCm: cameraHeightCm.present
+        ? cameraHeightCm.value
+        : this.cameraHeightCm,
     failureCode: failureCode.present ? failureCode.value : this.failureCode,
     failureMessage: failureMessage.present
         ? failureMessage.value
@@ -949,6 +1027,12 @@ class ScanRecord extends DataClass implements Insertable<ScanRecord> {
       goal: data.goal.present ? data.goal.value : this.goal,
       status: data.status.present ? data.status.value : this.status,
       imagePath: data.imagePath.present ? data.imagePath.value : this.imagePath,
+      measurementMode: data.measurementMode.present
+          ? data.measurementMode.value
+          : this.measurementMode,
+      cameraHeightCm: data.cameraHeightCm.present
+          ? data.cameraHeightCm.value
+          : this.cameraHeightCm,
       failureCode: data.failureCode.present
           ? data.failureCode.value
           : this.failureCode,
@@ -975,6 +1059,8 @@ class ScanRecord extends DataClass implements Insertable<ScanRecord> {
           ..write('goal: $goal, ')
           ..write('status: $status, ')
           ..write('imagePath: $imagePath, ')
+          ..write('measurementMode: $measurementMode, ')
+          ..write('cameraHeightCm: $cameraHeightCm, ')
           ..write('failureCode: $failureCode, ')
           ..write('failureMessage: $failureMessage, ')
           ..write('notes: $notes, ')
@@ -995,6 +1081,8 @@ class ScanRecord extends DataClass implements Insertable<ScanRecord> {
     goal,
     status,
     imagePath,
+    measurementMode,
+    cameraHeightCm,
     failureCode,
     failureMessage,
     notes,
@@ -1014,6 +1102,8 @@ class ScanRecord extends DataClass implements Insertable<ScanRecord> {
           other.goal == this.goal &&
           other.status == this.status &&
           other.imagePath == this.imagePath &&
+          other.measurementMode == this.measurementMode &&
+          other.cameraHeightCm == this.cameraHeightCm &&
           other.failureCode == this.failureCode &&
           other.failureMessage == this.failureMessage &&
           other.notes == this.notes &&
@@ -1031,6 +1121,8 @@ class ScanRecordsCompanion extends UpdateCompanion<ScanRecord> {
   final Value<String> goal;
   final Value<String> status;
   final Value<String?> imagePath;
+  final Value<String?> measurementMode;
+  final Value<double?> cameraHeightCm;
   final Value<String?> failureCode;
   final Value<String?> failureMessage;
   final Value<String?> notes;
@@ -1047,6 +1139,8 @@ class ScanRecordsCompanion extends UpdateCompanion<ScanRecord> {
     this.goal = const Value.absent(),
     this.status = const Value.absent(),
     this.imagePath = const Value.absent(),
+    this.measurementMode = const Value.absent(),
+    this.cameraHeightCm = const Value.absent(),
     this.failureCode = const Value.absent(),
     this.failureMessage = const Value.absent(),
     this.notes = const Value.absent(),
@@ -1064,6 +1158,8 @@ class ScanRecordsCompanion extends UpdateCompanion<ScanRecord> {
     required String goal,
     this.status = const Value.absent(),
     this.imagePath = const Value.absent(),
+    this.measurementMode = const Value.absent(),
+    this.cameraHeightCm = const Value.absent(),
     this.failureCode = const Value.absent(),
     this.failureMessage = const Value.absent(),
     this.notes = const Value.absent(),
@@ -1082,6 +1178,8 @@ class ScanRecordsCompanion extends UpdateCompanion<ScanRecord> {
     Expression<String>? goal,
     Expression<String>? status,
     Expression<String>? imagePath,
+    Expression<String>? measurementMode,
+    Expression<double>? cameraHeightCm,
     Expression<String>? failureCode,
     Expression<String>? failureMessage,
     Expression<String>? notes,
@@ -1099,6 +1197,8 @@ class ScanRecordsCompanion extends UpdateCompanion<ScanRecord> {
       if (goal != null) 'goal': goal,
       if (status != null) 'status': status,
       if (imagePath != null) 'image_path': imagePath,
+      if (measurementMode != null) 'measurement_mode': measurementMode,
+      if (cameraHeightCm != null) 'camera_height_cm': cameraHeightCm,
       if (failureCode != null) 'failure_code': failureCode,
       if (failureMessage != null) 'failure_message': failureMessage,
       if (notes != null) 'notes': notes,
@@ -1118,6 +1218,8 @@ class ScanRecordsCompanion extends UpdateCompanion<ScanRecord> {
     Value<String>? goal,
     Value<String>? status,
     Value<String?>? imagePath,
+    Value<String?>? measurementMode,
+    Value<double?>? cameraHeightCm,
     Value<String?>? failureCode,
     Value<String?>? failureMessage,
     Value<String?>? notes,
@@ -1135,6 +1237,8 @@ class ScanRecordsCompanion extends UpdateCompanion<ScanRecord> {
       goal: goal ?? this.goal,
       status: status ?? this.status,
       imagePath: imagePath ?? this.imagePath,
+      measurementMode: measurementMode ?? this.measurementMode,
+      cameraHeightCm: cameraHeightCm ?? this.cameraHeightCm,
       failureCode: failureCode ?? this.failureCode,
       failureMessage: failureMessage ?? this.failureMessage,
       notes: notes ?? this.notes,
@@ -1165,6 +1269,12 @@ class ScanRecordsCompanion extends UpdateCompanion<ScanRecord> {
     }
     if (imagePath.present) {
       map['image_path'] = Variable<String>(imagePath.value);
+    }
+    if (measurementMode.present) {
+      map['measurement_mode'] = Variable<String>(measurementMode.value);
+    }
+    if (cameraHeightCm.present) {
+      map['camera_height_cm'] = Variable<double>(cameraHeightCm.value);
     }
     if (failureCode.present) {
       map['failure_code'] = Variable<String>(failureCode.value);
@@ -1207,6 +1317,8 @@ class ScanRecordsCompanion extends UpdateCompanion<ScanRecord> {
           ..write('goal: $goal, ')
           ..write('status: $status, ')
           ..write('imagePath: $imagePath, ')
+          ..write('measurementMode: $measurementMode, ')
+          ..write('cameraHeightCm: $cameraHeightCm, ')
           ..write('failureCode: $failureCode, ')
           ..write('failureMessage: $failureMessage, ')
           ..write('notes: $notes, ')
@@ -5823,6 +5935,8 @@ typedef $$ScanRecordsTableCreateCompanionBuilder =
       required String goal,
       Value<String> status,
       Value<String?> imagePath,
+      Value<String?> measurementMode,
+      Value<double?> cameraHeightCm,
       Value<String?> failureCode,
       Value<String?> failureMessage,
       Value<String?> notes,
@@ -5841,6 +5955,8 @@ typedef $$ScanRecordsTableUpdateCompanionBuilder =
       Value<String> goal,
       Value<String> status,
       Value<String?> imagePath,
+      Value<String?> measurementMode,
+      Value<double?> cameraHeightCm,
       Value<String?> failureCode,
       Value<String?> failureMessage,
       Value<String?> notes,
@@ -5987,6 +6103,16 @@ class $$ScanRecordsTableFilterComposer
 
   ColumnFilters<String> get imagePath => $composableBuilder(
     column: $table.imagePath,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get measurementMode => $composableBuilder(
+    column: $table.measurementMode,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get cameraHeightCm => $composableBuilder(
+    column: $table.cameraHeightCm,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -6188,6 +6314,16 @@ class $$ScanRecordsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get measurementMode => $composableBuilder(
+    column: $table.measurementMode,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get cameraHeightCm => $composableBuilder(
+    column: $table.cameraHeightCm,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get failureCode => $composableBuilder(
     column: $table.failureCode,
     builder: (column) => ColumnOrderings(column),
@@ -6277,6 +6413,16 @@ class $$ScanRecordsTableAnnotationComposer
 
   GeneratedColumn<String> get imagePath =>
       $composableBuilder(column: $table.imagePath, builder: (column) => column);
+
+  GeneratedColumn<String> get measurementMode => $composableBuilder(
+    column: $table.measurementMode,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<double> get cameraHeightCm => $composableBuilder(
+    column: $table.cameraHeightCm,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<String> get failureCode => $composableBuilder(
     column: $table.failureCode,
@@ -6475,6 +6621,8 @@ class $$ScanRecordsTableTableManager
                 Value<String> goal = const Value.absent(),
                 Value<String> status = const Value.absent(),
                 Value<String?> imagePath = const Value.absent(),
+                Value<String?> measurementMode = const Value.absent(),
+                Value<double?> cameraHeightCm = const Value.absent(),
                 Value<String?> failureCode = const Value.absent(),
                 Value<String?> failureMessage = const Value.absent(),
                 Value<String?> notes = const Value.absent(),
@@ -6491,6 +6639,8 @@ class $$ScanRecordsTableTableManager
                 goal: goal,
                 status: status,
                 imagePath: imagePath,
+                measurementMode: measurementMode,
+                cameraHeightCm: cameraHeightCm,
                 failureCode: failureCode,
                 failureMessage: failureMessage,
                 notes: notes,
@@ -6509,6 +6659,8 @@ class $$ScanRecordsTableTableManager
                 required String goal,
                 Value<String> status = const Value.absent(),
                 Value<String?> imagePath = const Value.absent(),
+                Value<String?> measurementMode = const Value.absent(),
+                Value<double?> cameraHeightCm = const Value.absent(),
                 Value<String?> failureCode = const Value.absent(),
                 Value<String?> failureMessage = const Value.absent(),
                 Value<String?> notes = const Value.absent(),
@@ -6525,6 +6677,8 @@ class $$ScanRecordsTableTableManager
                 goal: goal,
                 status: status,
                 imagePath: imagePath,
+                measurementMode: measurementMode,
+                cameraHeightCm: cameraHeightCm,
                 failureCode: failureCode,
                 failureMessage: failureMessage,
                 notes: notes,

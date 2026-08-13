@@ -10,7 +10,6 @@ import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/widgets/app_scaffold.dart';
 import '../../data/capture_preferences.dart';
-import '../widgets/height_mode_alignment.dart';
 import '../widgets/height_mode_settings.dart';
 import '../widgets/reference_object_picker.dart';
 
@@ -86,7 +85,11 @@ class _CaptureScreenState extends State<CaptureScreen> {
         ),
         child: HeightModeSettings(
           value: _cameraHeight ?? 0.0,
-          onChange: (newHeight) {},
+          onChange: (newHeight) {
+            if (!mounted) return;
+            setState(() => _cameraHeight = newHeight);
+            CapturePreferences.saveHeight(newHeight);
+          },
           onNext: () => Navigator.pop(sheetContext),
           onBack: () => Navigator.pop(sheetContext),
         ),
@@ -169,7 +172,14 @@ class _CaptureScreenState extends State<CaptureScreen> {
     }
     setState(() => _saving = true);
     final id = await _ensureSession();
-    await _database!.markCaptured(id, imagePath: widget.initialArgs?.imagePath);
+    await _database!.markCaptured(
+      id,
+      imagePath: widget.initialArgs?.imagePath,
+      measurementMode: _mode,
+      cameraHeightCm: _mode == MeasurementMode.fixedHeight
+          ? _cameraHeight
+          : null,
+    );
     if (!mounted) return;
     setState(() {
       _saving = false;
@@ -273,10 +283,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
                 if (_mode == MeasurementMode.referenceObject)
                   CustomPaint(painter: _DorsalGuidePainter())
                 else
-                  HeightModeAlignment(
-                    onConfirm: _capture,
-                    onBack: _openHeightConfig,
-                  ),
+                  CustomPaint(painter: _HeightGuidePainter()),
                 Positioned(
                   left: 16,
                   right: 16,
@@ -602,6 +609,44 @@ class _DorsalGuidePainter extends CustomPainter {
     );
     canvas.drawCircle(Offset(size.width * 0.2, size.height * 0.25), 8, paint);
     canvas.drawCircle(Offset(size.width * 0.2, size.height * 0.75), 8, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _HeightGuidePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.45)
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.stroke;
+
+    final bodyRect = Rect.fromCenter(
+      center: Offset(size.width / 2, size.height / 2),
+      width: size.width * 0.52,
+      height: size.height * 0.52,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(bodyRect, const Radius.circular(24)),
+      paint,
+    );
+    canvas.drawCircle(Offset(size.width / 2, bodyRect.top - 24), 30, paint);
+
+    final linePaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.2)
+      ..strokeWidth = 1.0;
+    canvas.drawLine(
+      Offset(0, size.height * 0.25),
+      Offset(size.width, size.height * 0.25),
+      linePaint,
+    );
+    canvas.drawLine(
+      Offset(0, size.height * 0.75),
+      Offset(size.width, size.height * 0.75),
+      linePaint,
+    );
   }
 
   @override

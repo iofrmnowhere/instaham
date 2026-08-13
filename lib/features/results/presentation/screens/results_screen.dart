@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/database/app_database.dart';
 import '../../../../core/database/database_scope.dart';
 import '../../../../core/models/local_scan_bundle.dart';
+import '../../../../core/models/measurement_mode.dart';
 import '../../../../core/models/scan_flow.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
@@ -242,6 +243,37 @@ class _ResultsScreenState extends State<ResultsScreen> {
                     ),
                   ),
                   child: const Text('Review'),
+                ),
+              ],
+            ),
+          ),
+        ],
+        if (bundle.scan.measurementMode == MeasurementMode.fixedHeight.name &&
+            bundle.scan.cameraHeightCm != null) ...[
+          const SizedBox(height: 12),
+          AppCard(
+            child: Row(
+              children: [
+                const Icon(Icons.height, color: AppColors.signalPink),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Camera height used',
+                        style: AppTextStyles.subtext.copyWith(
+                          color: AppColors.mutedForeground,
+                        ),
+                      ),
+                      Text(
+                        '${bundle.scan.cameraHeightCm!.toStringAsFixed(1)} cm',
+                        style: AppTextStyles.label.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),

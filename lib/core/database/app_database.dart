@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../features/analytics/data/analytics_dao.dart';
 import '../../features/capture/data/custom_references_dao.dart';
 import '../../features/records/data/records_dao.dart';
+import '../models/measurement_mode.dart';
 import '../models/scan_flow.dart';
 
 part 'app_database.g.dart';
@@ -30,6 +31,8 @@ class ScanRecords extends Table {
   TextColumn get status =>
       text().withDefault(const Constant(ScanStatuses.draft))();
   TextColumn get imagePath => text().nullable()();
+  TextColumn get measurementMode => text().nullable()();
+  RealColumn get cameraHeightCm => real().nullable()();
   TextColumn get failureCode => text().nullable()();
   TextColumn get failureMessage => text().nullable()();
   TextColumn get notes => text().nullable()();
@@ -172,7 +175,7 @@ class AppDatabase extends _$AppDatabase {
   static final Random _random = Random.secure();
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -180,6 +183,10 @@ class AppDatabase extends _$AppDatabase {
     onUpgrade: (migrator, from, to) async {
       if (from < 2) {
         await migrator.createTable(customReferences);
+      }
+      if (from < 3) {
+        await migrator.addColumn(scanRecords, scanRecords.measurementMode);
+        await migrator.addColumn(scanRecords, scanRecords.cameraHeightCm);
       }
     },
     beforeOpen: (_) async {
@@ -244,12 +251,19 @@ class AppDatabase extends _$AppDatabase {
     return id;
   }
 
-  Future<void> markCaptured(String scanId, {String? imagePath}) async {
+  Future<void> markCaptured(
+    String scanId, {
+    String? imagePath,
+    MeasurementMode? measurementMode,
+    double? cameraHeightCm,
+  }) async {
     final now = DateTime.now();
     await (update(scanRecords)..where((row) => row.id.equals(scanId))).write(
       ScanRecordsCompanion(
         status: const Value(ScanStatuses.captured),
         imagePath: Value(imagePath),
+        measurementMode: Value(measurementMode?.name),
+        cameraHeightCm: Value(cameraHeightCm),
         capturedAt: Value(now),
         updatedAt: Value(now),
       ),

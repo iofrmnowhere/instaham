@@ -13,6 +13,7 @@ A living document to track the implementation progress of the INSTAHAM Flutter a
 
 - [x] **Capture Mode Selector:** Added persistent toggle for "Reference Mode" vs "Height Mode" during capture, removing the deprecated "Health Only" mode.
 - [x] **Custom Reference Objects:** Implemented in-place UI form for adding custom reference objects and persisted them locally in Drift via `CustomReferencesDao`.
+- [x] **Height Mode Persistence & UI:** Cleaned up height mode capture UI, migrated database to track `measurementMode` and `cameraHeightCm`, and added height mode card to scan details.
 
 ## 🟡 In Progress / Next Up
 - [ ] **Camera Flow:** Implement `CaptureScreen` and `CaptureGuidanceScreen` with `camera` plugin.
