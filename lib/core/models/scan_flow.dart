@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'measurement_mode.dart';
 
 enum ScanGoal { weightAndHealth }
@@ -70,6 +72,7 @@ class ScanFlowArgs {
   final double? cameraHeightCm;
   final ReferenceSelection? reference;
   final String? imagePath;
+  final Uint8List? imageBytes;
   final int? imageWidthPx;
   final int? imageHeightPx;
   final ReferenceSuggestion? suggestion;
@@ -81,6 +84,7 @@ class ScanFlowArgs {
     this.cameraHeightCm,
     this.reference,
     this.imagePath,
+    this.imageBytes,
     this.imageWidthPx,
     this.imageHeightPx,
     this.suggestion,
@@ -93,6 +97,7 @@ class ScanFlowArgs {
     double? cameraHeightCm,
     ReferenceSelection? reference,
     String? imagePath,
+    Uint8List? imageBytes,
     int? imageWidthPx,
     int? imageHeightPx,
     ReferenceSuggestion? suggestion,
@@ -106,6 +111,7 @@ class ScanFlowArgs {
       cameraHeightCm: cameraHeightCm ?? this.cameraHeightCm,
       reference: clearReference ? null : reference ?? this.reference,
       imagePath: imagePath ?? this.imagePath,
+      imageBytes: imageBytes ?? this.imageBytes,
       imageWidthPx: imageWidthPx ?? this.imageWidthPx,
       imageHeightPx: imageHeightPx ?? this.imageHeightPx,
       suggestion: clearSuggestion ? null : suggestion ?? this.suggestion,

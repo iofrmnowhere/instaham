@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -313,7 +314,10 @@ class _ReferenceMarkingScreenState extends State<ReferenceMarkingScreen> {
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          _ReferencePhoto(path: widget.args.imagePath),
+                          _ReferencePhoto(
+                            path: widget.args.imagePath,
+                            bytes: widget.args.imageBytes,
+                          ),
                           if (_pins.length == 2)
                             CustomPaint(
                               painter: _ReferenceLinePainter(
@@ -487,12 +491,16 @@ class _ReferenceMarkingScreenState extends State<ReferenceMarkingScreen> {
 
 class _ReferencePhoto extends StatelessWidget {
   final String? path;
+  final Uint8List? bytes;
 
-  const _ReferencePhoto({this.path});
+  const _ReferencePhoto({this.path, this.bytes});
 
   @override
   Widget build(BuildContext context) {
-    if (path != null && File(path!).existsSync()) {
+    if (bytes != null) {
+      return Image.memory(bytes!, fit: BoxFit.contain);
+    }
+    if (!kIsWeb && path != null && File(path!).existsSync()) {
       return Image.file(File(path!), fit: BoxFit.contain);
     }
     return ColoredBox(

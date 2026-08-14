@@ -1,3 +1,4 @@
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -9,6 +10,8 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/widgets/app_scaffold.dart';
+import '../../../../core/utils/captured_image_result.dart';
+import '../../../../core/utils/image_service.dart';
 import '../../data/capture_preferences.dart';
 import '../widgets/height_mode_settings.dart';
 import '../widgets/reference_object_picker.dart';
@@ -22,7 +25,8 @@ class CaptureScreen extends StatefulWidget {
   State<CaptureScreen> createState() => _CaptureScreenState();
 }
 
-class _CaptureScreenState extends State<CaptureScreen> {
+class _CaptureScreenState extends State<CaptureScreen>
+    with WidgetsBindingObserver {
   MeasurementMode _mode = MeasurementMode.referenceObject;
   late ReferenceSelection? _reference = widget.initialArgs?.reference;
   late double? _cameraHeight = widget.initialArgs?.cameraHeightCm;
@@ -31,6 +35,85 @@ class _CaptureScreenState extends State<CaptureScreen> {
   bool _initialized = false;
   bool _reviewingPhoto = false;
   bool _saving = false;
+
+  List<CameraDescription> _cameras = const [];
+  CameraController? _cameraController;
+  bool _isCameraInitializing = true;
+  bool _cameraError = false;
+  CapturedImageResult? _capturedResult;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _initCamera();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _cameraController?.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) {
+      return;
+    }
+
+    if (state == AppLifecycleState.inactive) {
+      controller.dispose();
+    } else if (state == AppLifecycleState.resumed) {
+      _initCamera();
+    }
+  }
+
+  Future<void> _initCamera() async {
+    try {
+      _cameras = await availableCameras();
+      if (_cameras.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _isCameraInitializing = false;
+            _cameraError = true;
+          });
+        }
+        return;
+      }
+
+      final camera = _cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.back,
+        orElse: () => _cameras.first,
+      );
+
+      final controller = CameraController(
+        camera,
+        ResolutionPreset.high,
+        enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.jpeg,
+      );
+
+      _cameraController = controller;
+      await controller.initialize();
+
+      if (mounted) {
+        setState(() {
+          _isCameraInitializing = false;
+          _cameraError = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('CaptureScreen: Camera initialization error: $e');
+      if (mounted) {
+        setState(() {
+          _isCameraInitializing = false;
+          _cameraError = true;
+        });
+      }
+    }
+  }
 
   @override
   void didChangeDependencies() {
@@ -170,21 +253,111 @@ class _CaptureScreenState extends State<CaptureScreen> {
       await _openHeightConfig();
       return;
     }
+
     setState(() => _saving = true);
-    final id = await _ensureSession();
-    await _database!.markCaptured(
-      id,
-      imagePath: widget.initialArgs?.imagePath,
-      measurementMode: _mode,
-      cameraHeightCm: _mode == MeasurementMode.fixedHeight
-          ? _cameraHeight
-          : null,
-    );
-    if (!mounted) return;
-    setState(() {
-      _saving = false;
-      _reviewingPhoto = true;
-    });
+
+    try {
+      CapturedImageResult? result;
+
+      if (_cameraController != null &&
+          _cameraController!.value.isInitialized &&
+          !_cameraController!.value.isTakingPicture) {
+        final xFile = await _cameraController!.takePicture();
+        result = await ImageService.processCapture(xFile);
+      } else {
+        // Fallback for environments without live controller (web/desktop)
+        result = await ImageService.pickFromCamera();
+      }
+
+      if (result == null) {
+        if (mounted) setState(() => _saving = false);
+        return;
+      }
+
+      final id = await _ensureSession();
+      await _database!.markCaptured(
+        id,
+        imagePath: result.localPath,
+        measurementMode: _mode,
+        cameraHeightCm: _mode == MeasurementMode.fixedHeight
+            ? _cameraHeight
+            : null,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _capturedResult = result;
+        _reviewingPhoto = true;
+      });
+    } catch (e) {
+      debugPrint('Capture error: $e');
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to capture photo: $e')));
+      }
+    }
+  }
+
+  Future<void> _pickFromGallery() async {
+    if (_mode == MeasurementMode.referenceObject && _reference == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Choose the known reference object before choosing photo.',
+          ),
+        ),
+      );
+      await _openReferenceConfig();
+      return;
+    }
+    if (_mode == MeasurementMode.fixedHeight &&
+        (_cameraHeight == null || _cameraHeight! <= 0)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Set camera height before choosing photo.'),
+        ),
+      );
+      await _openHeightConfig();
+      return;
+    }
+
+    setState(() => _saving = true);
+
+    try {
+      final result = await ImageService.pickFromGallery();
+      if (result == null) {
+        if (mounted) setState(() => _saving = false);
+        return;
+      }
+
+      final id = await _ensureSession();
+      await _database!.markCaptured(
+        id,
+        imagePath: result.localPath,
+        measurementMode: _mode,
+        cameraHeightCm: _mode == MeasurementMode.fixedHeight
+            ? _cameraHeight
+            : null,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _capturedResult = result;
+        _reviewingPhoto = true;
+      });
+    } catch (e) {
+      debugPrint('Gallery pick error: $e');
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to pick photo: $e')));
+      }
+    }
   }
 
   Future<void> _usePhoto() async {
@@ -195,9 +368,12 @@ class _CaptureScreenState extends State<CaptureScreen> {
       measurementMode: _mode,
       cameraHeightCm: _cameraHeight,
       reference: _reference,
-      imagePath: widget.initialArgs?.imagePath,
-      imageWidthPx: widget.initialArgs?.imageWidthPx,
-      imageHeightPx: widget.initialArgs?.imageHeightPx,
+      imagePath: _capturedResult?.localPath ?? widget.initialArgs?.imagePath,
+      imageBytes: _capturedResult?.bytes ?? widget.initialArgs?.imageBytes,
+      imageWidthPx:
+          _capturedResult?.widthPx ?? widget.initialArgs?.imageWidthPx,
+      imageHeightPx:
+          _capturedResult?.heightPx ?? widget.initialArgs?.imageHeightPx,
       suggestion: widget.initialArgs?.suggestion,
     );
     if (!mounted) return;
@@ -259,27 +435,64 @@ class _CaptureScreenState extends State<CaptureScreen> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                Container(
-                  color: const Color(0xFF171717),
-                  alignment: Alignment.center,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.camera_alt_outlined,
-                        size: 56,
-                        color: Colors.white.withValues(alpha: 0.35),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Live camera preview',
-                        style: AppTextStyles.subtext.copyWith(
-                          color: Colors.white60,
+                if (_cameraController != null &&
+                    _cameraController!.value.isInitialized)
+                  ClipRect(
+                    child: Center(child: CameraPreview(_cameraController!)),
+                  )
+                else if (_isCameraInitializing)
+                  Container(
+                    color: const Color(0xFF171717),
+                    alignment: Alignment.center,
+                    child: const Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(color: Colors.white54),
+                        SizedBox(height: 12),
+                        Text(
+                          'Starting camera...',
+                          style: TextStyle(color: Colors.white70),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
+                  )
+                else
+                  Container(
+                    color: const Color(0xFF171717),
+                    alignment: Alignment.center,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.camera_alt_outlined,
+                          size: 56,
+                          color: Colors.white.withValues(alpha: 0.35),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _cameraError
+                              ? 'Camera unavailable — tap shutter or choose from gallery'
+                              : 'Tap shutter to capture or pick image',
+                          textAlign: TextAlign.center,
+                          style: AppTextStyles.subtext.copyWith(
+                            color: Colors.white60,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextButton.icon(
+                          onPressed: _pickFromGallery,
+                          icon: const Icon(
+                            Icons.photo_library_outlined,
+                            color: Colors.white70,
+                          ),
+                          label: const Text(
+                            'Choose from gallery',
+                            style: TextStyle(color: Colors.white70),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
                 if (_mode == MeasurementMode.referenceObject)
                   CustomPaint(painter: _DorsalGuidePainter())
                 else
@@ -370,10 +583,10 @@ class _CaptureScreenState extends State<CaptureScreen> {
                 SizedBox(
                   width: 64,
                   child: IconButton(
-                    tooltip: 'Capture tips',
-                    onPressed: _showGuidance,
+                    tooltip: 'Choose from gallery',
+                    onPressed: _saving ? null : _pickFromGallery,
                     icon: const Icon(
-                      Icons.tips_and_updates_outlined,
+                      Icons.photo_library_outlined,
                       color: Colors.white70,
                     ),
                   ),
@@ -440,6 +653,9 @@ class _CaptureScreenState extends State<CaptureScreen> {
   }
 
   Widget _buildReview() {
+    final previewBytes =
+        _capturedResult?.bytes ?? widget.initialArgs?.imageBytes;
+
     return Column(
       children: [
         Container(
@@ -467,22 +683,27 @@ class _CaptureScreenState extends State<CaptureScreen> {
               color: const Color(0xFF202020),
               borderRadius: BorderRadius.circular(AppRadius.lg),
             ),
+            clipBehavior: Clip.antiAlias,
             alignment: Alignment.center,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.photo_camera_back_outlined,
-                  size: 56,
-                  color: Colors.white54,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Captured photo preview',
-                  style: AppTextStyles.label.copyWith(color: Colors.white70),
-                ),
-              ],
-            ),
+            child: previewBytes != null
+                ? Image.memory(previewBytes, fit: BoxFit.contain)
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.photo_camera_back_outlined,
+                        size: 56,
+                        color: Colors.white54,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Captured photo preview',
+                        style: AppTextStyles.label.copyWith(
+                          color: Colors.white70,
+                        ),
+                      ),
+                    ],
+                  ),
           ),
         ),
         Padding(

@@ -15,8 +15,7 @@ A living document to track the implementation progress of the INSTAHAM Flutter a
 - [x] **Custom Reference Objects:** Implemented in-place UI form for adding custom reference objects and persisted them locally in Drift via `CustomReferencesDao`.
 - [x] **Height Mode Persistence & UI:** Cleaned up height mode capture UI, migrated database to track `measurementMode` and `cameraHeightCm`, and added height mode card to scan details.
 
-## 🟡 In Progress / Next Up
-- [ ] **Camera Flow:** Implement `CaptureScreen` and `CaptureGuidanceScreen` with `camera` plugin.
+- [x] **Camera Flow:** Integrated `camera` plugin with live viewfinder, permission configurations for Android/iOS, EXIF orientation correction via `ImageService`, `image_picker` fallback/gallery support, review flow, and byte forwarding into `ReferenceMarkingScreen`.
 
 ## 🔴 To Do (ML Pipeline & Inference)
 - [ ] **Pipeline Orchestration:** Implement the `InferencePipeline` class to manage the sequence of models.
