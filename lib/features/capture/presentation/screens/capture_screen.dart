@@ -12,6 +12,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/widgets/app_scaffold.dart';
 import '../../../../core/utils/captured_image_result.dart';
 import '../../../../core/utils/image_service.dart';
+import '../../../../core/utils/length_units.dart';
 import '../../data/capture_preferences.dart';
 import '../widgets/height_mode_settings.dart';
 import '../widgets/reference_object_picker.dart';
@@ -28,6 +29,7 @@ class CaptureScreen extends StatefulWidget {
 class _CaptureScreenState extends State<CaptureScreen>
     with WidgetsBindingObserver {
   MeasurementMode _mode = MeasurementMode.referenceObject;
+  LengthUnit _unit = LengthUnit.cm;
   late ReferenceSelection? _reference = widget.initialArgs?.reference;
   late double? _cameraHeight = widget.initialArgs?.cameraHeightCm;
   String? _sessionId;
@@ -131,6 +133,7 @@ class _CaptureScreenState extends State<CaptureScreen>
   Future<void> _loadPreferences() async {
     final savedRef = await CapturePreferences.loadReference();
     final savedHeight = await CapturePreferences.loadHeight();
+    final savedUnit = await CapturePreferences.loadUnit();
     if (!mounted) return;
     setState(() {
       if (_reference == null && savedRef != null) {
@@ -139,7 +142,14 @@ class _CaptureScreenState extends State<CaptureScreen>
       if (_cameraHeight == null && savedHeight != null) {
         _cameraHeight = savedHeight;
       }
+      _unit = savedUnit;
     });
+  }
+
+  void _updateUnit(LengthUnit newUnit) {
+    if (_unit == newUnit) return;
+    setState(() => _unit = newUnit);
+    CapturePreferences.saveUnit(newUnit);
   }
 
   Future<String> _createSession() async {
@@ -151,7 +161,11 @@ class _CaptureScreenState extends State<CaptureScreen>
   Future<String> _ensureSession() async => _sessionId ?? _createSession();
 
   Future<void> _openReferenceConfig() async {
-    final result = await ReferenceObjectPicker.showAsBottomSheet(context);
+    final result = await ReferenceObjectPicker.showAsBottomSheet(
+      context,
+      unit: _unit,
+      onUnitChanged: _updateUnit,
+    );
     if (!mounted || result == null) return;
     setState(() => _reference = result);
     await CapturePreferences.saveReference(result);
@@ -168,6 +182,8 @@ class _CaptureScreenState extends State<CaptureScreen>
         ),
         child: HeightModeSettings(
           value: _cameraHeight ?? 0.0,
+          unit: _unit,
+          onUnitChanged: _updateUnit,
           onChange: (newHeight) {
             if (!mounted) return;
             setState(() => _cameraHeight = newHeight);
@@ -518,7 +534,7 @@ class _CaptureScreenState extends State<CaptureScreen>
                           label: Text(
                             _reference == null
                                 ? 'Set reference'
-                                : '${_reference!.name} · ${_reference!.lengthCm.toStringAsFixed(0)} cm',
+                                : '${_reference!.name} · ${_unit.format(_reference!.lengthCm)} ${_unit.label}',
                           ),
                           onPressed: _openReferenceConfig,
                           backgroundColor: Colors.white,
@@ -538,7 +554,7 @@ class _CaptureScreenState extends State<CaptureScreen>
                           label: Text(
                             _cameraHeight == null || _cameraHeight! <= 0
                                 ? 'Set height'
-                                : 'Height: ${_cameraHeight!.toStringAsFixed(0)} cm',
+                                : 'Height: ${_unit.format(_cameraHeight!)} ${_unit.label}',
                           ),
                           onPressed: _openHeightConfig,
                           backgroundColor: Colors.white,
@@ -547,7 +563,7 @@ class _CaptureScreenState extends State<CaptureScreen>
                     ],
                   ),
                 ),
-                Positioned(
+                /*Positioned(
                   left: 20,
                   right: 20,
                   bottom: 18,
@@ -563,7 +579,7 @@ class _CaptureScreenState extends State<CaptureScreen>
                     child: Text(
                       _mode == MeasurementMode.referenceObject
                           ? 'One pig · dorsal view · full body and reference visible'
-                          : 'Hold camera ${_cameraHeight?.toStringAsFixed(0) ?? '?'} cm above the pig',
+                          : 'Hold camera ${_cameraHeight != null ? _unit.format(_cameraHeight!) : '?'} ${_unit.label} above the pig',
                       textAlign: TextAlign.center,
                       style: AppTextStyles.label.copyWith(
                         color: Colors.white,
@@ -571,7 +587,7 @@ class _CaptureScreenState extends State<CaptureScreen>
                       ),
                     ),
                   ),
-                ),
+                ),*/
               ],
             ),
           ),

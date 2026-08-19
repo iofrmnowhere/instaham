@@ -1,11 +1,13 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/models/scan_flow.dart';
+import '../../../../core/utils/length_units.dart';
 
 abstract final class CapturePreferences {
   static const _keyRefType = 'cap_ref_type';
   static const _keyRefName = 'cap_ref_name';
   static const _keyRefLengthCm = 'cap_ref_length_cm';
   static const _keyHeightCm = 'cap_height_cm';
+  static const _keyUnit = 'cap_length_unit';
 
   static Future<void> saveReference(ReferenceSelection reference) async {
     final prefs = await SharedPreferences.getInstance();
@@ -38,5 +40,19 @@ abstract final class CapturePreferences {
       return heightCm;
     }
     return null;
+  }
+
+  static Future<void> saveUnit(LengthUnit unit) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyUnit, unit.name);
+  }
+
+  static Future<LengthUnit> loadUnit() async {
+    final prefs = await SharedPreferences.getInstance();
+    final unitStr = prefs.getString(_keyUnit);
+    if (unitStr == LengthUnit.inch.name) {
+      return LengthUnit.inch;
+    }
+    return LengthUnit.cm;
   }
 }

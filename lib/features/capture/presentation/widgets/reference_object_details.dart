@@ -4,13 +4,19 @@ import '../../../../core/models/scan_flow.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/length_units.dart';
+import 'unit_toggle.dart';
 
 class ReferenceObjectDetails extends StatefulWidget {
+  final LengthUnit unit;
+  final ValueChanged<LengthUnit> onUnitChanged;
   final ValueChanged<ReferenceSelection> onConfirm;
   final VoidCallback onBack;
 
   const ReferenceObjectDetails({
     super.key,
+    this.unit = LengthUnit.cm,
+    required this.onUnitChanged,
     required this.onConfirm,
     required this.onBack,
   });
@@ -22,7 +28,14 @@ class ReferenceObjectDetails extends StatefulWidget {
 class _ReferenceObjectDetailsState extends State<ReferenceObjectDetails> {
   final _nameController = TextEditingController();
   final _lengthController = TextEditingController();
+  late LengthUnit _currentUnit;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentUnit = widget.unit;
+  }
 
   @override
   void dispose() {
@@ -31,19 +44,36 @@ class _ReferenceObjectDetailsState extends State<ReferenceObjectDetails> {
     super.dispose();
   }
 
+  void _switchUnit(LengthUnit newUnit) {
+    if (_currentUnit == newUnit) return;
+    final currentText = _lengthController.text.trim();
+    if (currentText.isNotEmpty) {
+      final parsed = double.tryParse(currentText);
+      if (parsed != null && parsed > 0) {
+        final cm = _currentUnit.toCm(parsed);
+        _lengthController.text = newUnit.format(cm);
+      }
+    }
+    setState(() {
+      _currentUnit = newUnit;
+    });
+    widget.onUnitChanged(newUnit);
+  }
+
   void _submit() {
     final length = double.tryParse(_lengthController.text.trim());
     if (length == null || !length.isFinite || length <= 0) {
       setState(() => _error = 'Enter a positive measured length.');
       return;
     }
+    final lengthCm = _currentUnit.toCm(length);
     widget.onConfirm(
       ReferenceSelection(
         type: 'custom',
         name: _nameController.text.trim().isEmpty
             ? 'Custom reference'
             : _nameController.text.trim(),
-        lengthCm: length,
+        lengthCm: lengthCm,
       ),
     );
   }
@@ -102,9 +132,17 @@ class _ReferenceObjectDetailsState extends State<ReferenceObjectDetails> {
               ),
             ),
             const SizedBox(height: 14),
-            Text(
-              'Known length',
-              style: AppTextStyles.label.copyWith(fontWeight: FontWeight.w600),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Known length',
+                  style: AppTextStyles.label.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                UnitToggle(selected: _currentUnit, onChanged: _switchUnit),
+              ],
             ),
             const SizedBox(height: 6),
             TextField(
@@ -116,7 +154,7 @@ class _ReferenceObjectDetailsState extends State<ReferenceObjectDetails> {
               onSubmitted: (_) => _submit(),
               decoration: InputDecoration(
                 hintText: '0.0',
-                suffixText: 'cm',
+                suffixText: _currentUnit.label,
                 errorText: _error,
                 border: const OutlineInputBorder(),
               ),
