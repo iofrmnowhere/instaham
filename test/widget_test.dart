@@ -30,7 +30,7 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.text('Choose reference object'), findsOneWidget);
+    expect(find.text('Choose reference'), findsOneWidget);
     expect(find.text('Add reference object'), findsOneWidget);
 
     await tester.tap(find.text('1-meter stick'));

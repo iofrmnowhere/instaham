@@ -8,4 +8,12 @@ class ViewResultEntity {
 
   bool get isDorsalValid => label == 'dorsal_valid';
   bool get isReject => label == 'reject';
+
+  Map<String, dynamic> toJson() => {'label': label, 'confidence': confidence};
+
+  factory ViewResultEntity.fromJson(Map<String, dynamic> json) =>
+      ViewResultEntity(
+        label: json['label'] as String,
+        confidence: (json['confidence'] as num).toDouble(),
+      );
 }

@@ -151,24 +151,24 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
                   child: Material(
                     type: MaterialType.transparency,
                     child: SwitchListTile.adaptive(
-                    contentPadding: EdgeInsets.zero,
-                    value: _researchSharing,
-                    activeTrackColor: AppColors.signalPink,
-                    onChanged: (value) =>
-                        setState(() => _researchSharing = value),
-                    title: Text(
-                      'Research image sharing',
-                      style: AppTextStyles.label.copyWith(
-                        fontWeight: FontWeight.w700,
+                      contentPadding: EdgeInsets.zero,
+                      value: _researchSharing,
+                      activeTrackColor: AppColors.signalPink,
+                      onChanged: (value) =>
+                          setState(() => _researchSharing = value),
+                      title: Text(
+                        'Research image sharing',
+                        style: AppTextStyles.label.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      subtitle: Text(
+                        'Allow captured images to be uploaded for future model improvement. This is never required for local scanning.',
+                        style: AppTextStyles.subtext.copyWith(
+                          color: AppColors.mutedForeground,
+                        ),
                       ),
                     ),
-                    subtitle: Text(
-                      'Allow captured images to be uploaded for future model improvement. This is never required for local scanning.',
-                      style: AppTextStyles.subtext.copyWith(
-                        color: AppColors.mutedForeground,
-                      ),
-                    ),
-                  ),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -176,24 +176,24 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
                   child: Material(
                     type: MaterialType.transparency,
                     child: SwitchListTile.adaptive(
-                    contentPadding: EdgeInsets.zero,
-                    value: _usageAnalytics,
-                    activeTrackColor: AppColors.signalPink,
-                    onChanged: (value) =>
-                        setState(() => _usageAnalytics = value),
-                    title: Text(
-                      'Usage analytics',
-                      style: AppTextStyles.label.copyWith(
-                        fontWeight: FontWeight.w700,
+                      contentPadding: EdgeInsets.zero,
+                      value: _usageAnalytics,
+                      activeTrackColor: AppColors.signalPink,
+                      onChanged: (value) =>
+                          setState(() => _usageAnalytics = value),
+                      title: Text(
+                        'Usage analytics',
+                        style: AppTextStyles.label.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      subtitle: Text(
+                        'Share app interaction and performance events. Scan images and model outputs are excluded unless separately authorized.',
+                        style: AppTextStyles.subtext.copyWith(
+                          color: AppColors.mutedForeground,
+                        ),
                       ),
                     ),
-                    subtitle: Text(
-                      'Share app interaction and performance events. Scan images and model outputs are excluded unless separately authorized.',
-                      style: AppTextStyles.subtext.copyWith(
-                        color: AppColors.mutedForeground,
-                      ),
-                    ),
-                  ),
                   ),
                 ),
                 const SizedBox(height: 10),

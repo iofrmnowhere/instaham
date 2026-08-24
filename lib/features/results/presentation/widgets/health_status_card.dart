@@ -36,7 +36,9 @@ class HealthStatusCard extends StatelessWidget {
                 children: [
                   Text(
                     label,
-                    style: AppTextStyles.subtext.copyWith(color: AppColors.mutedForeground),
+                    style: AppTextStyles.subtext.copyWith(
+                      color: AppColors.mutedForeground,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Row(
@@ -54,7 +56,9 @@ class HealthStatusCard extends StatelessWidget {
                         const SizedBox(width: 4),
                         Text(
                           unit!,
-                          style: AppTextStyles.subtext.copyWith(color: AppColors.mutedForeground),
+                          style: AppTextStyles.subtext.copyWith(
+                            color: AppColors.mutedForeground,
+                          ),
                         ),
                       ],
                     ],
@@ -68,7 +72,9 @@ class HealthStatusCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               subtext!,
-              style: AppTextStyles.subtext.copyWith(color: AppColors.mutedForeground),
+              style: AppTextStyles.subtext.copyWith(
+                color: AppColors.mutedForeground,
+              ),
             ),
           ],
         ],

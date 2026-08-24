@@ -18,46 +18,50 @@ abstract final class AppRadius {
 
 abstract final class AppTheme {
   static ThemeData get light => ThemeData(
-        useMaterial3: true,
-        scaffoldBackgroundColor: AppColors.background,
-        colorScheme: const ColorScheme.light(
-          primary: AppColors.signalPink,
-          onPrimary: Colors.white,
-          surface: AppColors.background,
-          onSurface: AppColors.foreground,
-          error: AppColors.destructive,
-          onError: Colors.white,
+    useMaterial3: true,
+    scaffoldBackgroundColor: AppColors.background,
+    colorScheme: const ColorScheme.light(
+      primary: AppColors.signalPink,
+      onPrimary: Colors.white,
+      surface: AppColors.background,
+      onSurface: AppColors.foreground,
+      error: AppColors.destructive,
+      onError: Colors.white,
+    ),
+    cardTheme: CardThemeData(
+      color: AppColors.card,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        side: const BorderSide(color: AppColors.border),
+      ),
+      elevation: 0,
+    ),
+    textTheme: TextTheme(
+      headlineMedium: AppTextStyles.headline,
+      bodyMedium: AppTextStyles.body,
+      labelMedium: AppTextStyles.label,
+      bodySmall: AppTextStyles.subtext,
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.signalPink,
+        foregroundColor: Colors.white,
+        minimumSize: const Size.fromHeight(48),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
         ),
-        cardTheme: CardThemeData(
-          color: AppColors.card,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppRadius.lg),
-            side: const BorderSide(color: AppColors.border),
-          ),
-          elevation: 0,
+        elevation: 0,
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: AppColors.foreground,
+        minimumSize: const Size.fromHeight(48),
+        side: const BorderSide(color: AppColors.border),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
         ),
-        textTheme: TextTheme(
-          headlineMedium: AppTextStyles.headline,
-          bodyMedium: AppTextStyles.body,
-          labelMedium: AppTextStyles.label,
-          bodySmall: AppTextStyles.subtext,
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.signalPink,
-            foregroundColor: Colors.white,
-            minimumSize: const Size.fromHeight(48),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-            elevation: 0,
-          ),
-        ),
-        outlinedButtonTheme: OutlinedButtonThemeData(
-          style: OutlinedButton.styleFrom(
-            foregroundColor: AppColors.foreground,
-            minimumSize: const Size.fromHeight(48),
-            side: const BorderSide(color: AppColors.border),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-          ),
-        ),
-      );
+      ),
+    ),
+  );
 }

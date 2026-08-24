@@ -25,7 +25,10 @@ class UncertainResultScreen extends StatelessWidget {
               icon: const Icon(Icons.chevron_left),
               onPressed: () => context.go('/measurements'),
             ),
-            Text('Analysis Results', style: AppTextStyles.headline.copyWith(fontSize: 20)),
+            Text(
+              'Analysis Results',
+              style: AppTextStyles.headline.copyWith(fontSize: 20),
+            ),
           ],
         ),
       ),
@@ -46,7 +49,9 @@ class UncertainResultScreen extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       'Scan Photo',
-                      style: AppTextStyles.subtext.copyWith(color: AppColors.mutedForeground),
+                      style: AppTextStyles.subtext.copyWith(
+                        color: AppColors.mutedForeground,
+                      ),
                     ),
                   ],
                 ),
@@ -58,11 +63,17 @@ class UncertainResultScreen extends StatelessWidget {
           // Quality Warning Card
           AppCard(
             backgroundColor: AppColors.uncertain.withValues(alpha: 0.1),
-            border: Border.all(color: AppColors.uncertain.withValues(alpha: 0.3)),
+            border: Border.all(
+              color: AppColors.uncertain.withValues(alpha: 0.3),
+            ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.error_outline, size: 20, color: AppColors.blocked),
+                const Icon(
+                  Icons.error_outline,
+                  size: 20,
+                  color: AppColors.blocked,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -78,7 +89,9 @@ class UncertainResultScreen extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         'Lighting or pig positioning may affect accuracy. Review results carefully or retake.',
-                        style: AppTextStyles.subtext.copyWith(color: AppColors.blocked),
+                        style: AppTextStyles.subtext.copyWith(
+                          color: AppColors.blocked,
+                        ),
                       ),
                     ],
                   ),
@@ -88,7 +101,10 @@ class UncertainResultScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
 
-          Text('Measurements', style: AppTextStyles.label.copyWith(fontWeight: FontWeight.w600)),
+          Text(
+            'Measurements',
+            style: AppTextStyles.label.copyWith(fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 12),
 
           const HealthStatusCard(
@@ -116,7 +132,9 @@ class UncertainResultScreen extends StatelessWidget {
                   onPressed: () => context.push('/capture'),
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size.fromHeight(48),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.lg),
+                    ),
                   ),
                   child: const Text('Retake'),
                 ),
@@ -128,7 +146,9 @@ class UncertainResultScreen extends StatelessWidget {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.signalPink,
                     minimumSize: const Size.fromHeight(48),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.lg),
+                    ),
                   ),
                   child: const Text('Submit Anyway'),
                 ),
@@ -141,7 +161,9 @@ class UncertainResultScreen extends StatelessWidget {
             onPressed: () => context.push('/capture-guidance'),
             style: OutlinedButton.styleFrom(
               minimumSize: const Size.fromHeight(48),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadius.lg),
+              ),
             ),
             child: const Text('Get Tips for Better Results'),
           ),

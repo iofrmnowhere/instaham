@@ -18,11 +18,16 @@ class MeasurementsScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Measurements', style: AppTextStyles.headline.copyWith(fontSize: 24)),
+            Text(
+              'Measurements',
+              style: AppTextStyles.headline.copyWith(fontSize: 24),
+            ),
             const SizedBox(height: 2),
             Text(
               'Capture and track measurements',
-              style: AppTextStyles.subtext.copyWith(color: AppColors.mutedForeground),
+              style: AppTextStyles.subtext.copyWith(
+                color: AppColors.mutedForeground,
+              ),
             ),
           ],
         ),
@@ -40,14 +45,23 @@ class MeasurementsScreen extends StatelessWidget {
                   color: AppColors.signalPink.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.camera_alt_outlined, size: 32, color: AppColors.signalPink),
+                child: const Icon(
+                  Icons.camera_alt_outlined,
+                  size: 32,
+                  color: AppColors.signalPink,
+                ),
               ),
               const SizedBox(height: 16),
-              Text('Start a New Scan', style: AppTextStyles.headline.copyWith(fontSize: 20)),
+              Text(
+                'Start a New Scan',
+                style: AppTextStyles.headline.copyWith(fontSize: 20),
+              ),
               const SizedBox(height: 6),
               Text(
                 'Position your pig and tap below to begin capturing measurements',
-                style: AppTextStyles.subtext.copyWith(color: AppColors.mutedForeground),
+                style: AppTextStyles.subtext.copyWith(
+                  color: AppColors.mutedForeground,
+                ),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 24),
@@ -56,7 +70,9 @@ class MeasurementsScreen extends StatelessWidget {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.signalPink,
                   minimumSize: const Size.fromHeight(48),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.lg),
+                  ),
                 ),
                 child: const Text('Start Capture'),
               ),

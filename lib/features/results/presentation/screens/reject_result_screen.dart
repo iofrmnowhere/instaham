@@ -26,18 +26,27 @@ class RejectResultScreen extends StatelessWidget {
                   color: AppColors.destructive.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.warning_amber_rounded, size: 32, color: AppColors.destructive),
+                child: const Icon(
+                  Icons.warning_amber_rounded,
+                  size: 32,
+                  color: AppColors.destructive,
+                ),
               ),
             ),
             const SizedBox(height: 16),
             Center(
-              child: Text('Scan Failed', style: AppTextStyles.headline.copyWith(fontSize: 24)),
+              child: Text(
+                'Scan Failed',
+                style: AppTextStyles.headline.copyWith(fontSize: 24),
+              ),
             ),
             const SizedBox(height: 4),
             Center(
               child: Text(
                 "We couldn't process this image. See details below.",
-                style: AppTextStyles.subtext.copyWith(color: AppColors.mutedForeground),
+                style: AppTextStyles.subtext.copyWith(
+                  color: AppColors.mutedForeground,
+                ),
                 textAlign: TextAlign.center,
               ),
             ),
@@ -46,7 +55,9 @@ class RejectResultScreen extends StatelessWidget {
             // Error Details Card
             AppCard(
               backgroundColor: AppColors.destructive.withValues(alpha: 0.05),
-              border: Border.all(color: AppColors.destructive.withValues(alpha: 0.2)),
+              border: Border.all(
+                color: AppColors.destructive.withValues(alpha: 0.2),
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -71,7 +82,12 @@ class RejectResultScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('How to fix it:', style: AppTextStyles.label.copyWith(fontWeight: FontWeight.w600)),
+                  Text(
+                    'How to fix it:',
+                    style: AppTextStyles.label.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   const SizedBox(height: 8),
                   _buildFixItem('Move to a brighter location'),
                   _buildFixItem('Position pig side-on to camera'),
@@ -89,7 +105,9 @@ class RejectResultScreen extends StatelessWidget {
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.signalPink,
                 minimumSize: const Size.fromHeight(48),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                ),
               ),
             ),
             const SizedBox(height: 8),
@@ -97,7 +115,9 @@ class RejectResultScreen extends StatelessWidget {
               onPressed: () => context.push('/capture'),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size.fromHeight(48),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                ),
               ),
               child: const Text('Retake Photo'),
             ),
@@ -117,7 +137,10 @@ class RejectResultScreen extends StatelessWidget {
           Expanded(
             child: Text(
               text,
-              style: AppTextStyles.body.copyWith(fontSize: 13, color: AppColors.destructive),
+              style: AppTextStyles.body.copyWith(
+                fontSize: 13,
+                color: AppColors.destructive,
+              ),
             ),
           ),
         ],
@@ -131,7 +154,11 @@ class RejectResultScreen extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.check_circle_outline, size: 16, color: AppColors.success),
+          const Icon(
+            Icons.check_circle_outline,
+            size: 16,
+            color: AppColors.success,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(text, style: AppTextStyles.body.copyWith(fontSize: 13)),

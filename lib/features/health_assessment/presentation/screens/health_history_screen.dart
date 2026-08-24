@@ -16,11 +16,16 @@ class HealthHistoryScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Health', style: AppTextStyles.headline.copyWith(fontSize: 24)),
+            Text(
+              'Health',
+              style: AppTextStyles.headline.copyWith(fontSize: 24),
+            ),
             const SizedBox(height: 2),
             Text(
               'Monitor herd health status',
-              style: AppTextStyles.subtext.copyWith(color: AppColors.mutedForeground),
+              style: AppTextStyles.subtext.copyWith(
+                color: AppColors.mutedForeground,
+              ),
             ),
           ],
         ),
@@ -38,7 +43,11 @@ class HealthHistoryScreen extends StatelessWidget {
                   color: AppColors.signalPink.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.favorite_outline, size: 32, color: AppColors.signalPink),
+                child: const Icon(
+                  Icons.favorite_outline,
+                  size: 32,
+                  color: AppColors.signalPink,
+                ),
               ),
               const SizedBox(height: 16),
               Text(
@@ -48,7 +57,9 @@ class HealthHistoryScreen extends StatelessWidget {
               const SizedBox(height: 6),
               Text(
                 'All animals in your herd are in good health status',
-                style: AppTextStyles.subtext.copyWith(color: AppColors.mutedForeground),
+                style: AppTextStyles.subtext.copyWith(
+                  color: AppColors.mutedForeground,
+                ),
                 textAlign: TextAlign.center,
               ),
             ],

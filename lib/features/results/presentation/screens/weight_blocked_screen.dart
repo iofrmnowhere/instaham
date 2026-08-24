@@ -25,7 +25,10 @@ class WeightBlockedScreen extends StatelessWidget {
               icon: const Icon(Icons.chevron_left),
               onPressed: () => context.go('/measurements'),
             ),
-            Text('Analysis Results', style: AppTextStyles.headline.copyWith(fontSize: 20)),
+            Text(
+              'Analysis Results',
+              style: AppTextStyles.headline.copyWith(fontSize: 20),
+            ),
           ],
         ),
       ),
@@ -46,7 +49,9 @@ class WeightBlockedScreen extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       'Scan Photo',
-                      style: AppTextStyles.subtext.copyWith(color: AppColors.mutedForeground),
+                      style: AppTextStyles.subtext.copyWith(
+                        color: AppColors.mutedForeground,
+                      ),
                     ),
                   ],
                 ),
@@ -55,7 +60,10 @@ class WeightBlockedScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
 
-          Text('Measurements', style: AppTextStyles.label.copyWith(fontWeight: FontWeight.w600)),
+          Text(
+            'Measurements',
+            style: AppTextStyles.label.copyWith(fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 12),
 
           // Blocked Weight Card
@@ -65,13 +73,22 @@ class WeightBlockedScreen extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.lock_outline, size: 20, color: Colors.orange.shade900),
+                Icon(
+                  Icons.lock_outline,
+                  size: 20,
+                  color: Colors.orange.shade900,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Weight', style: AppTextStyles.subtext.copyWith(color: AppColors.mutedForeground)),
+                      Text(
+                        'Weight',
+                        style: AppTextStyles.subtext.copyWith(
+                          color: AppColors.mutedForeground,
+                        ),
+                      ),
                       const SizedBox(height: 2),
                       Text(
                         'Unavailable',
@@ -83,7 +100,9 @@ class WeightBlockedScreen extends StatelessWidget {
                       const SizedBox(height: 6),
                       Text(
                         'Reference object was not detected. Include it in your next scan for weight measurement.',
-                        style: AppTextStyles.subtext.copyWith(color: Colors.orange.shade900),
+                        style: AppTextStyles.subtext.copyWith(
+                          color: Colors.orange.shade900,
+                        ),
                       ),
                       const SizedBox(height: 12),
                       OutlinedButton(
@@ -91,7 +110,9 @@ class WeightBlockedScreen extends StatelessWidget {
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.orange.shade900,
                           side: BorderSide(color: Colors.orange.shade300),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.sm),
+                          ),
                         ),
                         child: const Text('Try Again'),
                       ),
@@ -119,12 +140,18 @@ class WeightBlockedScreen extends StatelessWidget {
             border: Border.all(color: Colors.blue.shade200),
             child: Row(
               children: [
-                Icon(Icons.error_outline, size: 20, color: Colors.blue.shade900),
+                Icon(
+                  Icons.error_outline,
+                  size: 20,
+                  color: Colors.blue.shade900,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     'Health assessment is complete. Retake with your reference object to get weight measurements.',
-                    style: AppTextStyles.subtext.copyWith(color: Colors.blue.shade900),
+                    style: AppTextStyles.subtext.copyWith(
+                      color: Colors.blue.shade900,
+                    ),
                   ),
                 ),
               ],
@@ -139,7 +166,9 @@ class WeightBlockedScreen extends StatelessWidget {
                   onPressed: () => context.go('/measurements'),
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size.fromHeight(48),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.lg),
+                    ),
                   ),
                   child: const Text('Done'),
                 ),
@@ -151,7 +180,9 @@ class WeightBlockedScreen extends StatelessWidget {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.signalPink,
                     minimumSize: const Size.fromHeight(48),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.lg),
+                    ),
                   ),
                   child: const Text('Retake'),
                 ),
