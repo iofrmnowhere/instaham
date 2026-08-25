@@ -47,7 +47,7 @@ lib/
 └── features/                     # Self-contained feature modules
     ├── capture/                  # Camera/gallery image intake
     ├── inference_pipeline/       # Orchestrates the full image→result pipeline
-    ├── view_suitability/         # dorsal_valid / health_only / reject routing
+    ├── view_suitability/         # dorsal_valid / reject routing
     ├── health_assessment/        # Health classification + uncertainty handling
     ├── segmentation/             # YOLO mask extraction + eligibility checks
     ├── weight_estimation/        # Reference UI, feature extraction, XGBoost
@@ -107,9 +107,10 @@ features/<feature>/
 
 ### `view_suitability/`
 - Runs the MobileNetV4 view model.
-- Returns one of: `dorsal_valid`, `health_only`, `reject`.
+- Returns one of: `dorsal_valid`, `reject`.
+- `dorsal_valid` enables both health and weight branches. `reject` (or low-confidence) stops the pipeline immediately.
 - Reads class mapping from `classes.json` — never hardcodes indices.
-- Routes the pipeline based on confidence thresholds from `thresholds.json`.
+- Routes the pipeline based on a configurable confidence threshold (default 0.70).
 
 ### `health_assessment/`
 - Runs the health classifier (MobileNetV4-Conv-Small / ShuffleNetV2 / GhostNetV3).

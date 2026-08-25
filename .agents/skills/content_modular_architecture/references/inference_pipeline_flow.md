@@ -1,6 +1,8 @@
 # Inference Pipeline Flow Reference
 
-Detailed breakdown of the orchestrated pipeline as defined in Section 4 of the requirements.
+Detailed breakdown of the orchestrated pipeline as defined in `run_inference_pipeline_use_case.dart`.
+The view-suitability model uses two labels: `dorsal_valid` and `reject`.
+A low-confidence result (below `viewConfidenceThreshold`, default 0.70) is treated as `reject`.
 
 ## Step-by-step
 
@@ -17,13 +19,13 @@ CapturedImageEntity
     │ - Input: 224×224 center-cropped, ImageNet normalized
     │ - Returns: ViewResultEntity { label, confidence }
     │
-    ├── label == 'reject' → PipelineResultEntity { eligible=false, failureReason }
+    ├── label == 'reject' OR confidence < viewConfidenceThreshold
+    │     └── PipelineResultEntity { view: reject, health: null, weight: null }
     │
-    ├── label == 'health_only'
-    │     └── [3a] HealthClassifyUseCase → HealthResultEntity
-    │
-    └── label == 'dorsal_valid'
+    └── label == 'dorsal_valid' (high-confidence)
           ├── [3a] HealthClassifyUseCase → HealthResultEntity
+          │       (runs independently; failure sets eligible=false but does not block weight)
+          │
           └── [3b] SegmentationUseCase → SegmentationResultEntity
                       │
                       ├── Any eligibility check fails
