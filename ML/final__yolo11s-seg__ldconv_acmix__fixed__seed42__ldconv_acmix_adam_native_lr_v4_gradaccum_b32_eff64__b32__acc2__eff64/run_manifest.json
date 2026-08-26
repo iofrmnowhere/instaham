@@ -1,0 +1,55 @@
+{
+  "created_utc": "2026-08-21T13:48:40.015134+00:00",
+  "task": "segmentation_final_candidate",
+  "model": "yolo11s-seg.pt",
+  "seed": 42,
+  "config": {
+    "models": [
+      "yolo11n-seg.pt",
+      "yolo11s-seg.pt",
+      "yolo26n-seg.pt",
+      "yolo26s-seg.pt"
+    ],
+    "image_size": 640,
+    "epochs": 200,
+    "batch_size": 32,
+    "optimizer": "Adam",
+    "learning_rate": 0.01,
+    "patience": 30,
+    "seeds": [
+      42
+    ],
+    "cache": "disk",
+    "modification": {
+      "enabled": true,
+      "ldconv_num_param": 5,
+      "acmix_kernel_att": 7,
+      "acmix_heads": 4,
+      "acmix_kernel_conv": 3
+    },
+    "workers": 4,
+    "lr_schedule": {
+      "name": "ultralytics_native_linear",
+      "lr0": 0.01,
+      "lrf": 0.01,
+      "cos_lr": false,
+      "warmup_epochs": 3.0,
+      "source": "Notebook 5 winning-baseline args.yaml"
+    },
+    "physical_batch_size": 32,
+    "nominal_batch_size": 64,
+    "effective_batch_size": 64,
+    "gradient_accumulation_steps_target": 2,
+    "amp": true,
+    "protocol_version": "baseline_winner_vs_ldconv_acmix_adam_native_lr_v4_gradaccum_b32_eff64",
+    "candidate_variant": "ldconv_acmix",
+    "neck_modification": {
+      "ldconv_num_param": 5,
+      "acmix_kernel_att": 7,
+      "acmix_heads": 4,
+      "acmix_kernel_conv": 3
+    }
+  },
+  "dataset_manifest": "/Instaham/artifacts/manifests/segmentation_evaluation_manifest.csv",
+  "notes": []
+}
