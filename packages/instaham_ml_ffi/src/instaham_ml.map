@@ -1,0 +1,8 @@
+# ELF version script — export only the stable C ABI, hide everything else
+# (ONNX Runtime / OpenCV symbols stay internal to libinstaham_ml.so).
+{
+  global:
+    instaham_ml_*;
+  local:
+    *;
+};

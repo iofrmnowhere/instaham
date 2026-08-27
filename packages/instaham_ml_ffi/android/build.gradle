@@ -1,0 +1,48 @@
+group = "com.instaham.instaham_ml_ffi"
+version = "0.0.1"
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle:8.3.0")
+    }
+}
+
+rootProject.allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply(plugin = "com.android.library")
+
+android {
+    namespace = "com.instaham.instaham_ml_ffi"
+    compileSdk = 34
+    ndkVersion = "26.1.10909125"
+
+    defaultConfig {
+        minSdk = 24  // ONNX Runtime Mobile floor
+        externalNativeBuild {
+            cmake {
+                arguments += listOf(
+                    "-DANDROID_STL=c++_shared",
+                    "-DINSTAHAM_ML_WITH_ORT=OFF",     // flip ON in slice 2
+                    "-DINSTAHAM_ML_WITH_OPENCV=OFF",  // flip ON in slice 4
+                )
+                cppFlags += "-std=c++17"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("../src/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+}

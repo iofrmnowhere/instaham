@@ -1,0 +1,28 @@
+# Regenerate with:  dart run ffigen --config ffigen.yaml
+# Output is committed so the app builds without a local libclang.
+name: InstahamMlBindings
+description: Generated dart:ffi bindings for instaham_ml.h
+output: "lib/instaham_ml_bindings_generated.dart"
+ffi-native:
+headers:
+  entry-points:
+    - "src/include/instaham_ml.h"
+  include-directives:
+    - "**instaham_ml.h"
+functions:
+  include:
+    - "instaham_ml_.*"
+structs:
+  include:
+    - "InstahamMl.*"
+enums:
+  include:
+    - "InstahamMl.*"
+  rename:
+    "InstahamMlStatus": "MlStatus"
+comments:
+  style: any
+  length: full
+preamble: |
+  // GENERATED — do not edit by hand. Source: src/include/instaham_ml.h
+  // ignore_for_file: type=lint, non_constant_identifier_names, camel_case_types, unused_field
