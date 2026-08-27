@@ -61,3 +61,7 @@ android/key.properties
 *.tflite
 *.onnx
 *.mlmodel
+
+# Analysis & Visualizer output
+graphify-out/
+
