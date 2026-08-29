@@ -22,6 +22,28 @@ extern "C" {
 
 #define INSTAHAM_ML_ABI_VERSION 1
 
+/*
+ * Marks the C ABI as publicly visible.
+ *
+ * The build compiles with -fvisibility=hidden (CMakeLists' C/CXX_VISIBILITY_PRESET) so that
+ * ONNX Runtime's and stb's symbols stay internal to this .so. Hidden visibility is applied
+ * by the COMPILER and cannot be undone by the linker version script -- a symbol compiled
+ * hidden is internalized and never reaches .dynsym, so instaham_ml.map's `global:` clause
+ * has nothing left to promote. Without this attribute every entry point below vanished,
+ * -Wl,--gc-sections then dropped the now-unreferenced implementation, and the .so linked to
+ * ~9 KB of nothing -- dlsym failing at runtime with "undefined symbol: instaham_ml_create".
+ *
+ * Hidden-by-default plus an explicit default on exactly these functions is what actually
+ * implements TASKS.md's "clear entry point": the ABI is the only thing callable from
+ * outside, and models/helpers cannot be reached around it. The version script stays as a
+ * second, independent guard.
+ */
+#if defined(_WIN32)
+#define INSTAHAM_ML_API __declspec(dllexport)
+#else
+#define INSTAHAM_ML_API __attribute__((visibility("default")))
+#endif
+
 typedef struct InstahamMlContext InstahamMlContext;
 
 typedef enum {
@@ -44,16 +66,16 @@ typedef enum {
  * verified before any ORT session is created. On success *out_ctx is a heap context the
  * caller owns and must release with instaham_ml_destroy.
  */
-InstahamMlStatus instaham_ml_create(const char* manifest_path, InstahamMlContext** out_ctx);
-void             instaham_ml_destroy(InstahamMlContext* ctx);
+INSTAHAM_ML_API InstahamMlStatus instaham_ml_create(const char* manifest_path, InstahamMlContext** out_ctx);
+INSTAHAM_ML_API void             instaham_ml_destroy(InstahamMlContext* ctx);
 
 /* ---- diagnostics ---------------------------------------------------------- */
 
-int32_t     instaham_ml_abi_version(void);
-const char* instaham_ml_build_info(void);  /* static; e.g. "ort=1.17.1 opencv=4.9 commit=abcdef" */
+INSTAHAM_ML_API int32_t     instaham_ml_abi_version(void);
+INSTAHAM_ML_API const char* instaham_ml_build_info(void);  /* static; e.g. "ort=1.17.1 opencv=4.9 commit=abcdef" */
 
 /* Thread-local. Valid until the next instaham_ml_* call on the same thread. */
-const char* instaham_ml_last_error(void);
+INSTAHAM_ML_API const char* instaham_ml_last_error(void);
 
 /* ---- result strings ----------------------------------------------------- */
 
@@ -62,13 +84,13 @@ const char* instaham_ml_last_error(void);
  * ({"status":"error"|"unavailable","error_code":<int>,"message":<str>}). The caller MUST
  * free it with instaham_ml_string_free.
  */
-void instaham_ml_string_free(char* s);
+INSTAHAM_ML_API void instaham_ml_string_free(char* s);
 
 /* ---- capabilities ------------------------------------------------------ */
 
 /* Returns 1 iff `capability` ("view"|"health"|"segmentation"|"weight") exists in the
  * manifest AND its "available" flag is true; 0 otherwise. */
-int32_t instaham_ml_capability_available(InstahamMlContext* ctx, const char* capability);
+INSTAHAM_ML_API int32_t instaham_ml_capability_available(InstahamMlContext* ctx, const char* capability);
 
 /* ---- inference -------------------------------------------------------- */
 
@@ -79,9 +101,20 @@ int32_t instaham_ml_capability_available(InstahamMlContext* ctx, const char* cap
 
 /* {"status":"ok","label":<str>,"confidence":<num>,"probabilities":{<cls>:<num>,...},
  *  "class_map_sha256":<str>,"protocol_version":<str>} */
-InstahamMlStatus instaham_ml_classify_view_json(
+INSTAHAM_ML_API InstahamMlStatus instaham_ml_classify_view_json(
     InstahamMlContext* ctx, const char* image_path, char** out_json);
-InstahamMlStatus instaham_ml_classify_health_json(
+INSTAHAM_ML_API InstahamMlStatus instaham_ml_classify_health_json(
+    InstahamMlContext* ctx, const char* image_path, char** out_json);
+
+/* Added slice 3/4 (additive; ABI_VERSION unchanged per the contract above -- only a
+ * breaking signature change bumps it). Detection only: is there a pig, how confident, how
+ * many survived NMS. Does not decode the mask/coefficients into pixels or map them back to
+ * source-image coordinates -- that is the geometry-port work the weight branch still needs.
+ *   {"status":"ok","pig_count":<int>,"confidence":<num>,"mask_available":<bool>,
+ *    "protocol_version":<str>}
+ * When the manifest's segmentation.available flag is false: INSTAHAM_ML_ERR_UNAVAILABLE +
+ * {"status":"unavailable","reason":<str>,"capability":"segmentation"}. */
+INSTAHAM_ML_API InstahamMlStatus instaham_ml_segment_json(
     InstahamMlContext* ctx, const char* image_path, char** out_json);
 
 /*
@@ -95,7 +128,7 @@ InstahamMlStatus instaham_ml_classify_health_json(
  * When the manifest's weight.available flag is false: returns INSTAHAM_ML_ERR_UNAVAILABLE
  * and {"status":"unavailable","reason":"body_mask_port_incomplete",...}.
  */
-InstahamMlStatus instaham_ml_predict_weight_json(
+INSTAHAM_ML_API InstahamMlStatus instaham_ml_predict_weight_json(
     InstahamMlContext* ctx, const char* image_path, char** out_json);
 
 /*
@@ -104,7 +137,7 @@ InstahamMlStatus instaham_ml_predict_weight_json(
  * while weight estimation is unavailable.
  *   {"status":"provisional","features":{...},"qc":{...},"segmentation_confidence":<num>}
  */
-InstahamMlStatus instaham_ml_extract_features_provisional_json(
+INSTAHAM_ML_API InstahamMlStatus instaham_ml_extract_features_provisional_json(
     InstahamMlContext* ctx, const char* image_path, char** out_json);
 
 #ifdef __cplusplus

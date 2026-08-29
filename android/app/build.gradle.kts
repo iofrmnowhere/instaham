@@ -7,7 +7,10 @@ plugins {
 android {
     namespace = "com.instaham.instaham"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    // Pinned to match packages/instaham_ml_ffi/android/build.gradle.kts -- a mismatched NDK
+    // version between the app module and a native plugin module can make AGP pick one or
+    // the other inconsistently across build variants.
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

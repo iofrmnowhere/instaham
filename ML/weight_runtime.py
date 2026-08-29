@@ -4,15 +4,23 @@ from __future__ import annotations
 InstaHAM final weight-inference wrapper.
 
 This file intentionally does NOT reimplement the research pipeline. It imports
-and executes the frozen project modules under src/:
+and executes the consolidated project modules (ML_implementation_plan.md revision 5,
+section 5.5.1 -- updated from the pre-consolidation src.* imports):
 
 RGB image
   -> selected YOLO checkpoint
-  -> src.yolo_inference.predict_largest_mask()
-  -> src.body_mask.isolate_body_only_mask()
-  -> selected 5- or 16-feature extractor
+  -> ML.parity.reference_yolo.predict_largest_mask()
+  -> ML.pig_cutter.isolate_body_only_mask()   [ships on Android, Chaquopy; not ported]
+  -> selected 5- or 16-feature extractor      [ML.pig_geometry, ported to C++]
   -> final XGBoost model
   -> estimated weight (kg)
+
+Note: this class also expects a src/configs/project.yaml + src/ project tree
+(_find_project_root) that does not exist in this repository -- it was written for a
+separate training environment and is not directly runnable here. It is kept and
+repointed as the reference orchestrator section 5.1 describes: it maps to C++
+pipeline/ + core/manifest, not to geometry/, and is not part of the consolidation
+this revision performs.
 """
 
 import hashlib
@@ -142,14 +150,21 @@ class WeightEstimator:
         from src.config import load_project_config, resolve_path
         from src.common import get_device, to_yolo_device
         import src.yolo_modifications as yolo_modifications
-        from src.yolo_inference import MASK_COORDINATE_PROTOCOL, predict_largest_mask
-        from src.body_mask import (
+        # Consolidated (ML_implementation_plan.md revision 5, section 5.5.1). The four
+        # frozen modules these used to come from -- yolo_inference, body_mask,
+        # mask_features, extended_mask_features -- are deleted; predict_largest_mask
+        # moved to ML.parity.reference_yolo (it loads/runs a model, so it was never a
+        # geometry helper), and the geometry/QC functions now come from exactly two
+        # files: ML.pig_cutter (the head/neck cutter, ships on Android) and
+        # ML.pig_geometry (everything else, the C++ port's reference).
+        from ML.parity.reference_yolo import MASK_COORDINATE_PROTOCOL, predict_largest_mask
+        from ML.pig_cutter import (
             BODY_MASK_PROTOCOL_VERSION,
             BODY_MASK_METHOD,
             isolate_body_only_mask,
         )
-        from src.mask_features import extract_five_features
-        from src.extended_mask_features import (
+        from ML.pig_geometry import extract_five_features
+        from ML.pig_geometry import (
             BASELINE5,
             CHEN16_NOHEIGHT,
             EXTENDED_FEATURE_PROTOCOL_VERSION,
@@ -348,15 +363,18 @@ class WeightEstimator:
             )
 
     def _verify_runtime_source_hashes(self) -> None:
+        """Section 5.5.1: the pre-consolidation four-file provenance record collapses
+        to one hash on ML/pig_cutter.py -- the file that actually ships and actually
+        determines the head/neck cut-off's behaviour. ML/pig_geometry.py is not
+        provenance-checked here because it never ships; it is gated by gate B
+        (C++ vs pig_geometry.py) instead, which is a build-time check, not a
+        runtime one."""
         recorded = self.candidate.get("source_hashes")
         if not isinstance(recorded, dict):
             return
 
         runtime_sources = {
-            "yolo_inference": self.project_root / "src" / "yolo_inference.py",
-            "body_mask": self.project_root / "src" / "body_mask.py",
-            "mask_features": self.project_root / "src" / "mask_features.py",
-            "extended_mask_features": self.project_root / "src" / "extended_mask_features.py",
+            "pig_cutter": self.project_root / "ML" / "pig_cutter.py",
         }
         for key, path in runtime_sources.items():
             expected = recorded.get(key)

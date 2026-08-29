@@ -1,0 +1,58 @@
+{
+  "accuracy": 0.9727026110545948,
+  "macro_precision": 0.9820938801445521,
+  "macro_recall": 0.9252294005853067,
+  "macro_f1": 0.9498431071515997,
+  "weighted_f1": 0.9721715918889156,
+  "confusion_matrix": [
+    [
+      2524,
+      75,
+      0
+    ],
+    [
+      0,
+      2859,
+      0
+    ],
+    [
+      5,
+      81,
+      354
+    ]
+  ],
+  "classification_report": {
+    "dorsal_valid": {
+      "precision": 0.9980229339659945,
+      "recall": 0.9711427472104656,
+      "f1-score": 0.984399375975039,
+      "support": 2599.0
+    },
+    "health_only": {
+      "precision": 0.9482587064676616,
+      "recall": 1.0,
+      "f1-score": 0.9734422880490297,
+      "support": 2859.0
+    },
+    "reject": {
+      "precision": 1.0,
+      "recall": 0.8045454545454546,
+      "f1-score": 0.8916876574307305,
+      "support": 440.0
+    },
+    "accuracy": 0.9727026110545948,
+    "macro avg": {
+      "precision": 0.9820938801445521,
+      "recall": 0.9252294005853067,
+      "f1-score": 0.9498431071515997,
+      "support": 5898.0
+    },
+    "weighted avg": {
+      "precision": 0.9740476851761046,
+      "recall": 0.9727026110545948,
+      "f1-score": 0.9721715918889156,
+      "support": 5898.0
+    }
+  },
+  "macro_roc_auc_ovr": 0.998687199198574
+}

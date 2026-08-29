@@ -44,11 +44,24 @@ def _stage(cap: str, src: Path, assets: Path) -> None:
             shutil.copy(s, dst / fname)
 
 
-def build(*, fragments: dict[str, Path], assets: Path) -> Path:
+def _validate(manifest: dict) -> None:
+    """Validate against manifest.schema.json. Fatal on any violation."""
+    import jsonschema
+
+    schema = read_json(Path(__file__).with_name("manifest.schema.json"))
+    jsonschema.validate(manifest, schema)
+
+
+def build(*, fragments: dict[str, Path], assets: Path, platform: str | None = None) -> Path:
     assets.mkdir(parents=True, exist_ok=True)
     capabilities: dict[str, dict] = {}
     for cap, frag_dir in fragments.items():
         frag = read_json(frag_dir / "manifest_fragment.json")
+        # health.input is decided by ML.export.probe_health_input, not written by hand
+        # (section 1.1(c)) — merge it in when the probe has run against this export dir.
+        input_protocol_path = frag_dir / "input_protocol.json"
+        if cap == "health" and input_protocol_path.exists():
+            frag["health"]["input"] = read_json(input_protocol_path)["health"]["input"]
         capabilities.update(frag)
         _stage(cap, frag_dir, assets)
 
@@ -59,6 +72,9 @@ def build(*, fragments: dict[str, Path], assets: Path) -> Path:
         "runtime": {"engine": "onnxruntime", "min_abi_version": 1},
         "capabilities": capabilities,
     }
+    if platform is not None:
+        manifest["platform"] = platform
+    _validate(manifest)
     return write_json(assets / "manifest.json", manifest)
 
 
@@ -90,6 +106,13 @@ def main() -> None:
     ap.add_argument("--weight", type=Path)
     ap.add_argument("--segmentation", type=Path)
     ap.add_argument("--check", action="store_true")
+    ap.add_argument(
+        "--platform",
+        choices=["android", "ios"],
+        default=None,
+        help="Stamp manifest.json with a platform tag. Omit to build one platform-neutral "
+        "manifest (both platforms are identical through slice 4 per section 11.2).",
+    )
     a = ap.parse_args()
 
     if a.check:
@@ -102,7 +125,7 @@ def main() -> None:
     }
     if not fragments:
         raise SystemExit("nothing to build: pass at least one of --view/--health/--weight/--segmentation")
-    print(f"wrote {build(fragments=fragments, assets=a.assets)}")
+    print(f"wrote {build(fragments=fragments, assets=a.assets, platform=a.platform)}")
 
 
 if __name__ == "__main__":

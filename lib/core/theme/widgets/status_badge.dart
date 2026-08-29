@@ -30,6 +30,11 @@ class StatusBadge extends StatelessWidget {
         textColor = AppColors.blocked;
         text = 'Blocked';
         break;
+      case ResultStatus.skipped:
+        backgroundColor = AppColors.mutedForeground.withValues(alpha: 0.15);
+        textColor = AppColors.mutedForeground;
+        text = 'Skipped';
+        break;
     }
 
     return Container(

@@ -1,0 +1,12 @@
+{
+  "Healthy": 0,
+  "Infected_Bacterial_Erysipelas": 1,
+  "Infected_Bacterial_Greasy_Pig_Disease": 2,
+  "Infected_Environmental_Dermatitis": 3,
+  "Infected_Environmental_Sunburn": 4,
+  "Infected_Fungal_Pityriasis_Rosea": 5,
+  "Infected_Fungal_Ringworm": 6,
+  "Infected_Parasitic_Mange": 7,
+  "Infected_Viral_Foot_and_Mouth_Disease": 8,
+  "Infected_Viral_Swinepox": 9
+}

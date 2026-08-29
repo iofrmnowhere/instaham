@@ -3,6 +3,6 @@
   "false_weight_accept_count": 5,
   "false_weight_accept_rate": 0.001515610791148833,
   "weight_eligible_images": 2599,
-  "false_weight_reject_count": 10,
-  "false_weight_reject_rate": 0.003847633705271258
+  "false_weight_reject_count": 75,
+  "false_weight_reject_rate": 0.028857252789534438
 }

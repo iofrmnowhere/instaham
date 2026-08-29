@@ -1,8 +1,8 @@
 """Convert the final XGBoost weight regressor (model.json) to ONNX + a manifest fragment.
 
     python -m ML.export.export_xgboost \
-        --model ML/baseline5__selected/model.json \
-        --metadata ML/baseline5__selected/model.metadata.json \
+        --model ML/weight_prediction/model.json \
+        --metadata ML/weight_prediction/model.metadata.json \
         --out build/ml_export/weight
 
 Emits:
@@ -19,7 +19,7 @@ from pathlib import Path
 from ML.export.common import BASELINE5, read_json, sha256_file, write_json
 
 
-def export(*, model: Path, metadata: Path | None, out: Path, opset: int = 17) -> Path:
+def export(*, model: Path, metadata: Path | None, out: Path, opset: int = 15) -> Path:
     import numpy as np
     import onnxruntime as ort
     import xgboost as xgb
@@ -36,6 +36,11 @@ def export(*, model: Path, metadata: Path | None, out: Path, opset: int = 17) ->
             f"XGBoost feature order {feature_names} != required {BASELINE5} (AGENTS.md rule 2)"
         )
 
+    # onnxmltools' tree walker only accepts generic 'f%d' feature names. The named
+    # order is verified above (AGENTS.md rule 2) and re-asserted in the self-check
+    # below by feeding rows in BASELINE5 order; renaming here does not relax the rule.
+    booster.feature_names = [f"f{i}" for i in range(len(BASELINE5))]
+
     onnx_model = convert_xgboost(
         booster,
         initial_types=[("input", FloatTensorType([None, len(BASELINE5)]))],
@@ -46,7 +51,7 @@ def export(*, model: Path, metadata: Path | None, out: Path, opset: int = 17) ->
 
     # self-check: xgboost vs ORT on random rows
     rows = np.random.rand(8, len(BASELINE5)).astype("float32")
-    ref = booster.predict(xgb.DMatrix(rows, feature_names=BASELINE5))
+    ref = booster.predict(xgb.DMatrix(rows, feature_names=booster.feature_names))
     got = ort.InferenceSession(onnx_path.as_posix()).run(None, {"input": rows})[0].ravel()
     max_abs = float(np.max(np.abs(ref - got)))
     if max_abs >= 1e-3:
@@ -113,7 +118,7 @@ def main() -> None:
     ap.add_argument("--model", type=Path, required=True)
     ap.add_argument("--metadata", type=Path, default=None)
     ap.add_argument("--out", type=Path, required=True)
-    ap.add_argument("--opset", type=int, default=17)
+    ap.add_argument("--opset", type=int, default=15)  # onnxmltools XGBoost converter caps at opset 15
     a = ap.parse_args()
     print(f"wrote {export(model=a.model, metadata=a.metadata, out=a.out, opset=a.opset)}")
 

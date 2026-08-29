@@ -58,6 +58,7 @@ class RecordsDao extends DatabaseAccessor<AppDatabase> with _$RecordsDaoMixin {
     final health = await (select(
       db.healthResults,
     )..where((row) => row.scanId.equals(scanId))).getSingleOrNull();
+    final viewEvent = await loadLatestEvent(scanId, 'view');
 
     return LocalScanBundle(
       scan: scan,
@@ -65,7 +66,20 @@ class RecordsDao extends DatabaseAccessor<AppDatabase> with _$RecordsDaoMixin {
       reference: reference,
       weight: weight,
       health: health,
+      viewEvent: viewEvent,
     );
+  }
+
+  /// Latest `PipelineEvent` for `scanId` at `stage` (e.g. `'view'`), or null if that stage
+  /// has never run for this scan. `stage`'s events use `status` for the decided label
+  /// (`dorsal_valid` | `health_only` | `reject`) and `message` for the confidence, set by
+  /// RunAndPersistPipelineUseCase -- see TASKS.md's P0/P2 plan.
+  Future<PipelineEvent?> loadLatestEvent(String scanId, String stage) {
+    final query = select(db.pipelineEvents)
+      ..where((row) => row.scanId.equals(scanId) & row.stage.equals(stage))
+      ..orderBy([(row) => OrderingTerm.desc(row.createdAt)])
+      ..limit(1);
+    return query.getSingleOrNull();
   }
 
   Stream<List<PigSuggestion>> watchPigSuggestions(String query) {

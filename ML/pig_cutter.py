@@ -1,4 +1,42 @@
-"""Production body-mask preprocessing derived from the finalized fixed 06Q notebook.
+"""ML/pig_cutter.py -- the head/neck cut-off. NOT PORTED TO C++.
+
+Consolidated from the original ML/body_mask.py (ML_implementation_plan.md, revision 6,
+section 5). This is the one component the plan deliberately keeps as Python, because it
+is the sole home of scipy.gaussian_filter1d, scipy.find_peaks, and skimage.skeletonize,
+and because it is by far the largest body of code in the programme. Spike S3
+(section 5.2(c)) measured it: 9,911 of 10,855 lines are reachable from
+isolate_body_only_mask(), and 1,985 of those live lines call scipy/skimage directly.
+That measurement is why it is not ported.
+
+WHERE THIS RUNS IS NOT YET DECIDED (section 3.5). Not porting it and shipping it
+on-device are separate choices with very different costs. The open options are: (A)
+on-device Python via Chaquopy, Android only; (B) a server-side cutter, both platforms;
+(C) defer the weight branch further. The decision is taken after slice 4. Until then the
+weight branch reports "unavailable" on every platform and this file is used only by the
+Python reference pipeline and the parity gates.
+
+Contract (section 3.3): a caller passes the raw segmentation mask plus an optional
+ji_config dict into isolate_body_only_mask(), and the weight path returns the five
+features (RA, LC, BL, BW, E) plus QC fields (pair_valid, head_removal_applied). The
+boundary is drawn at the segmentation mask, so no geometry is shared across a runtime
+edge. No model loading, no file IO, no manifest access -- pure mask-to-mask.
+
+Two structural fixes from the original are folded in here (not a behaviour change --
+see ML_implementation_plan.md section 5.2(b)):
+  - `choose_body_circle_pair` and `isolate_body_only_mask` were each defined twice in
+    the original module, with the second definition silently overriding the first via
+    Python's late-binding of module-level names. That is resolved statically here: the
+    original (superseded) definitions keep their alias names
+    (`_choose_body_circle_pair_fixed06q`, `_isolate_body_only_mask_fixed06q`) and the
+    override keeps the public name. No other change.
+  - The five functions this file used to import from ML/mask_features.py
+    (clean_binary_mask, _largest_component_fill, _odd_window, _rolling_median,
+    ji_duan_adaptive_kernel_sizes, isolate_dorsal_core_ji_duan) are now inlined
+    verbatim, because this file must ship with zero project-local imports.
+
+Original docstring, preserved:
+
+Production body-mask preprocessing derived from the finalized fixed 06Q notebook.
 
 Protocol:
     YOLO whole-pig mask
@@ -37,7 +75,136 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks
 from skimage.morphology import skeletonize
 
-from src.mask_features import clean_binary_mask, isolate_dorsal_core_ji_duan
+# ===== [0] shared primitives, inlined from ML/mask_features.py =====
+# pig_cutter.py must stand alone -- it must not import any
+# other project file (section 3.1 / 3.3 of ML_implementation_plan.md). These six
+# functions are therefore duplicated here verbatim. ML/pig_geometry.py has its own
+# copies for the C++ port; the two are never used in the same computation
+# (revision 6's one-hop boundary), so they are not required to agree and nothing
+# gates them against each other.
+# fmt: off
+
+def _largest_component_fill(mask: np.ndarray) -> np.ndarray:
+    """Return a filled binary mask containing only the largest external component."""
+    binary = (mask > 0).astype(np.uint8) * 255
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return binary
+    largest = max(contours, key=cv2.contourArea)
+    clean = np.zeros_like(binary)
+    cv2.drawContours(clean, [largest], -1, 255, thickness=cv2.FILLED)
+    return clean
+
+def clean_binary_mask(mask: np.ndarray) -> np.ndarray:
+    """Return a single connected, hole-reduced binary pig mask."""
+    clean = _largest_component_fill(mask)
+    if not np.any(clean):
+        return clean
+
+    # Small closing operation: connect tiny gaps / fill small boundary defects without
+    # attempting to perform the anatomical head-tail-leg removal itself.
+    short_side = max(3, int(round(min(clean.shape) * 0.006)))
+    if short_side % 2 == 0:
+        short_side += 1
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (short_side, short_side))
+    clean = cv2.morphologyEx(clean, cv2.MORPH_CLOSE, kernel)
+    return _largest_component_fill(clean)
+
+def _odd_window(value: int, minimum: int = 5) -> int:
+    value = max(minimum, int(value))
+    return value if value % 2 == 1 else value + 1
+
+def _rolling_median(values: np.ndarray, window: int) -> np.ndarray:
+    """Small dependency-free 1-D rolling median used for torso-envelope smoothing."""
+    values = np.asarray(values, dtype=np.float32)
+    if len(values) == 0:
+        return values
+    window = _odd_window(min(window, len(values) if len(values) % 2 else max(1, len(values) - 1)), minimum=1)
+    radius = window // 2
+    padded = np.pad(values, (radius, radius), mode='edge')
+    return np.asarray(
+        [np.median(padded[i:i + window]) for i in range(len(values))],
+        dtype=np.float32,
+    )
+
+def ji_duan_adaptive_kernel_sizes(
+    mask: np.ndarray,
+    area_divisor: float = 1000.0,
+    second_kernel_factor: float = 0.5,
+    minimum_kernel: int = 3,
+) -> tuple[int, int]:
+    """Return the two adaptive opening kernel widths used by the Ji/Duan-style method.
+
+    Ji et al. (2025) state that appendages are removed with continuous morphological
+    opening using an adaptive kernel and cite Duan et al. (2023). Duan et al. specify the
+    first kernel size as 1/1000 of the target-mask area, followed by a second opening with
+    a kernel half the previous size. Neither paper specifies the structuring-element shape;
+    this implementation uses an elliptical OpenCV element to reduce axis-aligned bias.
+    """
+    clean = _largest_component_fill(mask)
+    area = float(np.count_nonzero(clean))
+    if area <= 0:
+        return minimum_kernel, minimum_kernel
+    if area_divisor <= 0:
+        raise ValueError('area_divisor must be > 0')
+    if not (0 < second_kernel_factor <= 1):
+        raise ValueError('second_kernel_factor must be in (0, 1].')
+
+    first = _odd_window(int(round(area / float(area_divisor))), minimum=minimum_kernel)
+    second = _odd_window(int(round(first * float(second_kernel_factor))), minimum=minimum_kernel)
+    return first, second
+
+def isolate_dorsal_core_ji_duan(
+    mask: np.ndarray,
+    area_divisor: float = 1000.0,
+    second_kernel_factor: float = 0.5,
+    minimum_kernel: int = 3,
+    minimum_retained_fraction: float = 0.20,
+) -> np.ndarray:
+    """Ji/Duan-style adaptive morphological opening for appendage suppression.
+
+    This is the published-method branch used for the Notebook 6/7 preprocessing
+    experiment. The cleaned whole-pig mask is opened twice. The first kernel width is
+    mask_area / area_divisor (default 1000), and the second is half the first by default.
+
+    The cited papers do not provide source code or specify the structuring-element shape,
+    so an ellipse is used here and recorded in provenance. If the operation collapses the
+    mask to an implausibly small region, the cleaned mask is returned so the failure is
+    visible in retained-fraction QC instead of emitting a malformed feature vector.
+    """
+    clean = clean_binary_mask(mask)
+    original_area = float(np.count_nonzero(clean))
+    if original_area <= 0:
+        return clean
+
+    first, second = ji_duan_adaptive_kernel_sizes(
+        clean,
+        area_divisor=area_divisor,
+        second_kernel_factor=second_kernel_factor,
+        minimum_kernel=minimum_kernel,
+    )
+
+    opened = clean.copy()
+    for size in (first, second):
+        # OpenCV requires the kernel to fit in practical image bounds. Clamping only
+        # protects malformed/tiny masks; normal PIGRGB masks are far below this limit.
+        max_size = max(1, min(opened.shape))
+        size = min(size, max_size if max_size % 2 == 1 else max(1, max_size - 1))
+        size = max(1, int(size))
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size))
+        opened = cv2.morphologyEx(opened, cv2.MORPH_OPEN, kernel)
+        opened = _largest_component_fill(opened)
+        if not np.any(opened):
+            return clean
+
+    retained = float(np.count_nonzero(opened)) / original_area
+    if retained < float(minimum_retained_fraction):
+        return clean
+    return opened
+# fmt: on
+# ===== end shared primitives =====
+
+
 
 
 BODY_MASK_PROTOCOL_VERSION = "ji_duan_residual_06q_v9_headfit_exact_twotangent_v26"
@@ -5879,7 +6046,7 @@ def classify_circle_candidates(
     return classified
 
 
-def choose_body_circle_pair(
+def _choose_body_circle_pair_fixed06q(
     profile,
     candidates,
 ):
@@ -10013,7 +10180,7 @@ def _selected_closure_side(preview_mode: str | None) -> Optional[str]:
     return None
 
 
-def isolate_body_only_mask(
+def _isolate_body_only_mask_fixed06q(
     whole_pig_mask,
     *,
     sample_id: Optional[str] = None,
@@ -10181,8 +10348,6 @@ V9_RELAXED_GAP_DEFICIT_WEIGHT = 0.20
 BODY_MASK_METHOD = 'ji_duan_residual_06q_v9_headfit_exact_twotangent'
 
 # Capture the exact fixed-06Q chooser before overriding its public name.
-_choose_body_circle_pair_fixed06q = choose_body_circle_pair
-_isolate_body_only_mask_fixed06q = isolate_body_only_mask
 
 
 def _v9_segment_inside_circle_interval(p0, p1, center, radius):

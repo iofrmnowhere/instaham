@@ -13,6 +13,7 @@ import '../../../../core/theme/widgets/app_scaffold.dart';
 import '../../../../core/utils/captured_image_result.dart';
 import '../../../../core/utils/image_service.dart';
 import '../../../../core/utils/length_units.dart';
+import '../../../inference_pipeline/domain/use_cases/run_and_persist_pipeline_use_case.dart';
 import '../../data/capture_preferences.dart';
 import '../widgets/height_mode_settings.dart';
 import '../widgets/reference_object_picker.dart';
@@ -376,15 +377,23 @@ class _CaptureScreenState extends State<CaptureScreen>
     }
   }
 
+  /// TASKS.md's P0: the view gate must run and route BEFORE reference marking, not after
+  /// (previously this method routed on `_mode` alone and the view model never ran until
+  /// ResultsScreen, so a non-dorsal photo still walked through the reference-marking step
+  /// that exists only to serve the weight branch). A native/inference failure here falls
+  /// back to the pre-P0 routing (proceed as if the gate had not run) rather than trapping
+  /// the user on the review screen.
   Future<void> _usePhoto() async {
     final id = await _ensureSession();
+    final imagePath =
+        _capturedResult?.localPath ?? widget.initialArgs?.imagePath;
     final args = ScanFlowArgs(
       sessionId: id,
       goal: ScanGoal.weightAndHealth,
       measurementMode: _mode,
       cameraHeightCm: _cameraHeight,
       reference: _reference,
-      imagePath: _capturedResult?.localPath ?? widget.initialArgs?.imagePath,
+      imagePath: imagePath,
       imageBytes: _capturedResult?.bytes ?? widget.initialArgs?.imageBytes,
       imageWidthPx:
           _capturedResult?.widthPx ?? widget.initialArgs?.imageWidthPx,
@@ -394,7 +403,53 @@ class _CaptureScreenState extends State<CaptureScreen>
     );
     if (!mounted) return;
 
-    if (_mode == MeasurementMode.referenceObject) {
+    setState(() => _saving = true);
+    String? viewLabel;
+    if (imagePath != null) {
+      try {
+        final view = await RunAndPersistPipelineUseCase.resolveViewGate(
+          _database!,
+          id,
+          imagePath,
+        );
+        viewLabel = view.label;
+      } catch (e) {
+        debugPrint('View gate failed, falling back to unfiltered routing: $e');
+      }
+    }
+    if (!mounted) return;
+    setState(() => _saving = false);
+
+    if (viewLabel == 'reject') {
+      await _database!.updateScanStatus(id, ScanStatuses.rejected);
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Photo not usable'),
+          content: const Text(
+            'This photo was not recognized as a clear, usable pig photo. Please retake it '
+            'with the whole pig visible and well lit.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Retake'),
+            ),
+          ],
+        ),
+      );
+      if (mounted) setState(() => _reviewingPhoto = false);
+      return;
+    }
+
+    // health_only skips reference marking entirely -- there is no dorsal view to measure,
+    // so the reference-object step (which exists only to scale a weight estimate) has
+    // nothing to serve. dorsal_valid (or an unresolved gate, viewLabel == null) proceeds
+    // exactly as before this change.
+    final skipReference = viewLabel == 'health_only';
+
+    if (_mode == MeasurementMode.referenceObject && !skipReference) {
       await _database!.updateScanStatus(id, ScanStatuses.referenceReview);
       if (mounted) context.push('/reference-marking', extra: args);
     } else {
@@ -403,8 +458,9 @@ class _CaptureScreenState extends State<CaptureScreen>
         id,
         'analysis',
         'queued',
-        message:
-            'Height mode — weight estimation requires height-calibrated model (not yet available).',
+        message: skipReference
+            ? 'Photo classified as health-only — reference marking and weight estimation skipped.'
+            : 'Height mode — weight estimation requires height-calibrated model (not yet available).',
       );
       if (mounted) context.push('/analysis', extra: args);
     }

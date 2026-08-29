@@ -44,6 +44,9 @@ dependencies:
   camera: ^0.12.0
   image: ^4.3.0
   image_picker: ^1.1.2
+  crypto: ^3.0.5
+  instaham_ml_ffi:
+    path: packages/instaham_ml_ffi
 
 dev_dependencies:
   flutter_test:
@@ -70,6 +73,16 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  # ML model bundle: view + health ONNX models, class maps, and the manifest that ties
+  # them together (ML/export/build_manifest.py). Slice 3 of ML_implementation_plan.md.
+  assets:
+    - assets/ml/manifest.json
+    - assets/ml/view/model.onnx
+    - assets/ml/view/classes.json
+    - assets/ml/health/model.onnx
+    - assets/ml/health/classes.json
+    - assets/ml/segmentation/yolo.onnx
 
   # To add assets to your application, add an assets section, like this:
   # assets:

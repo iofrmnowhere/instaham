@@ -224,7 +224,14 @@ class ACmix(nn.Module):
     def _position(h: int, w: int, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
         loc_w = torch.linspace(-1.0, 1.0, w, device=device, dtype=dtype).unsqueeze(0).repeat(h, 1)
         loc_h = torch.linspace(-1.0, 1.0, h, device=device, dtype=dtype).unsqueeze(1).repeat(1, w)
-        return torch.cat([loc_w.unsqueeze(0), loc_h.unsqueeze(0)], 0).unsqueeze(0)
+        pos = torch.cat([loc_w.unsqueeze(0), loc_h.unsqueeze(0)], 0).unsqueeze(0)
+        # Explicit cast: torch.onnx.export's tracer does not always honour dtype=dtype
+        # above for a freshly-constructed linspace constant and can bake this out as
+        # float64, which onnxruntime's CPU Conv kernel then rejects at session-load time
+        # (conv_p immediately below expects the input dtype to match its float32
+        # weights). Inference numerics are unaffected — this is a no-op whenever the
+        # trace already got the dtype right.
+        return pos.to(dtype=dtype)
 
     @staticmethod
     def _stride(x: torch.Tensor, stride: int) -> torch.Tensor:

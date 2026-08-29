@@ -13,8 +13,8 @@
 Scope now (slices 2-4):
   * view  probabilities   -- timm + checkpoint, mirrors ML/export preprocessing
   * health probabilities  -- same
-  * five features         -- ML/mask_features.extract_five_features on each fixture's mask.npy
-Weight end-to-end (YOLO + body_mask) is Phase 2 -- it needs configs/project.yaml + src/.
+  * five features         -- ML.pig_geometry.extract_five_features on each fixture's mask.npy
+Weight end-to-end (YOLO + cutter) is Phase 2 -- it needs configs/project.yaml + src/.
 
 Each fixture is a directory:  test/fixtures/parity/<name>/{image.jpg, mask.npy?}
 """
@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 ML_DIR = Path(__file__).resolve().parent.parent
@@ -63,9 +62,7 @@ def _classifier_probs(checkpoint: Path, arch: str, classes: Path, image: Path, c
 def _five_features(mask_path: Path):
     import numpy as np
 
-    if str(ML_DIR) not in sys.path:
-        sys.path.insert(0, str(ML_DIR))
-    from mask_features import extract_five_features  # frozen reference
+    from ML.pig_geometry import extract_five_features  # section 5, gate B reference
 
     mask = np.load(mask_path)
     feats = extract_five_features(mask, linear_scale=1.0, preserve_processed_mask=True)

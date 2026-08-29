@@ -1,0 +1,6 @@
+# Fetched prebuilts (ONNX Runtime, opencv-mobile, nlohmann/json). Never committed --
+# scripts/fetch_deps.sh pins the URLs + sha256, that's the source of truth. See its
+# header comment.
+*
+!.gitignore
+!README.md

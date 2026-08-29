@@ -1,0 +1,122 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://instaham/ml/manifest.schema.json",
+  "title": "INSTAHAM ML manifest",
+  "description": "Validates assets/ml/<platform>/manifest.json produced by ML.export.build_manifest. Section 8 of ML_implementation_plan.md.",
+  "type": "object",
+  "required": ["schema_version", "bundle_id", "reference_commit", "runtime", "capabilities"],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "bundle_id": { "type": "string" },
+    "reference_commit": { "type": "string" },
+    "platform": { "type": "string", "enum": ["android", "ios"] },
+    "runtime": {
+      "type": "object",
+      "required": ["engine", "min_abi_version"],
+      "properties": {
+        "engine": { "type": "string" },
+        "min_abi_version": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "view": { "$ref": "#/$defs/classifierCapability" },
+        "health": { "$ref": "#/$defs/classifierCapability" },
+        "weight": { "$ref": "#/$defs/weightCapability" },
+        "segmentation": { "$ref": "#/$defs/segmentationCapability" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "sha256Ref": {
+      "type": "object",
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "classifierCapability": {
+      "type": "object",
+      "required": ["available", "model", "preprocessing", "class_map", "protocol_version"],
+      "properties": {
+        "available": { "type": "boolean" },
+        "model": {
+          "allOf": [{ "$ref": "#/$defs/sha256Ref" }],
+          "type": "object",
+          "required": ["architecture", "opset", "input"],
+          "properties": {
+            "architecture": { "type": "string" },
+            "arch_source": { "type": "string" },
+            "opset": { "type": "integer" },
+            "input": { "type": "object" },
+            "fusion_max_abs_diff": { "type": "number" },
+            "onnx_max_abs_diff": { "type": "number" }
+          }
+        },
+        "preprocessing": { "type": "object" },
+        "class_map": { "$ref": "#/$defs/sha256Ref" },
+        "protocol_version": { "type": "string" },
+        "source_run": { "type": "object" },
+        "input": {
+          "type": "object",
+          "description": "health only — set by ML.export.probe_health_input, section 1.1(c)",
+          "required": ["protocol", "supported", "on_segmentation_failure", "evidence"],
+          "properties": {
+            "protocol": { "type": "string", "enum": ["full_frame", "segmentation_crop", "segmentation_masked"] },
+            "supported": { "type": "array", "items": { "type": "string" } },
+            "bbox_padding_ratio": { "type": "number" },
+            "background_fill": { "type": "string" },
+            "on_segmentation_failure": { "type": "string", "enum": ["full_frame", "abort"] },
+            "evidence": { "type": "string" },
+            "probe_status": { "type": "string", "enum": ["not_run", "partial", "full"] },
+            "probe_detail": { "type": "object" }
+          }
+        }
+      }
+    },
+    "weightCapability": {
+      "type": "object",
+      "required": ["available"],
+      "properties": {
+        "available": { "type": "boolean" },
+        "unavailable_reason": { "type": "string" },
+        "regressor": {
+          "type": "object",
+          "required": ["format", "path", "sha256", "feature_family"],
+          "properties": {
+            "format": { "type": "string", "const": "onnx" },
+            "path": { "type": "string" },
+            "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "feature_family": { "type": "string" },
+            "objective": { "type": "string" }
+          }
+        },
+        "feature_extractor": {
+          "type": "object",
+          "required": ["names"],
+          "properties": {
+            "names": {
+              "type": "array",
+              "items": { "type": "string" },
+              "const": ["RA", "LC", "BL", "BW", "E"]
+            }
+          }
+        },
+        "body_mask": { "type": "object" },
+        "capture_contract": { "type": "object" }
+      }
+    },
+    "segmentationCapability": {
+      "type": "object",
+      "required": ["available"],
+      "properties": {
+        "available": { "type": "boolean" },
+        "export_mode": { "type": "string", "enum": ["onnx_native", "ort_customop", "unavailable"] }
+      }
+    }
+  }
+}

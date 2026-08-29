@@ -13,6 +13,7 @@ import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/widgets/app_card.dart';
 import '../../../../core/theme/widgets/app_scaffold.dart';
+import '../../../inference_pipeline/domain/use_cases/run_and_persist_pipeline_use_case.dart';
 
 class ResultsScreen extends StatefulWidget {
   final ScanFlowArgs args;
@@ -37,12 +38,27 @@ class _ResultsScreenState extends State<ResultsScreen> {
 
   void _reload() {
     final id = widget.args.sessionId;
-    final future = id == null
-        ? Future<LocalScanBundle?>.value(null)
-        : _database!.recordsDao.loadScanBundle(id);
     setState(() {
-      _bundle = future;
+      _bundle = id == null
+          ? Future<LocalScanBundle?>.value(null)
+          : _loadAndRunPipelineIfNeeded(id);
     });
+  }
+
+  /// Loads the scan bundle and, the first time a captured image has no stored health
+  /// result yet, runs the real inference pipeline and persists it before returning the
+  /// refreshed bundle (ML_implementation_plan.md section 11.3, slice 4: "the app stops
+  /// showing Pending"). A retake or a scan with no image simply shows the stored/blank
+  /// state, same as before this pipeline existed.
+  Future<LocalScanBundle?> _loadAndRunPipelineIfNeeded(String id) async {
+    final db = _database!;
+    var bundle = await db.recordsDao.loadScanBundle(id);
+    final imagePath = bundle?.scan.imagePath;
+    if (bundle != null && bundle.health == null && imagePath != null) {
+      await const RunAndPersistPipelineUseCase().execute(db, id, imagePath);
+      bundle = await db.recordsDao.loadScanBundle(id);
+    }
+    return bundle;
   }
 
   ReferenceSelection? _referenceFor(LocalScanBundle bundle) {
@@ -201,11 +217,13 @@ class _ResultsScreenState extends State<ResultsScreen> {
           ),
         ),
         const SizedBox(height: 14),
+        _viewCard(bundle.viewEvent),
+        const SizedBox(height: 12),
         if (goal.requiresReference) ...[
           _weightCard(bundle.weight),
           const SizedBox(height: 12),
         ],
-        _healthCard(bundle.health),
+        _healthCard(bundle.health, bundle.viewEvent),
         if (reference != null) ...[
           const SizedBox(height: 12),
           AppCard(
@@ -364,7 +382,58 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  Widget _healthCard(HealthResult? result) {
+  /// TASKS.md's P2: the view gate's own outcome, shown as its own card instead of being
+  /// silently folded into a health-card "Unavailable" (Cause C — the two used to be
+  /// indistinguishable to the user).
+  Widget _viewCard(PipelineEvent? viewEvent) {
+    if (viewEvent == null) {
+      return const _BranchCard(
+        icon: Icons.crop_free,
+        title: 'Photo framing',
+        value: 'Pending',
+        status: ResultStatus.uncertain,
+        message: 'Awaiting the view-suitability check.',
+      );
+    }
+    final confidence = double.tryParse(viewEvent.message ?? '');
+    final confidenceText = confidence == null
+        ? ''
+        : ' (${(confidence * 100).round()}% confidence)';
+    return switch (viewEvent.status) {
+      'dorsal_valid' => _BranchCard(
+        icon: Icons.crop_free,
+        title: 'Photo framing',
+        value: 'Dorsal view$confidenceText',
+        status: ResultStatus.success,
+        message: 'Suitable for both weight and health screening.',
+      ),
+      'health_only' => _BranchCard(
+        icon: Icons.crop_free,
+        title: 'Photo framing',
+        value: 'Health-only view$confidenceText',
+        status: ResultStatus.uncertain,
+        message:
+            'Not a dorsal (top-down) view, so weight estimation is skipped. '
+            'Health screening still runs.',
+      ),
+      'reject' => _BranchCard(
+        icon: Icons.crop_free,
+        title: 'Photo framing',
+        value: 'Not usable$confidenceText',
+        status: ResultStatus.blocked,
+        message: 'Retake with the whole pig visible and well lit.',
+      ),
+      _ => _BranchCard(
+        icon: Icons.crop_free,
+        title: 'Photo framing',
+        value: viewEvent.status,
+        status: ResultStatus.uncertain,
+        message: 'Unrecognized view-gate outcome.',
+      ),
+    };
+  }
+
+  Widget _healthCard(HealthResult? result, PipelineEvent? viewEvent) {
     if (result == null) {
       return const _BranchCard(
         icon: Icons.health_and_safety_outlined,
@@ -376,11 +445,15 @@ class _ResultsScreenState extends State<ResultsScreen> {
       );
     }
     if (!result.eligible || result.className == null) {
+      // A view-gate reject means health was deliberately never attempted -- that is not
+      // the same failure as an eligibility check or inference error, so it reads
+      // differently (TASKS.md Cause C).
+      final skippedByViewGate = viewEvent?.status == 'reject';
       return _BranchCard(
         icon: Icons.health_and_safety_outlined,
         title: 'Visual health',
-        value: 'Unavailable',
-        status: ResultStatus.blocked,
+        value: skippedByViewGate ? 'Skipped' : 'Unavailable',
+        status: skippedByViewGate ? ResultStatus.skipped : ResultStatus.blocked,
         message:
             result.failureReason ??
             'The image was not eligible for visual screening.',
@@ -422,6 +495,7 @@ class _BranchCard extends StatelessWidget {
       ResultStatus.success => AppColors.success,
       ResultStatus.uncertain => AppColors.uncertain,
       ResultStatus.blocked => AppColors.blocked,
+      ResultStatus.skipped => AppColors.mutedForeground,
     };
     return AppCard(
       child: Row(

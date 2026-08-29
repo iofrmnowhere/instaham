@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'app_colors.dart';
 import 'app_text_styles.dart';
 
-enum ResultStatus { success, uncertain, blocked }
+// `skipped` is a deliberate non-attempt (e.g. the view gate routed around a branch),
+// distinct from `blocked` (a branch that was attempted and failed a check).
+enum ResultStatus { success, uncertain, blocked, skipped }
 
 enum StatCardStatus { success, warning, error }
 
