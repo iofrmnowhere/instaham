@@ -83,6 +83,11 @@ flutter:
     - assets/ml/health/model.onnx
     - assets/ml/health/classes.json
     - assets/ml/segmentation/yolo.onnx
+    # Test-only override (ML/export/export_xgboost.py --enable-for-testing): the manifest's
+    # weight capability, when available, is exercised end-to-end. See build_fix.md/
+    # ML_implementation_plan.md section 3.4 for why this is not the shipped default.
+    - assets/ml/weight/xgboost.onnx
+    - assets/ml/weight/feature_order.json
 
   # To add assets to your application, add an assets section, like this:
   # assets:

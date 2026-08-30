@@ -1,11 +1,12 @@
 // Runs the real inference pipeline for one captured scan and persists the results through
 // AppDatabase, exactly like insertSampleRecord()'s save calls but with real model output
 // instead of random demo data. This is slice 4's "RunInferencePipelineUseCase actually
-// wired into the app" (ML_implementation_plan.md section 11.3), scoped to what slice 3/4
-// actually ship on this pass: real view + health classification and a segmentation
-// detection signal. Weight always saves as unavailable — the native geometry port (mask
-// decode, dorsal-core cut, five features) is deferred to the section-3.5 decision point,
-// and AGENTS.md rule 8 forbids forcing a weight number without it.
+// wired into the app" (ML_implementation_plan.md section 11.3): real view + health
+// classification, segmentation, and (slice R4) the C++ weight-prediction chain. Weight
+// saves as unavailable whenever the manifest's weight capability is off — the default,
+// per section 3.4's permanent identity-stub cutter and AGENTS.md rule 8 — and as a real
+// (test-override, uncut-mask) value only when the bundled manifest was built with
+// export_xgboost.py's --enable-for-testing flag; see weight_model_service.dart.
 //
 // TASKS.md's P0/P1 plan (2026-08-29): the view gate must run and route BEFORE reference
 // marking, and must not have its label overridden by an app-invented confidence threshold
@@ -21,6 +22,7 @@ import '../../../../core/models/scan_flow.dart';
 import '../../../../services/ml/health_model_service.dart';
 import '../../../../services/ml/segmentation_service.dart';
 import '../../../../services/ml/view_model_service.dart';
+import '../../../../services/ml/weight_model_service.dart';
 
 const String kViewModelVersion = 'ghostnetv3-view-v1';
 const String kHealthModelVersion = 'ghostnetv3-health-v1';
@@ -36,11 +38,13 @@ class RunAndPersistPipelineUseCase {
   final IViewModelService viewModelService;
   final IHealthModelService healthModelService;
   final ISegmentationService segmentationService;
+  final IWeightModelService weightModelService;
 
   const RunAndPersistPipelineUseCase({
     this.viewModelService = const ViewModelServiceImpl(),
     this.healthModelService = const HealthModelServiceImpl(),
     this.segmentationService = const SegmentationServiceImpl(),
+    this.weightModelService = const WeightModelServiceImpl(),
   });
 
   /// Runs view -> (health, segmentation) -> weight(unavailable) for `scanId`'s image and
@@ -100,22 +104,66 @@ class RunAndPersistPipelineUseCase {
         );
       }
 
-      // Weight: the native geometry port (mask -> dorsal core -> five features -> XGBoost)
-      // is not shipped this pass, so the branch is honestly unavailable regardless of
-      // segmentation's outcome (section 3.5 of the plan; AGENTS.md rule 8).
-      final weightFailureReason = !isDorsal
-          ? 'Weight branch skipped: photo was not classified as a dorsal view.'
-          : pigCount > 0
-          ? 'Weight branch unavailable in this build (native geometry port not shipped yet).'
-          : 'Weight branch unavailable, and no pig was detected in this photo.';
-      await db.saveWeightResult(
-        scanId: scanId,
-        eligible: false,
-        failureReason: weightFailureReason,
-        modelVersion: kWeightModelVersion,
-      );
+      // Weight: the C++ chain (mask -> construction -> cutter -> five features ->
+      // XGBoost) always runs for a dorsal photo with a detected pig, but the manifest's
+      // weight capability stays unavailable by default (section 3.4 of the plan; the
+      // cutter is a permanent identity dummy) -- so this normally still saves as
+      // unavailable. It only produces a real (test-override, uncut-mask) value when the
+      // bundled manifest was built with export_xgboost.py's --enable-for-testing flag.
+      var weightEligible = false;
+      if (!isDorsal) {
+        await db.saveWeightResult(
+          scanId: scanId,
+          eligible: false,
+          failureReason:
+              'Weight branch skipped: photo was not classified as a dorsal view.',
+          modelVersion: kWeightModelVersion,
+        );
+      } else if (pigCount == 0) {
+        await db.saveWeightResult(
+          scanId: scanId,
+          eligible: false,
+          failureReason:
+              'Weight branch unavailable, and no pig was detected in this photo.',
+          modelVersion: kWeightModelVersion,
+        );
+      } else {
+        final weight = await weightModelService.predict(imagePath);
+        weightEligible = weight.eligible;
+        if (weight.eligible) {
+          await db.saveWeightResult(
+            scanId: scanId,
+            eligible: true,
+            valueKg: weight.valueKg,
+            ra: weight.ra,
+            lc: weight.lc,
+            bl: weight.bl,
+            bw: weight.bw,
+            e: weight.e,
+            modelVersion: weight.note == null
+                ? kWeightModelVersion
+                : '$kWeightModelVersion (${weight.note})',
+          );
+        } else {
+          await db.saveWeightResult(
+            scanId: scanId,
+            eligible: false,
+            failureReason:
+                weight.failureReason ??
+                'Weight branch unavailable in this build (cutter is the identity stub).',
+            modelVersion: kWeightModelVersion,
+          );
+        }
+      }
 
-      await db.updateScanStatus(scanId, ScanStatuses.blocked);
+      // `completed` only when a branch actually produced a number. Health alone is not
+      // enough: the weight card is the one the records list's Completed filter is about,
+      // and before slice R4 no build could ever reach this state, so the status was
+      // hardcoded to `blocked`. Now the test-override path can succeed, so it must not be.
+      await db.updateScanStatus(
+        scanId,
+        weightEligible ? ScanStatuses.completed : ScanStatuses.blocked,
+      );
     } catch (e, st) {
       await db.addPipelineEvent(scanId, 'pipeline', 'error', message: '$e');
       await db.saveHealthResult(

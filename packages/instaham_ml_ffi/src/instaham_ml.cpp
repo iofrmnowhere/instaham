@@ -18,8 +18,10 @@
 #include "onnx_runner.h"
 #include "pipeline.h"
 #include "stages/construction.h"
+#include "stages/cutter.h"
 #include "stages/feature_calculation.h"
 #include "stages/segmentation.h"
+#include "stages/weight_prediction.h"
 #include "third_party/nlohmann_json/single_include/nlohmann/json.hpp"
 
 namespace {
@@ -45,6 +47,7 @@ struct Context {
   std::unique_ptr<instaham_ml::OnnxRunner> view_runner;
   std::unique_ptr<instaham_ml::OnnxRunner> health_runner;
   std::unique_ptr<instaham_ml::OnnxRunner> segmentation_runner;
+  std::unique_ptr<instaham_ml::OnnxRunner> weight_runner;
 };
 
 InstahamMlStatus run_classifier_entrypoint(Context* ctx, instaham_ml::OnnxRunner* runner,
@@ -111,6 +114,13 @@ InstahamMlStatus instaham_ml_create(const char* manifest_path, InstahamMlContext
   if (ctx->manifest.segmentation.available) {
     ctx->segmentation_runner = std::make_unique<instaham_ml::OnnxRunner>();
     if (!ctx->segmentation_runner->load(ctx->manifest.segmentation.model_path, &error)) {
+      set_error(error);
+      return INSTAHAM_ML_ERR_MODEL_LOAD;
+    }
+  }
+  if (ctx->manifest.weight.available) {
+    ctx->weight_runner = std::make_unique<instaham_ml::OnnxRunner>();
+    if (!ctx->weight_runner->load(ctx->manifest.weight.model_path, &error)) {
       set_error(error);
       return INSTAHAM_ML_ERR_MODEL_LOAD;
     }
@@ -225,19 +235,102 @@ InstahamMlStatus instaham_ml_segment_json(InstahamMlContext* raw_ctx, const char
 InstahamMlStatus instaham_ml_predict_weight_json(InstahamMlContext* raw_ctx,
                                                   const char* image_path, char** out_json) {
   auto* ctx = reinterpret_cast<Context*>(raw_ctx);
-  (void)image_path;
-  if (!out_json) {
-    set_error("out_json is null");
+  if (!ctx || !image_path || !out_json) {
+    set_error("null argument");
     return INSTAHAM_ML_ERR_INVALID_ARG;
   }
-  // weight.available is false in every manifest this build ships: the cutter is a
-  // permanent C++ identity dummy (ML_implementation_plan.md revision 7, section 3.4), not
-  // a stub awaiting a decision -- AGENTS.md rule 8 forbids emitting a number from features
-  // measured on an uncut mask.
-  (void)ctx;
-  *out_json = dup_cstr(unavailable_envelope("weight", "cutter_identity_stub"));
-  set_error("weight unavailable: cutter_identity_stub");
-  return INSTAHAM_ML_ERR_UNAVAILABLE;
+
+  // weight.available is false in every manifest ML_implementation_plan.md revision 7
+  // ships by default: the cutter is a permanent C++ identity dummy (section 3.4), not a
+  // stub awaiting a decision. A build that deliberately flips weight.available true (a
+  // documented, opt-in test override -- see ML/export/export_xgboost.py's
+  // --enable-for-testing flag) reaches the branch below instead; every envelope it
+  // produces still carries protocol_implemented:false and the uncut-mask caveat, per
+  // AGENTS.md rule 8 -- nothing here fabricates a number, it labels a real, biased one.
+  if (!ctx->manifest.weight.available || !ctx->weight_runner) {
+    *out_json = dup_cstr(unavailable_envelope("weight", "cutter_identity_stub"));
+    set_error("weight unavailable: cutter_identity_stub");
+    return INSTAHAM_ML_ERR_UNAVAILABLE;
+  }
+  if (!ctx->manifest.segmentation.available || !ctx->segmentation_runner) {
+    *out_json = dup_cstr(unavailable_envelope("weight", "segmentation_unavailable"));
+    set_error("capability unavailable");
+    return INSTAHAM_ML_ERR_UNAVAILABLE;
+  }
+
+  instaham_ml::stages::SegmentationOutput seg;
+  std::string error;
+  if (!instaham_ml::stages::run_segmentation(ctx->segmentation_runner.get(),
+                                              ctx->manifest.segmentation, image_path, &seg,
+                                              &error) ||
+      !seg.has_detection) {
+    *out_json = dup_cstr(unavailable_envelope("weight", "no_instance_above_conf"));
+    set_error(error.empty() ? "no instance above conf" : error);
+    return INSTAHAM_ML_ERR_UNAVAILABLE;
+  }
+
+  instaham_ml::stages::PigMask mask = instaham_ml::stages::construct_pig_mask(seg);
+  if (mask.empty()) {
+    *out_json = dup_cstr(unavailable_envelope("weight", "empty_mask"));
+    set_error("empty mask");
+    return INSTAHAM_ML_ERR_UNAVAILABLE;
+  }
+
+  instaham_ml::stages::MaskView mask_view{mask.pixels.data(), mask.width, mask.height};
+  instaham_ml::stages::CutterResult cutter_result = instaham_ml::stages::cut_body_mask(mask_view);
+  if (!cutter_result.ok()) {
+    *out_json = dup_cstr(unavailable_envelope("weight", "cutter_failed"));
+    set_error("cutter failed");
+    return INSTAHAM_ML_ERR_UNAVAILABLE;
+  }
+
+  auto feats = instaham_ml::stages::extract_five_features(
+      cutter_result.mask, cutter_result.width, cutter_result.height, 1.0,
+      /*preserve_processed_mask=*/true);
+  if (!feats) {
+    *out_json = dup_cstr(unavailable_envelope("weight", "contour_too_small"));
+    set_error("contour too small");
+    return INSTAHAM_ML_ERR_UNAVAILABLE;
+  }
+
+  auto weight = instaham_ml::stages::predict_weight(ctx->weight_runner.get(), *feats);
+  if (!weight.ok) {
+    *out_json = dup_cstr(nlohmann::json{{"status", "error"}, {"message", weight.error}}.dump());
+    set_error(weight.error);
+    return INSTAHAM_ML_ERR_INFERENCE;
+  }
+
+  nlohmann::json result = {
+      {"status", "ok"},
+      {"estimated_kg", weight.weight_kg},
+      {"segmentation_confidence", seg.box.conf},
+      {"feature_family", "baseline5"},
+      {"feature_order", {"RA", "LC", "BL", "BW", "E"}},
+      {"features",
+       {{"RA", feats->ra}, {"LC", feats->lc}, {"BL", feats->bl}, {"BW", feats->bw},
+        {"E", feats->e}}},
+      {"qc",
+       {{"head_removal_applied", cutter_result.head_removal_applied},
+        {"pair_valid", false},
+        {"cutter", "identity_stub"}}},
+      {"protocols",
+       {{"cutter_protocol_version", "ji_duan_residual_06q_v9_headfit_exact_twotangent_v26"},
+        {"cutter_protocol_implemented", false}}},
+      {"capture_contract",
+       {{"feature_space", "fixed_camera_pixels"},
+        {"training_camera_height_m", ctx->manifest.weight.training_camera_height_m},
+        {"camera_height_is_xgboost_feature",
+         ctx->manifest.weight.camera_height_is_xgboost_feature}}},
+      // Section 3.4's rule stated plainly in the payload, not just in a comment: this
+      // build's cutter never removed the head/neck, so `estimated_kg` is measured on the
+      // full (uncut) mask and reads heavier than the research protocol's number would.
+      {"note",
+       "TEST OVERRIDE: cutter is the identity stub (head/neck not removed). "
+       "estimated_kg is measured on the uncut mask and is expected to overestimate."},
+  };
+  *out_json = dup_cstr(result.dump());
+  set_error("");
+  return INSTAHAM_ML_OK;
 }
 
 // ML_implementation_plan.md revision 7, section 3.4 rule 3: the one thing the identity
@@ -306,7 +399,8 @@ InstahamMlStatus instaham_ml_run_pipeline_json(InstahamMlContext* raw_ctx, const
     return INSTAHAM_ML_ERR_INVALID_ARG;
   }
   instaham_ml::PipelineRunners runners{ctx->view_runner.get(), ctx->health_runner.get(),
-                                        ctx->segmentation_runner.get()};
+                                        ctx->segmentation_runner.get(),
+                                        ctx->weight_runner.get()};
   std::string json_out;
   bool ok = instaham_ml::run_pipeline(runners, ctx->manifest, image_path, &json_out);
   *out_json = dup_cstr(json_out);

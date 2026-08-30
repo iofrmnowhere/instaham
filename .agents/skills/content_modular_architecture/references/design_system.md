@@ -106,14 +106,29 @@ Camera: Reference Mode | Height Mode
 Dominant centered shutter
     v
 Photo review: Retake | Use photo
-    |-- Reference Mode -> verify or manually mark reference endpoints
-    |                      -> Confirm & analyze
-    |-- Height Mode ------> analyze
+    |
+    v
+VIEW GATE runs here, on "Use photo" -- not at analysis time, because its
+label decides which screen comes next. Routes on argmax; no threshold.
+    |
+    |-- reject ------> "Photo not usable" dialog -> Retake (status: rejected)
+    |
+    |-- health_only -> analyze directly. Reference marking is SKIPPED: it exists
+    |                  only to scale a weight, and there is no weight branch here.
+    |
+    `-- dorsal_valid
+            |-- Reference Mode -> verify or manually mark reference endpoints
+            |                      -> Confirm & analyze
+            `-- Height Mode ------> analyze
     v
 Independent weight and visual-health results
     v
 Assign pig (optional) -> save in Records
 ```
+
+The view gate's own outcome renders as its own card in results — it is never folded into a
+health or weight "Unavailable". See `references/inference_pipeline_flow.md` for the full
+model graph behind "analyze".
 
 ### Camera control hierarchy
 
@@ -141,9 +156,15 @@ Assign pig (optional) -> save in Records
 
 ### Results and recovery
 
-- Weight and visual-health branches render independently.
+- Weight and visual-health branches render independently. A failed weight branch must never
+  block, degrade, or hide a successful health result.
 - Never show a fabricated health score, healthy-weight claim, diagnosis, or numeric output from a failed eligibility branch.
 - Visual health shows `Possible visual indicator`, model confidence, and uncertainty wording.
+  The label is always the model's argmax; the `uncertain` badge (below 0.60) is a display
+  flag layered on top, never a gate that changes the label.
+- The view gate renders as its own card. `Skipped` (a routing outcome — not a dorsal photo)
+  and `Unavailable` (genuinely no number) are distinct weight states and must stay distinct;
+  collapsing them has regressed twice.
 - Pending model integration is shown as `Pending`; it is not replaced with mock numbers.
 - A blocked reference flow offers manual review before forcing a retake.
 - Retake preserves session ID, selected goal, reference configuration, pig assignment, and usable prior inputs.
@@ -164,7 +185,7 @@ lib/core/models/scan_flow.dart
 | `pigs` | Optional pig tag/display name and soft-delete metadata |
 | `scan_records` | Scan goal, lifecycle, image path, measurement mode, camera height, failure, timestamps, remote/sync state |
 | `reference_annotations` | Known length, normalized endpoints, source/confidence, user and floor-plane confirmation |
-| `weight_results` | Eligible output, failure reason, scale, and features in fixed `RA, LC, BL, BW, E` order |
+| `weight_results` | Eligible output, failure reason, scale, and features in fixed `RA, LC, BL, BW, E` order. `cm_per_pixel` is persisted for provenance but does not currently scale the features — the shipped regressor's feature space is `fixed_camera_pixels`. |
 | `health_results` | Independent eligibility, visual class, confidence, uncertainty, and versions |
 | `pipeline_events` | Stage-level progress, failure, and retry audit trail |
 | `privacy_preferences` | Explicit research/analytics choices and declared inference location |
@@ -182,6 +203,20 @@ Persistence rules:
 
 ## Current Integration Status
 
-- Implemented: design flow, scan-session persistence, reference confirmation UI, Records source of truth, pig assignment, truthful result states, privacy persistence, delete confirmation, sync outbox schema, and analytics module (with graphs).
-- Pending: hardware camera/image picker integration, EXIF correction, trained reference detector, concrete ML service implementations, and remote backend sync worker.
-- Until the model pipeline is integrated, result branches must remain visibly pending or unavailable.
+- **Implemented:** design flow, scan-session persistence, reference confirmation UI, Records
+  source of truth, pig assignment, truthful result states, privacy persistence, delete
+  confirmation, sync outbox schema, analytics module (with graphs), hardware camera/image
+  picker, EXIF correction, and the native ML runtime — view, health, segmentation, mask
+  construction, five-feature extraction, and the XGBoost weight regressor all run on-device
+  in `libinstaham_ml.so`.
+- **Gated, not missing — the weight number.** All five C++ stages run, but stage 3 (the
+  head/neck cutter) is a permanent identity stub, so `weight.available` is `false` in every
+  shipping manifest and the weight card reads "Unavailable" with reason
+  `cutter_identity_stub`. This is a stated contract, not an unfinished integration.
+  A developer-only export flag (`--enable-for-testing`) can surface a real but
+  head-inclusive, overestimated kg value for verifying the native chain end-to-end.
+- **Pending:** trained reference detector (manual endpoint marking remains mandatory), a
+  cm-space regressor that actually consumes `cm_per_pixel`, binding the C++ whole-graph
+  entrypoint from Dart, and the remote backend sync worker.
+- A result branch that did not produce a number must stay visibly pending, skipped, or
+  unavailable — and those three are distinct states, never collapsed into one.

@@ -1,0 +1,13 @@
+{
+  "feature_names": [
+    "RA",
+    "LC",
+    "BL",
+    "BW",
+    "E"
+  ],
+  "n_estimators": 300,
+  "objective": "reg:squarederror",
+  "source_model_sha256": "5ae8eabd68ff962824cb726fe692574c42d03064f9b2f41e8671f63def2d168d",
+  "target": "weight_kg"
+}

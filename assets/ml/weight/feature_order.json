@@ -1,0 +1,10 @@
+{
+  "feature_family": "baseline5",
+  "features": [
+    "RA",
+    "LC",
+    "BL",
+    "BW",
+    "E"
+  ]
+}

@@ -20,6 +20,7 @@ struct PipelineRunners {
   OnnxRunner* view = nullptr;
   OnnxRunner* health = nullptr;
   OnnxRunner* segmentation = nullptr;
+  OnnxRunner* weight = nullptr;  // null unless manifest.weight.available (test override)
 };
 
 // Runs view -> (stop | segmentation -> construction -> health) -> (dorsal_valid: cutter ->

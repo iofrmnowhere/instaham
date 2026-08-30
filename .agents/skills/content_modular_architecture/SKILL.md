@@ -39,22 +39,28 @@ lib/
 │
 ├── services/                     # Infrastructure / side-effect services
 │   └── ml/                       # ML model loaders and runners
+│       ├── ml_runtime.dart       # THE dart:ffi seam — stages assets, owns the one
+│       │                         # InstahamMlContext. Nothing else in lib/ touches FFI.
 │       ├── view_model_service.dart
 │       ├── health_model_service.dart
 │       ├── segmentation_service.dart
-│       └── weight_regression_service.dart
+│       └── weight_model_service.dart
 │
 └── features/                     # Self-contained feature modules
-    ├── capture/                  # Camera/gallery image intake
+    ├── capture/                  # Camera/gallery intake + capture-time view gate
     ├── inference_pipeline/       # Orchestrates the full image→result pipeline
-    ├── view_suitability/         # dorsal_valid / reject routing
+    ├── view_suitability/         # dorsal_valid / health_only / reject routing
     ├── health_assessment/        # Health classification + uncertainty handling
-    ├── segmentation/             # YOLO mask extraction + eligibility checks
-    ├── weight_estimation/        # Reference UI, feature extraction, XGBoost
+    ├── segmentation/             # YOLO mask extraction + mask construction
+    ├── weight_estimation/        # Reference marking UI, features, XGBoost
     ├── results/                  # Combined results display
     ├── analytics/                # Historical charts, graphs, and aggregate statistics
     └── records/                  # Saved past scans and local device history
 ```
+
+The native side lives outside `lib/` entirely, in `packages/instaham_ml_ffi/`
+(`libinstaham_ml.so`: ONNX Runtime + opencv-mobile + the five pipeline stages). See
+`references/inference_pipeline_flow.md` for how the Dart and C++ halves divide the work.
 
 ---
 
@@ -97,42 +103,67 @@ features/<feature>/
 
 ### `capture/`
 - Accesses camera and gallery via `image_picker` or `camera` package.
-- Corrects EXIF orientation before any downstream use.
-- Outputs a validated `CapturedImageEntity` (path + metadata).
+- Bakes EXIF orientation **once**, here (`AGENTS.md` rule 5). No later stage rotates —
+  native code expects an already-normalised RGB image.
+- Runs the **view gate at capture time** (`RunAndPersistPipelineUseCase.resolveViewGate`) and
+  routes on the result, because the label decides which screen comes next. The label is
+  persisted as a `view` `PipelineEvent` so the model never runs a second time.
 
 ### `inference_pipeline/`
-- The **single orchestrator**. It wires view → health → segmentation → weight in sequence.
-- Calls use cases from each feature module in order.
-- Produces a `PipelineResultEntity` matching the result schema in Section 13 of the requirements.
+- The **app-flow orchestrator**: `RunAndPersistPipelineUseCase` sequences view → health →
+  segmentation → weight and persists every branch through `AppDatabase`.
+- Calls the ML services in `lib/services/ml/`, never a model runtime directly.
+- Never throws: a native/ORT failure is recorded as a blocked result, not surfaced as an
+  exception, so the user always gets an explanation.
+- Sets final scan status: `completed` only when the weight branch produced a number,
+  otherwise `blocked` (or `rejected` at the view gate).
+- Note the C++ library also has its own whole-graph orchestrator
+  (`instaham_ml_run_pipeline_json`), which is **not yet bound in Dart** — stage ordering
+  still lives here. See `references/inference_pipeline_flow.md`.
 
 ### `view_suitability/`
-- Runs the MobileNetV4 view model.
-- Returns one of: `dorsal_valid`, `reject`.
-- `dorsal_valid` enables both health and weight branches. `reject` (or low-confidence) stops the pipeline immediately.
-- Reads class mapping from `classes.json` — never hardcodes indices.
-- Routes the pipeline based on a configurable confidence threshold (default 0.70).
+- Runs the GhostNetV3 view model.
+- Returns one of three labels: `dorsal_valid`, `health_only`, `reject`.
+- `dorsal_valid` enables both branches; `health_only` runs health and skips weight *and*
+  reference marking; `reject` stops with a retake prompt.
+- Reads class mapping from `classes.json` — never hardcodes indices (`AGENTS.md` rule 1).
+- **Routes on argmax, with no confidence threshold.** The model's recorded metrics were
+  measured under argmax; an app-invented cutoff would invalidate them. Do not reintroduce one.
 
 ### `health_assessment/`
-- Runs the health classifier (MobileNetV4-Conv-Small / ShuffleNetV2 / GhostNetV3).
-- Returns `HealthResultEntity` with `className`, `confidence`, and `uncertain` flag.
+- Runs the GhostNetV3 health classifier.
+- Returns `HealthResultEntity` with `className`, `confidence`, and `uncertain` flag
+  (`uncertain` is display-only, below 0.60 — it never changes the label or a route).
+- Runs on **both** the `dorsal_valid` and `health_only` branches, and is never blocked by a
+  weight-branch failure (`AGENTS.md` rule 4).
 - Displays the required disclaimer: *"This is not a veterinary diagnosis."*
 
 ### `segmentation/`
-- Runs the YOLO model at 640×640 with letterboxing.
-- Maps the mask back to original image coordinates.
-- Runs all 9 weight-eligibility checks. If **any** fail → sets `eligible = false` with a specific `failureReason`.
+- Runs YOLO11s-seg at 640×640 with letterboxing.
+- Decodes the 32 mask coefficients against the 160×160 prototype and unletterboxes, so the
+  mask lands in **original image coordinates**.
+- Serves the weight branch only — skipped entirely for `health_only`, since health runs
+  `full_frame` today.
 
 ### `weight_estimation/`
-- UI for reference object selection and manual endpoint marking.
-- Computes `cm_per_pixel` from the reference endpoints.
-- Extracts features in the **fixed order** `[RA, LC, BL, BW, E]`.
-- Runs the XGBoost model (physical-centimeter feature space only).
-- Uses the mask cleanup logic identical to training.
+- UI for reference object selection and manual endpoint marking. Endpoint coordinates map to
+  the displayed image rect **including `BoxFit` letterboxing** (`AGENTS.md` rule 9).
+- Computes and persists `cm_per_pixel` from the user-confirmed reference (`AGENTS.md` rule 7).
+- **`cm_per_pixel` does not currently scale the features.** The shipped regressor's capture
+  contract is `fixed_camera_pixels` and the C++ feature stage runs at `linear_scale = 1.0`.
+  The reference is stored for provenance and a future cm-space model. Multiplying features by
+  it would silently change the feature space the model was trained in.
+- Features are extracted natively in the **fixed order** `[RA, LC, BL, BW, E]`
+  (`AGENTS.md` rule 2), re-asserted against the manifest at load time.
+- The weight number is gated: see "Weight availability" in
+  `references/inference_pipeline_flow.md`.
 
 ### `results/`
-- Displays the combined `PipelineResultEntity`.
-- Shows weight (if eligible) and health classification.
-- Handles all blocked, uncertain, and retake states with specific messages.
+- Displays the combined scan bundle, and lazily triggers the pipeline the first time a scan
+  has an image but no stored health result.
+- Keeps **Skipped** (routing outcome) and **Unavailable** (genuinely no number) as distinct
+  weight states — collapsing them has regressed twice (`TASKS.md` Cause B/C).
+- Never displays an invented score or a completed state for a branch that did not produce one.
 
 ### `analytics/`
 - Handles querying historical health and weight trends.
@@ -179,12 +210,28 @@ Features communicate only through the `inference_pipeline/` orchestrator or shar
 
 ## ML Model Integration
 
-All ML models are loaded and run through `lib/services/ml/`. Features never import ML packages directly.
+Models run natively in `libinstaham_ml.so` (ONNX Runtime + opencv-mobile), reached through a
+single `dart:ffi` seam. Features never import an ML package or touch FFI directly.
+
+```
+feature use case  →  lib/services/ml/<capability>_service.dart
+                  →  lib/services/ml/ml_runtime.dart      (the ONLY dart:ffi caller)
+                  →  package:instaham_ml_ffi bindings
+                  →  libinstaham_ml.so
+```
 
 ```dart
 // Good — feature use case calls a service interface
 final result = await _viewModelService.classify(image);
 
-// Bad — feature directly loads a TFLite model
-final interpreter = Interpreter.fromAsset('...');  // ❌
+// Bad — feature reaches for the runtime, the bindings, or dart:ffi itself
+final runtime = await MlRuntime.instance();          // ❌ services/ml only
+DynamicLibrary.open('libinstaham_ml.so');            // ❌ ml_runtime.dart only
 ```
+
+Everything the native layer needs — model paths, sha256, input sizes, mean/std, class-map
+paths, feature order, protocol versions, per-capability `available` flags — comes from
+`assets/ml/manifest.json`, generated by `ML/export/build_manifest.py` and **never
+hand-edited**. Nothing is hardcoded in C++ or Dart (`AGENTS.md` rules 1, 2, 7). A capability
+with `available: false` is still a valid, shippable manifest; every call into it returns
+`ERR_UNAVAILABLE`.

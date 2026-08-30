@@ -19,7 +19,14 @@ from pathlib import Path
 from ML.export.common import BASELINE5, read_json, sha256_file, write_json
 
 
-def export(*, model: Path, metadata: Path | None, out: Path, opset: int = 15) -> Path:
+def export(
+    *,
+    model: Path,
+    metadata: Path | None,
+    out: Path,
+    opset: int = 15,
+    enable_for_testing: bool = False,
+) -> Path:
     import numpy as np
     import onnxruntime as ort
     import xgboost as xgb
@@ -73,10 +80,27 @@ def export(*, model: Path, metadata: Path | None, out: Path, opset: int = 15) ->
         },
     )
 
+    # --enable-for-testing (default False) is a deliberate, opt-in override of
+    # ML_implementation_plan.md revision 7 section 3.4's rule that weight.available must
+    # stay false while the cutter is a permanent identity dummy. It exists ONLY to let a
+    # developer manually verify the C++ weight_prediction stage end-to-end on a real
+    # device -- estimated_kg will read heavy because the head/neck were never removed
+    # from the mask. Never pass this flag when building a manifest meant to ship.
+    weight_block: dict = {
+        "available": bool(enable_for_testing),
+        "stability": "temporary",
+    }
+    if enable_for_testing:
+        weight_block["note"] = (
+            "TEST OVERRIDE: cutter is the identity stub (head/neck not removed). "
+            "estimated_kg overestimates the research protocol's number."
+        )
+    else:
+        weight_block["unavailable_reason"] = "cutter_identity_stub"
+
     fragment = {
         "weight": {
-            "available": False,
-            "unavailable_reason": "cutter_identity_stub",
+            **weight_block,
             "regressor": {
                 "format": "onnx",
                 "path": "weight/xgboost.onnx",
@@ -119,8 +143,25 @@ def main() -> None:
     ap.add_argument("--metadata", type=Path, default=None)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--opset", type=int, default=15)  # onnxmltools XGBoost converter caps at opset 15
+    ap.add_argument(
+        "--enable-for-testing",
+        action="store_true",
+        help=(
+            "DEV ONLY: flips weight.available to true so instaham_ml_predict_weight_json "
+            "and the pipeline's weight branch return a real (uncut-mask, overestimated) "
+            "kg number instead of ERR_UNAVAILABLE. Overrides ML_implementation_plan.md "
+            "revision 7 section 3.4's rule. Never pass this for a build meant to ship."
+        ),
+    )
     a = ap.parse_args()
-    print(f"wrote {export(model=a.model, metadata=a.metadata, out=a.out, opset=a.opset)}")
+    written = export(
+        model=a.model,
+        metadata=a.metadata,
+        out=a.out,
+        opset=a.opset,
+        enable_for_testing=a.enable_for_testing,
+    )
+    print(f"wrote {written}")
 
 
 if __name__ == "__main__":

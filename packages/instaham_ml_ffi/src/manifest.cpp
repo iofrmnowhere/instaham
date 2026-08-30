@@ -166,6 +166,57 @@ bool load_segmentation(const json& j, const std::string& base_dir, SegmentationC
   return true;
 }
 
+// ML_implementation_plan.md revision 7, section 8: the weight capability's regressor +
+// feature order, as written by ML/export/export_xgboost.py's manifest_fragment.json.
+// `available` gates everything else (instaham_ml_capability_available("weight"),
+// instaham_ml.cpp's weight_runner creation): a manifest with weight.available == false
+// still parses cleanly, it just leaves `out` at its all-default state.
+bool load_weight(const json& j, const std::string& base_dir, WeightCapability* out,
+                  std::string* error, int* error_code_out) {
+  if (!j.contains("weight")) {
+    out->available = false;
+    return true;
+  }
+  const json& cap = j.at("weight");
+  out->available = cap.value("available", false);
+  if (!out->available) return true;
+
+  if (!cap.contains("regressor")) {
+    *error = "weight: missing regressor block";
+    *error_code_out = INSTAHAM_ML_ERR_MANIFEST;
+    return false;
+  }
+  const json& regressor = cap.at("regressor");
+  out->model_path = join_path(base_dir, regressor.value("path", ""));
+  out->model_sha256 = regressor.value("sha256", "");
+
+  if (cap.contains("feature_extractor") && cap["feature_extractor"].contains("names")) {
+    for (const auto& name : cap["feature_extractor"]["names"]) {
+      out->feature_order.push_back(name.get<std::string>());
+    }
+  }
+  // AGENTS.md rule 2: the order the regressor was trained/exported on is non-negotiable.
+  static const std::vector<std::string> kExpectedOrder = {"RA", "LC", "BL", "BW", "E"};
+  if (out->feature_order != kExpectedOrder) {
+    *error = "weight: feature_extractor.names must be exactly [RA,LC,BL,BW,E]";
+    *error_code_out = INSTAHAM_ML_ERR_CONTRACT;
+    return false;
+  }
+
+  if (cap.contains("capture_contract")) {
+    const json& contract = cap["capture_contract"];
+    out->training_camera_height_m = contract.value("training_camera_height_m", 0.0);
+    out->camera_height_is_xgboost_feature =
+        contract.value("camera_height_is_xgboost_feature", false);
+  }
+
+  if (!verify_hash(out->model_path, out->model_sha256, error)) {
+    *error_code_out = INSTAHAM_ML_ERR_HASH_MISMATCH;
+    return false;
+  }
+  return true;
+}
+
 }  // namespace
 
 bool load_manifest(const std::string& path, Manifest* out, std::string* error, int* error_code_out) {
@@ -195,8 +246,9 @@ bool load_manifest(const std::string& path, Manifest* out, std::string* error, i
   if (!load_classifier(caps, "view", out->base_dir, &out->view, error, error_code_out)) return false;
   if (!load_classifier(caps, "health", out->base_dir, &out->health, error, error_code_out)) return false;
   if (!load_segmentation(caps, out->base_dir, &out->segmentation, error, error_code_out)) return false;
+  if (!load_weight(caps, out->base_dir, &out->weight, error, error_code_out)) return false;
 
-  out->weight_available = caps.contains("weight") && caps["weight"].value("available", false);
+  out->weight_available = out->weight.available;
   return true;
 }
 

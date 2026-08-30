@@ -5,6 +5,7 @@
 #include "stages/cutter.h"
 #include "stages/feature_calculation.h"
 #include "stages/segmentation.h"
+#include "stages/weight_prediction.h"
 #include "third_party/nlohmann_json/single_include/nlohmann/json.hpp"
 
 namespace instaham_ml {
@@ -156,6 +157,21 @@ bool run_pipeline(const PipelineRunners& runners, const Manifest& manifest,
         {"protocol_implemented", false},
     };
 
+    // Test override (ML/export/export_xgboost.py --enable-for-testing): only reachable
+    // when the manifest deliberately sets weight.available true. AGENTS.md rule 8 stays
+    // satisfied -- this is a real prediction from the runner, labelled with the same
+    // uncut-mask caveat instaham_ml_predict_weight_json carries, never a fabricated value.
+    const bool weight_override = manifest.weight.available && runners.weight;
+    json weight_unavailable_json = json{
+        {"status", "unavailable"},
+        {"reason", "cutter_identity_stub"},
+        {"user_message_key", "weight_unavailable_cutter_not_implemented"},
+        {"capture_contract",
+         {{"feature_space", "fixed_camera_pixels"},
+          {"training_camera_height_m", 1.88},
+          {"camera_height_is_xgboost_feature", false}}},
+    };
+
     if (cutter_result.ok()) {
       auto feats = stages::extract_five_features(cutter_result.mask, cutter_result.width,
                                                   cutter_result.height, 1.0,
@@ -170,22 +186,40 @@ bool run_pipeline(const PipelineRunners& runners, const Manifest& manifest,
               {"E", feats->e}}},
             {"measured_on", "uncut_mask"},
         };
+        if (weight_override) {
+          auto weight = stages::predict_weight(runners.weight, *feats);
+          if (weight.ok) {
+            envelope["weight"] = json{
+                {"status", "ok"},
+                {"estimated_kg", weight.weight_kg},
+                {"protocol_implemented", false},
+                {"note",
+                 "TEST OVERRIDE: cutter is the identity stub (head/neck not removed); "
+                 "estimated_kg overestimates the research protocol's number."},
+                {"capture_contract",
+                 {{"feature_space", "fixed_camera_pixels"},
+                  {"training_camera_height_m", manifest.weight.training_camera_height_m},
+                  {"camera_height_is_xgboost_feature",
+                   manifest.weight.camera_height_is_xgboost_feature}}},
+            };
+          } else {
+            envelope["weight"] = json{{"status", "error"}, {"reason", weight.error}};
+          }
+        } else {
+          envelope["weight"] = weight_unavailable_json;
+        }
       } else {
         envelope["features"] = json{{"status", "error"}, {"reason", "contour_too_small"}};
+        envelope["weight"] = weight_override
+                                  ? json{{"status", "error"}, {"reason", "contour_too_small"}}
+                                  : weight_unavailable_json;
       }
     } else {
       envelope["features"] = skipped("cutter_failed");
+      envelope["weight"] =
+          weight_override ? json{{"status", "error"}, {"reason", "cutter_failed"}}
+                           : weight_unavailable_json;
     }
-
-    envelope["weight"] = json{
-        {"status", "unavailable"},
-        {"reason", "cutter_identity_stub"},
-        {"user_message_key", "weight_unavailable_cutter_not_implemented"},
-        {"capture_contract",
-         {{"feature_space", "fixed_camera_pixels"},
-          {"training_camera_height_m", 1.88},
-          {"camera_height_is_xgboost_feature", false}}},
-    };
   } else if (is_dorsal && !have_mask) {
     envelope["cutter"] = skipped("no_mask");
     envelope["features"] = skipped("no_mask");

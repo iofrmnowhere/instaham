@@ -26,6 +26,10 @@ const List<String> _bundledMlAssets = [
   'health/model.onnx',
   'health/classes.json',
   'segmentation/yolo.onnx',
+  // Only present when the manifest's weight capability is available (test-only override,
+  // ML/export/export_xgboost.py --enable-for-testing) -- _tryLoadAsset skips it otherwise.
+  'weight/xgboost.onnx',
+  'weight/feature_order.json',
 ];
 
 class MlRuntime {
@@ -125,4 +129,12 @@ class MlRuntime {
 
   (MlStatus, Map<String, dynamic>) segment(String imagePath) =>
       _invoke(_bindings.segment, imagePath);
+
+  /// Test-only override path (ML/export/export_xgboost.py --enable-for-testing): returns
+  /// `errUnavailable` unless the bundled manifest's weight capability is available, per
+  /// ML_implementation_plan.md section 3.4. When it is, the native chain still ran a real
+  /// (uncut-mask) prediction -- see instaham_ml.cpp's instaham_ml_predict_weight_json for
+  /// the caveat this carries.
+  (MlStatus, Map<String, dynamic>) predictWeight(String imagePath) =>
+      _invoke(_bindings.predictWeight, imagePath);
 }

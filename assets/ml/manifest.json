@@ -1,5 +1,5 @@
 {
-  "bundle_id": "instaham-ml-5bd99ce",
+  "bundle_id": "instaham-ml-9781c14",
   "capabilities": {
     "health": {
       "available": true,
@@ -157,10 +157,51 @@
       "source_run": {
         "checkpoint_sha256": "94be976320e4f00de331254ad3b14b2f59981e06819c4fe87b12e819ffa3c1e9"
       }
+    },
+    "weight": {
+      "available": true,
+      "body_mask": {
+        "ported_functions": [
+          "clean_binary_mask",
+          "isolate_dorsal_core_ji_duan",
+          "extract_five_features",
+          "unletterbox_native_mask"
+        ],
+        "protocol_version": "ji_duan_residual_06q_v9_headfit_exact_twotangent_v26",
+        "stage": "provisional"
+      },
+      "capture_contract": {
+        "camera_height_is_xgboost_feature": false,
+        "feature_space": "fixed_camera_pixels",
+        "training_camera_height_m": 1.88
+      },
+      "feature_extractor": {
+        "linear_scale": 1.0,
+        "names": [
+          "RA",
+          "LC",
+          "BL",
+          "BW",
+          "E"
+        ],
+        "protocol_version": "baseline5_v1"
+      },
+      "note": "TEST OVERRIDE: cutter is the identity stub (head/neck not removed). estimated_kg overestimates the research protocol's number.",
+      "regressor": {
+        "feature_family": "baseline5",
+        "feature_order_path": "weight/feature_order.json",
+        "feature_order_sha256": "09a9a2165a9869238c6bcb18ffb8e789f410a9d302a92db5a89b0043bf0f9cd5",
+        "format": "onnx",
+        "meta_path": "weight/xgboost.meta.json",
+        "meta_sha256": "324d217131f363c049fd49a6e2898e89746cf33112602875246b334639a1298c",
+        "objective": "reg:squarederror",
+        "path": "weight/xgboost.onnx",
+        "sha256": "0d720b2b3283f4443b52a580f6ecfbc7896f9c3d7f02247b23c05bb67edddf6d"
+      },
+      "stability": "temporary"
     }
   },
-  "platform": "android",
-  "reference_commit": "5bd99ce",
+  "reference_commit": "9781c14",
   "runtime": {
     "engine": "onnxruntime",
     "min_abi_version": 1

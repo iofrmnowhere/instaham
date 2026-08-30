@@ -42,7 +42,7 @@ set(INSTAHAM_ML_SOURCES
   stages/construction.cpp
   stages/cutter.cpp             # identity dummy -- not ported, by design (section 3.4)
   stages/feature_calculation.cpp
-  # stages/weight_prediction.cpp                                   # slice R4b, deferred
+  stages/weight_prediction.cpp  # slice R4 -- runs the XGBoost ONNX graph, nothing else
   util/image_io.cpp
   util/sha256.cpp
 )

@@ -40,12 +40,25 @@ struct SegmentationCapability {
   std::string protocol_version;
 };
 
+// ML_implementation_plan.md revision 7, section 8: XGBoost weight regressor, exported to
+// ONNX by ML/export/export_xgboost.py. `feature_order` MUST equal {"RA","LC","BL","BW","E"}
+// (AGENTS.md rule 2) -- load_manifest() rejects a manifest where it does not.
+struct WeightCapability {
+  bool available = false;
+  std::string model_path;    // absolute; the xgboost.onnx graph
+  std::string model_sha256;
+  std::vector<std::string> feature_order;
+  double training_camera_height_m = 0.0;
+  bool camera_height_is_xgboost_feature = false;
+};
+
 struct Manifest {
   std::string base_dir;  // directory containing manifest.json; all *_path fields above are absolute
   ClassifierCapability view;
   ClassifierCapability health;
   SegmentationCapability segmentation;
-  bool weight_available = false;
+  WeightCapability weight;
+  bool weight_available = false;  // == weight.available; kept for existing callers
 };
 
 // Loads and validates manifest.json at `path`:
