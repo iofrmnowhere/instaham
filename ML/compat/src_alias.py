@@ -24,7 +24,9 @@ _src.__path__ = []  # mark as a package so `src.<submodule>` resolves
 sys.modules.setdefault("src", _src)
 sys.modules["src.yolo_modifications"] = _yolo_modifications
 
-# ML/weight_runtime.py documents src.body_mask / src.yolo_inference as legacy import
-# roots for the (now-deleted, see section 5.5) cutter helpers. Neither module exists in
-# the repo any more, so no alias is installed for them; if a checkpoint ever needs one,
-# add it here rather than duplicating this shim elsewhere.
+# ML/weight_runtime.py used to document src.body_mask / src.yolo_inference as legacy
+# import roots for the pre-refactor cutter helpers (ML_implementation_plan.md revision 6).
+# Those modules were deleted at revision 6's section 5.5 and their successors
+# (ML/pig_cutter.py, ML/pig_geometry.py) were themselves deleted at revision 7's section
+# 5.6 in favour of ML/pipeline/*.py -- so no alias is installed for either; if a
+# checkpoint ever needs one, add it here rather than duplicating this shim elsewhere.

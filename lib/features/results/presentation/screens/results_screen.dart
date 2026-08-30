@@ -220,7 +220,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
         _viewCard(bundle.viewEvent),
         const SizedBox(height: 12),
         if (goal.requiresReference) ...[
-          _weightCard(bundle.weight),
+          _weightCard(bundle.weight, bundle.viewEvent),
           const SizedBox(height: 12),
         ],
         _healthCard(bundle.health, bundle.viewEvent),
@@ -350,7 +350,13 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  Widget _weightCard(WeightResult? result) {
+  /// ML_implementation_plan.md revision 7, section 12.5: three distinct weight states,
+  /// never collapsed into one "Unavailable" the way the health card used to be before
+  /// TASKS.md's P2 (see _healthCard's own `skippedByViewGate` split, the same idea
+  /// applied here). "Skipped" (not a dorsal photo) is a routing outcome, not a failure;
+  /// "Unavailable" (segmentation failed, or the cutter is the identity dummy -- section
+  /// 3.4) is the branch genuinely not producing a number this build.
+  Widget _weightCard(WeightResult? result, PipelineEvent? viewEvent) {
     if (result == null) {
       return const _BranchCard(
         icon: Icons.monitor_weight_outlined,
@@ -362,11 +368,13 @@ class _ResultsScreenState extends State<ResultsScreen> {
       );
     }
     if (!result.eligible || result.valueKg == null) {
+      final skippedByViewGate =
+          viewEvent != null && viewEvent.status != 'dorsal_valid';
       return _BranchCard(
         icon: Icons.monitor_weight_outlined,
         title: 'Weight',
-        value: 'Unavailable',
-        status: ResultStatus.blocked,
+        value: skippedByViewGate ? 'Skipped' : 'Unavailable',
+        status: skippedByViewGate ? ResultStatus.skipped : ResultStatus.blocked,
         message:
             result.failureReason ?? 'Weight eligibility checks did not pass.',
       );

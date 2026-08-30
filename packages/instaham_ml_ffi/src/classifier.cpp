@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "health_input.h"
 #include "include/instaham_ml.h"
 #include "third_party/nlohmann_json/single_include/nlohmann/json.hpp"
 #include "util/image_io.h"
@@ -16,33 +17,9 @@ json error_envelope(const std::string& message) {
   return json{{"status", "error"}, {"message", message}};
 }
 
-// Resize-shorter-side then center-crop, matching ML/export/common.py's
-// classifier_preprocessing() exactly (section 6.1 / the manifest's "preprocessing" block).
-RgbImage resize_shorter_then_crop(const RgbImage& src, int resize_shorter_side, int crop) {
-  float scale = float(resize_shorter_side) / float(std::min(src.width, src.height));
-  int new_w = std::max(1, int(std::round(src.width * scale)));
-  int new_h = std::max(1, int(std::round(src.height * scale)));
-  RgbImage resized = resize_exact(src, new_w, new_h);
-
-  int left = std::max(0, (new_w - crop) / 2);
-  int top = std::max(0, (new_h - crop) / 2);
-  RgbImage cropped;
-  cropped.width = crop;
-  cropped.height = crop;
-  cropped.pixels.resize(size_t(crop) * crop * 3);
-  for (int y = 0; y < crop; ++y) {
-    int sy = std::min(top + y, resized.height - 1);
-    for (int x = 0; x < crop; ++x) {
-      int sx = std::min(left + x, resized.width - 1);
-      const uint8_t* s = &resized.pixels[(size_t(sy) * resized.width + sx) * 3];
-      uint8_t* d = &cropped.pixels[(size_t(y) * crop + x) * 3];
-      d[0] = s[0];
-      d[1] = s[1];
-      d[2] = s[2];
-    }
-  }
-  return cropped;
-}
+// resize_shorter_then_crop moved to health_input.cpp so the view path and the health
+// path share one copy of the preprocessing every recorded metric was produced under.
+// The arithmetic moved verbatim; this call site is unchanged in behaviour.
 
 std::vector<float> to_nchw_tensor(const RgbImage& img, float scale, const float mean[3],
                                    const float std_dev[3]) {
@@ -63,7 +40,8 @@ std::vector<float> to_nchw_tensor(const RgbImage& img, float scale, const float 
 }  // namespace
 
 bool run_classifier(OnnxRunner* runner, const ClassifierCapability& cap,
-                     const std::string& image_path, std::string* out_json, int* error_code_out) {
+                     const std::string& image_path, std::string* out_json, int* error_code_out,
+                     const HealthInputOptions* health_input) {
   RgbImage img;
   std::string err;
   if (!decode_image_rgb(image_path, &img, &err)) {
@@ -72,7 +50,19 @@ bool run_classifier(OnnxRunner* runner, const ClassifierCapability& cap,
     return false;
   }
 
-  RgbImage prepped = resize_shorter_then_crop(img, cap.resize_shorter_side, cap.input_size);
+  // The view classifier has no protocol switch (section 1.1(a): it runs on the raw photo,
+  // before segmentation), so it passes health_input == nullptr and takes full_frame.
+  HealthInput prepared;
+  if (health_input != nullptr) {
+    prepared = prepare_health_input(img, health_input->protocol, health_input->region,
+                                    cap.resize_shorter_side, cap.input_size);
+  } else {
+    prepared.image = resize_shorter_then_crop(img, cap.resize_shorter_side, cap.input_size);
+    prepared.protocol_requested = health_input_protocol_name(HealthInputProtocol::kFullFrame);
+    prepared.protocol_applied = prepared.protocol_requested;
+  }
+
+  const RgbImage& prepped = prepared.image;
   std::vector<float> tensor = to_nchw_tensor(prepped, cap.scale, cap.mean, cap.std_dev);
   std::vector<int64_t> shape = {1, 3, cap.input_size, cap.input_size};
 
@@ -117,6 +107,17 @@ bool run_classifier(OnnxRunner* runner, const ClassifierCapability& cap,
       {"class_map_sha256", cap.classes_sha256},
       {"protocol_version", cap.protocol_version},
   };
+  // Additive envelope fields (ABI unchanged -- payloads are JSON). Only emitted for the
+  // health path, and only ever reporting what actually ran: while health_input.cpp's
+  // region protocols are stubs, `input_protocol_applied` reads "full_frame" and
+  // `input_degraded` is true whenever the manifest asked for something else. A scan can
+  // therefore never claim a crop that did not happen (AGENTS.md: no invented state).
+  if (health_input != nullptr) {
+    result["input_protocol_requested"] = prepared.protocol_requested;
+    result["input_protocol_applied"] = prepared.protocol_applied;
+    result["input_degraded"] = prepared.degraded;
+    result["region_source"] = prepared.region_source;
+  }
   *out_json = result.dump();
   return true;
 }

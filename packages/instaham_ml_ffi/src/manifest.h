@@ -20,6 +20,11 @@ struct ClassifierCapability {
   float mean[3] = {0.485f, 0.456f, 0.406f};
   float std_dev[3] = {0.229f, 0.224f, 0.225f};
   std::string protocol_version;
+  // health only: capabilities.health.input.protocol, one of full_frame /
+  // segmentation_crop / segmentation_masked / abnormality_crop. Empty for the view
+  // capability, which has no input switch (section 1.1(a)). Only full_frame is
+  // implemented -- see health_input.h -- so any other value currently degrades to it.
+  std::string input_protocol;
   // class name -> index, loaded from classes.json (never hardcode indices: AGENTS.md rule 1)
   std::vector<std::string> class_names;  // index -> name, built from classes.json
 };

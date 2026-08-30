@@ -1,38 +1,43 @@
-"""ML/pig_cutter.py -- the head/neck cut-off. NOT PORTED TO C++.
+"""ML/pipeline/cutter.py -- (3) head/neck removal. NOT PORTED TO C++.
 
-Consolidated from the original ML/body_mask.py (ML_implementation_plan.md, revision 6,
-section 5). This is the one component the plan deliberately keeps as Python, because it
-is the sole home of scipy.gaussian_filter1d, scipy.find_peaks, and skimage.skeletonize,
-and because it is by far the largest body of code in the programme. Spike S3
-(section 5.2(c)) measured it: 9,911 of 10,855 lines are reachable from
-isolate_body_only_mask(), and 1,985 of those live lines call scipy/skimage directly.
-That measurement is why it is not ported.
+Consolidated from the original ML/body_mask.py plus the dorsal-core family of
+ML/mask_features.py (ML_implementation_plan.md revision 7, section 5). This is the
+one process the plan deliberately keeps as Python, because it is the sole home of
+scipy.gaussian_filter1d, scipy.find_peaks, and skimage.skeletonize, and because it
+is by far the largest body of code in the programme. A reachability pass measured
+it: 9,911 of 10,855 lines are reachable from isolate_body_only_mask(), and 1,985 of
+those live lines call scipy/skimage directly. That measurement is why it is not
+ported.
 
-WHERE THIS RUNS IS NOT YET DECIDED (section 3.5). Not porting it and shipping it
-on-device are separate choices with very different costs. The open options are: (A)
-on-device Python via Chaquopy, Android only; (B) a server-side cutter, both platforms;
-(C) defer the weight branch further. The decision is taken after slice 4. Until then the
-weight branch reports "unavailable" on every platform and this file is used only by the
-Python reference pipeline and the parity gates.
+THE SHIPPED C++ STAGE (stages/cutter.cpp) IS AN IDENTITY DUMMY (section 3.4). It
+returns the input mask unchanged and never sets head_removal_applied. This file is
+used only by the Python reference pipeline (ML/weight_runtime.py) and the parity
+gates -- it is not shipped in the app and it is not gated against a C++ port,
+because there is no port to gate it against.
 
-Contract (section 3.3): a caller passes the raw segmentation mask plus an optional
-ji_config dict into isolate_body_only_mask(), and the weight path returns the five
-features (RA, LC, BL, BW, E) plus QC fields (pair_valid, head_removal_applied). The
-boundary is drawn at the segmentation mask, so no geometry is shared across a runtime
-edge. No model loading, no file IO, no manifest access -- pure mask-to-mask.
+Contract: a caller passes the raw constructed pig mask (ML.pipeline.construction)
+plus an optional ji_config dict into isolate_body_only_mask(), and the weight path
+gets back the QC fields (pair_valid, head_removal_applied) plus a body-only mask
+that ML.pipeline.feature_calculation can measure. No model loading, no file IO, no
+manifest access -- pure mask-to-mask.
 
-Two structural fixes from the original are folded in here (not a behaviour change --
-see ML_implementation_plan.md section 5.2(b)):
-  - `choose_body_circle_pair` and `isolate_body_only_mask` were each defined twice in
-    the original module, with the second definition silently overriding the first via
-    Python's late-binding of module-level names. That is resolved statically here: the
-    original (superseded) definitions keep their alias names
-    (`_choose_body_circle_pair_fixed06q`, `_isolate_body_only_mask_fixed06q`) and the
-    override keeps the public name. No other change.
-  - The five functions this file used to import from ML/mask_features.py
-    (clean_binary_mask, _largest_component_fill, _odd_window, _rolling_median,
-    ji_duan_adaptive_kernel_sizes, isolate_dorsal_core_ji_duan) are now inlined
-    verbatim, because this file must ship with zero project-local imports.
+One structural fix from the original is folded in here (not a behaviour change --
+see ML_implementation_plan.md section 5.3(b)):
+  - `choose_body_circle_pair` and `isolate_body_only_mask` were each defined twice
+    in the original module, with the second definition silently overriding the
+    first via Python's late-binding of module-level names. That is resolved
+    statically here: the original (superseded) definitions keep their alias names
+    (`_choose_body_circle_pair_fixed06q`, `_isolate_body_only_mask_fixed06q`) and
+    the override keeps the public name. No other change.
+
+The dorsal-core family this file used to reach via
+`from src.mask_features import clean_binary_mask, isolate_dorsal_core_ji_duan` is
+now split: `isolate_dorsal_core_ji_duan` and its dependents
+(_odd_window, _rolling_median, ji_duan_adaptive_kernel_sizes, isolate_dorsal_core)
+are moved in below, because they are part of the cut, not part of mask
+construction. Only `clean_binary_mask` and `_largest_component_fill` remain an
+external import, from ML.pipeline.construction (section 2, the mask-building
+stage).
 
 Original docstring, preserved:
 
@@ -75,40 +80,15 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks
 from skimage.morphology import skeletonize
 
-# ===== [0] shared primitives, inlined from ML/mask_features.py =====
-# pig_cutter.py must stand alone -- it must not import any
-# other project file (section 3.1 / 3.3 of ML_implementation_plan.md). These six
-# functions are therefore duplicated here verbatim. ML/pig_geometry.py has its own
-# copies for the C++ port; the two are never used in the same computation
-# (revision 6's one-hop boundary), so they are not required to agree and nothing
-# gates them against each other.
+from ML.pipeline.construction import clean_binary_mask, _largest_component_fill
+
+
+# ===== dorsal-core family, moved in from ML/mask_features.py (section 5.2(3)) =====
+# These are part of the cut, not part of mask construction: isolate_dorsal_core_ji_duan
+# is Ji/Duan adaptive opening, the first step of the protocol this file implements, and
+# isolate_dorsal_core is the alternative INSTAHAM PCA/torso-envelope heuristic compared
+# against it in the research notebooks (same stage, same reason).
 # fmt: off
-
-def _largest_component_fill(mask: np.ndarray) -> np.ndarray:
-    """Return a filled binary mask containing only the largest external component."""
-    binary = (mask > 0).astype(np.uint8) * 255
-    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours:
-        return binary
-    largest = max(contours, key=cv2.contourArea)
-    clean = np.zeros_like(binary)
-    cv2.drawContours(clean, [largest], -1, 255, thickness=cv2.FILLED)
-    return clean
-
-def clean_binary_mask(mask: np.ndarray) -> np.ndarray:
-    """Return a single connected, hole-reduced binary pig mask."""
-    clean = _largest_component_fill(mask)
-    if not np.any(clean):
-        return clean
-
-    # Small closing operation: connect tiny gaps / fill small boundary defects without
-    # attempting to perform the anatomical head-tail-leg removal itself.
-    short_side = max(3, int(round(min(clean.shape) * 0.006)))
-    if short_side % 2 == 0:
-        short_side += 1
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (short_side, short_side))
-    clean = cv2.morphologyEx(clean, cv2.MORPH_CLOSE, kernel)
-    return _largest_component_fill(clean)
 
 def _odd_window(value: int, minimum: int = 5) -> int:
     value = max(minimum, int(value))
@@ -201,8 +181,182 @@ def isolate_dorsal_core_ji_duan(
     if retained < float(minimum_retained_fraction):
         return clean
     return opened
+
+def isolate_dorsal_core(
+    mask: np.ndarray,
+    width_threshold: float = 0.50,
+    lateral_window_fraction: float = 0.12,
+    lateral_cap_factor: float = 1.15,
+    minimum_retained_fraction: float = 0.30,
+) -> np.ndarray:
+    """Isolate the dorsal torso using the INSTAHAM PCA/torso-envelope heuristic.
+
+    The segmentation model supplies a whole-pig mask. Weight estimation must instead
+    measure the dorsal torso/back, so this deterministic post-processing stage removes:
+
+    * narrow longitudinal extremes (head and tail), and
+    * localized lateral protrusions (legs).
+
+    Procedure
+    ---------
+    1. Keep/close the largest connected pig region.
+    2. Rotate the mask so its PCA major axis is horizontal.
+    3. Trim the narrow longitudinal ends using a smoothed width profile.
+    4. Build a smooth central-body envelope from local median half-widths and cap
+       localized lateral protrusions outside that envelope.
+    5. Rotate the torso mask back to the original image coordinates.
+
+    This is the experimental INSTAHAM branch compared against
+    ``isolate_dorsal_core_ji_duan`` in Notebooks 6 and 7. Because posture can vary, this
+    function falls back conservatively to the cleaned mask if an implausibly small torso
+    would otherwise be produced.
+    """
+    clean = clean_binary_mask(mask)
+    points_yx = np.column_stack(np.nonzero(clean > 0))
+    if len(points_yx) < 20:
+        return clean
+
+    points_xy = points_yx[:, ::-1].astype(np.float32)  # x, y
+    center = points_xy.mean(axis=0)
+    _, eigenvectors = cv2.PCACompute(points_xy, mean=np.empty((0)))
+    if eigenvectors is None or len(eigenvectors) == 0:
+        return clean
+
+    axis = eigenvectors[0]
+    angle = float(np.degrees(np.arctan2(axis[1], axis[0])))
+    matrix = cv2.getRotationMatrix2D(tuple(center), angle, 1.0)
+    rotated = cv2.warpAffine(
+        clean,
+        matrix,
+        (clean.shape[1], clean.shape[0]),
+        flags=cv2.INTER_NEAREST,
+        borderValue=0,
+    )
+
+    foreground = rotated > 0
+    raw_width = foreground.sum(axis=0).astype(np.float32)
+    occupied_x = np.flatnonzero(raw_width > 0)
+    if len(occupied_x) < 5:
+        return clean
+
+    # ---- A. Remove head and tail from the long axis -------------------------
+    body_length = int(occupied_x[-1] - occupied_x[0] + 1)
+    longitudinal_window = _odd_window(max(5, int(round(body_length * 0.03))))
+    kernel = np.ones(longitudinal_window, dtype=np.float32) / float(longitudinal_window)
+    # Localized legs can make a few columns much wider than the torso. Use a robust
+    # upper-body width reference instead of the absolute maximum so those spikes do not
+    # become the definition of body width.
+    positive_widths = raw_width[occupied_x]
+    reference_width = float(np.quantile(positive_widths, 0.75))
+    if reference_width <= 0:
+        return clean
+    capped_width = np.minimum(raw_width, reference_width)
+    smooth_width = np.convolve(capped_width, kernel, mode='same')
+
+    strong = smooth_width >= float(width_threshold) * reference_width
+
+    # Keep the largest contiguous strong-width run. This prevents a separate broad head
+    # region from being joined to the torso merely because both exceed the threshold.
+    strong_idx = np.flatnonzero(strong)
+    if len(strong_idx) < 2:
+        return clean
+    splits = np.where(np.diff(strong_idx) > 1)[0] + 1
+    runs = np.split(strong_idx, splits)
+    core_run = max(runs, key=len)
+    if len(core_run) < 2:
+        return clean
+    x_min, x_max = int(core_run[0]), int(core_run[-1])
+
+    # Avoid an overly aggressive threshold on unusual postures. Expand a little around
+    # the strong-width torso while still excluding the narrow extremes.
+    pad = max(1, int(round((x_max - x_min + 1) * 0.04)))
+    x_min = max(int(occupied_x[0]), x_min - pad)
+    x_max = min(int(occupied_x[-1]), x_max + pad)
+    if x_max <= x_min:
+        return clean
+
+    # ---- B. Remove legs using a smooth lateral torso envelope ----------------
+    core_x = np.arange(x_min, x_max + 1)
+    centers = np.full(len(core_x), np.nan, dtype=np.float32)
+    half_widths = np.full(len(core_x), np.nan, dtype=np.float32)
+
+    core_raw_widths = raw_width[core_x]
+    normal_width_reference = float(np.quantile(core_raw_widths[core_raw_widths > 0], 0.65))
+    # A leg commonly appears as a localized cross-section that is much wider than the
+    # surrounding torso. Mark those columns as outliers and reconstruct their expected
+    # torso envelope from neighboring non-outlier columns instead of measuring through
+    # the appendage.
+    lateral_outlier = core_raw_widths > (1.25 * max(normal_width_reference, 1.0))
+
+    for i, x in enumerate(core_x):
+        ys = np.flatnonzero(foreground[:, x])
+        if len(ys) == 0 or lateral_outlier[i]:
+            continue
+        mid = float(np.median(ys))
+        centers[i] = mid
+        q10, q90 = np.quantile(ys.astype(np.float32), [0.10, 0.90])
+        half_widths[i] = max(1.0, float(q90 - q10) / 2.0)
+
+    valid = np.isfinite(centers) & np.isfinite(half_widths)
+    if valid.sum() < 5:
+        return clean
+
+    # Fill rare empty columns by interpolation before smoothing.
+    idx = np.arange(len(core_x), dtype=np.float32)
+    centers = np.interp(idx, idx[valid], centers[valid]).astype(np.float32)
+    half_widths = np.interp(idx, idx[valid], half_widths[valid]).astype(np.float32)
+
+    lateral_window = _odd_window(max(5, int(round(len(core_x) * lateral_window_fraction))))
+    smooth_center = _rolling_median(centers, lateral_window)
+    smooth_half = _rolling_median(half_widths, lateral_window)
+
+    # q10-q90 describes 80% of a clean torso slice. Expand back toward the full torso
+    # width, then allow a modest margin. Localized leg spikes remain outside this cap.
+    allowed_half = np.maximum(2.0, smooth_half * (1.0 / 0.80) * float(lateral_cap_factor))
+
+    torso_rotated = np.zeros_like(rotated)
+    height = rotated.shape[0]
+    for i, x in enumerate(core_x):
+        c = float(smooth_center[i])
+        h = float(allowed_half[i])
+        y0 = max(0, int(np.floor(c - h)))
+        y1 = min(height - 1, int(np.ceil(c + h)))
+        column = foreground[y0:y1 + 1, x]
+        if column.any():
+            torso_rotated[y0:y1 + 1, x][column] = 255
+
+    # Keep a connected torso region and close only tiny holes/gaps introduced by the
+    # geometric clipping. Do not use a large opening/closing kernel that could re-grow
+    # appendages.
+    contours, _ = cv2.findContours(torso_rotated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return clean
+    largest = max(contours, key=cv2.contourArea)
+    connected = np.zeros_like(torso_rotated)
+    cv2.drawContours(connected, [largest], -1, 255, thickness=cv2.FILLED)
+
+    original_area = float(np.count_nonzero(clean))
+    torso_area = float(np.count_nonzero(connected))
+    if original_area <= 0 or torso_area / original_area < float(minimum_retained_fraction):
+        # Conservative failure mode: do not emit a tiny malformed mask.
+        return clean
+
+    inverse = cv2.invertAffineTransform(matrix)
+    restored = cv2.warpAffine(
+        connected,
+        inverse,
+        (clean.shape[1], clean.shape[0]),
+        flags=cv2.INTER_NEAREST,
+        borderValue=0,
+    )
+
+    # Final largest-component fill without calling clean_binary_mask(), because its
+    # morphology step is intentionally for raw masks and could slightly re-expand the
+    # torso boundary after appendage removal.
+    final = _largest_component_fill(restored)
+    return final if np.any(final) else clean
 # fmt: on
-# ===== end shared primitives =====
+# ===== end dorsal-core family =====
 
 
 

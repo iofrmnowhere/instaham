@@ -89,6 +89,12 @@ bool load_classifier(const json& j, const std::string& key, const std::string& b
   }
   out->protocol_version = cap.value("protocol_version", "");
 
+  // health only; absent for view. Unrecognised values are not rejected here --
+  // parse_health_input_protocol() degrades them to full_frame (health_input.h).
+  if (cap.contains("input") && cap["input"].is_object()) {
+    out->input_protocol = cap["input"].value("protocol", "");
+  }
+
   if (cap.contains("preprocessing")) {
     const json& pre = cap["preprocessing"];
     out->resize_shorter_side = pre.value("resize_shorter_side", out->resize_shorter_side);

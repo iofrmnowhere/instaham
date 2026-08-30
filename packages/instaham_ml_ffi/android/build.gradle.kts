@@ -27,8 +27,14 @@ android {
             cmake {
                 arguments += listOf(
                     "-DANDROID_STL=c++_shared",
-                    "-DINSTAHAM_ML_WITH_ORT=ON",      // slice 3: view + health classifiers
-                    "-DINSTAHAM_ML_WITH_OPENCV=OFF",  // preprocessing done in Dart this pass; see AGENTS.md task note
+                    "-DINSTAHAM_ML_WITH_ORT=ON",     // slice 3: view + health classifiers
+                    // ML_implementation_plan.md revision 7, section 11.1: OpenCV became a
+                    // HARD dependency when stages/construction.cpp + feature_calculation.cpp
+                    // landed (findContours / minAreaRect / fitEllipse / morphologyEx are not
+                    // hand-rollable inside gate B's 1% tolerance). This argument overrides
+                    // the CMake option's default either way, so flipping the default alone
+                    // was not enough -- it has to be flipped HERE too.
+                    "-DINSTAHAM_ML_WITH_OPENCV=ON",
                 )
                 cppFlags += "-std=c++17"
             }

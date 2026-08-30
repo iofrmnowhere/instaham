@@ -13,7 +13,8 @@ mkdir -p "$TP"
 # exports). This is the on-device C API runtime, pinned independently — see that file's
 # DEVIATION note for why the export-side pin drifted from the original plan.
 ORT_VERSION="1.17.1"
-OPENCV_MOBILE_VERSION="4.9.0"
+OPENCV_MOBILE_VERSION="4.13.0"
+OPENCV_MOBILE_RELEASE_TAG="v36"
 NLOHMANN_JSON_VERSION="3.11.3"
 
 verify() { echo "${2}  ${1}" | sha256sum -c -; }
@@ -67,8 +68,31 @@ rm -rf "$TP/onnxruntime/_extract" "$ORT_AAR"
 echo "  (iOS xcframework: fetched at slice 4/5 iOS bring-up, not needed for the Android-first pass)"
 
 echo "== opencv-mobile ${OPENCV_MOBILE_VERSION} =="
-# fetch "https://github.com/nihui/opencv-mobile/releases/download/v${OPENCV_MOBILE_VERSION}/opencv-mobile-${OPENCV_MOBILE_VERSION}-android.zip" \
-#       "$TP/opencv/android.zip" "REPLACE_WITH_SHA256"
-echo "  (slice 4: uncomment once opencv-mobile is wired)"
+# build_fix.md (2026-08-30): the SDK tree is kept INTACT, not flattened, because
+# opencv-mobile ships its own CMake config package (sdk/native/jni/abi-<ABI>/
+# OpenCVConfig.cmake) and CMakeLists.txt now uses find_package(OpenCV) against it rather
+# than hand-wiring IMPORTED targets. Hand-wiring previously missed opencv_core's real
+# transitive deps (OpenMP, three KleidiCV archives on arm64-v8a, -llog) -- all declared in
+# that config's INTERFACE_LINK_LIBRARIES, none re-derivable safely by hand. All six
+# module archives are kept per ABI (core/imgproc/photo/video/features2d/highgui):
+# OpenCVModules-release.cmake FATAL_ERRORs at configure time if any declared target's
+# file is missing, even one CMakeLists.txt never links.
+mkdir -p "$TP/opencv"
+OPENCV_ZIP="$TP/opencv/opencv-mobile-${OPENCV_MOBILE_VERSION}-android.zip"
+fetch "https://github.com/nihui/opencv-mobile/releases/download/${OPENCV_MOBILE_RELEASE_TAG}/opencv-mobile-${OPENCV_MOBILE_VERSION}-android.zip" \
+      "$OPENCV_ZIP" \
+      "56735469e0c344253122cbc66f5e69e5f3b2c131a0f892eb68fa5530be763b83"
+rm -rf "$TP/opencv/sdk" "$TP/opencv/_extract" "$TP/opencv/include" "$TP/opencv/lib"
+unzip -o -q "$OPENCV_ZIP" -d "$TP/opencv/_extract"
+mkdir -p "$TP/opencv/sdk/native"
+cp -r "$TP/opencv/_extract/opencv-mobile-${OPENCV_MOBILE_VERSION}-android/sdk/native/jni" \
+      "$TP/opencv/sdk/native/jni"
+cp -r "$TP/opencv/_extract/opencv-mobile-${OPENCV_MOBILE_VERSION}-android/sdk/native/staticlibs" \
+      "$TP/opencv/sdk/native/staticlibs"
+cp -r "$TP/opencv/_extract/opencv-mobile-${OPENCV_MOBILE_VERSION}-android/sdk/native/3rdparty" \
+      "$TP/opencv/sdk/native/3rdparty"
+# Drop the x86 slice -- not in android/build.gradle.kts's abiFilters.
+rm -rf "$TP/opencv/sdk/native/jni/abi-x86" "$TP/opencv/sdk/native/staticlibs/x86"
+rm -rf "$TP/opencv/_extract" "$OPENCV_ZIP"
 
 echo "done."

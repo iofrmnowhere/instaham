@@ -96,7 +96,9 @@ INSTAHAM_ML_API int32_t instaham_ml_capability_available(InstahamMlContext* ctx,
 
 /*
  * image_path: absolute path to an ALREADY-EXIF-NORMALISED RGB image. The native layer does
- * NO rotation (AGENTS.md rule 5 is enforced once, Dart-side, in MlRuntime.exifNormalize).
+ * NO rotation (AGENTS.md rule 5 is enforced once, Dart-side, at capture time in
+ * lib/core/utils/image_service.dart's ImageService.processRawBytes via img.bakeOrientation
+ * -- not in MlRuntime, which has no exif-handling method of its own).
  */
 
 /* {"status":"ok","label":<str>,"confidence":<num>,"probabilities":{<cls>:<num>,...},
@@ -138,6 +140,23 @@ INSTAHAM_ML_API InstahamMlStatus instaham_ml_predict_weight_json(
  *   {"status":"provisional","features":{...},"qc":{...},"segmentation_confidence":<num>}
  */
 INSTAHAM_ML_API InstahamMlStatus instaham_ml_extract_features_provisional_json(
+    InstahamMlContext* ctx, const char* image_path, char** out_json);
+
+/*
+ * Added ML_implementation_plan.md revision 7 (additive; ABI_VERSION stays 1 per this
+ * header's own contract -- only a breaking signature change bumps it). Runs the whole
+ * section-1 graph in one call: view -> segmentation -> construction -> (health |
+ * cutter -> feature_calculation). Returns the COMPLETE section-9 envelope, always -- there
+ * is no suspended state and no second call, because the cutter is a permanent C++ identity
+ * dummy (section 3.4): nothing crosses a runtime boundary mid-pipeline on any platform.
+ *   {"status":"ok"|"stopped","pipeline_protocol":<str>,
+ *    "view":{...},"segmentation":{...},"construction":{...},
+ *    "cutter":{...},"features":{...},"weight":{...},"health":{...}}
+ * Returns INSTAHAM_ML_ERR_INVALID_ARG only for a request-level failure (null args); every
+ * stage-level failure is reported inside the envelope with its own status instead
+ * (AGENTS.md rule 4/8), so this call otherwise always returns INSTAHAM_ML_OK.
+ */
+INSTAHAM_ML_API InstahamMlStatus instaham_ml_run_pipeline_json(
     InstahamMlContext* ctx, const char* image_path, char** out_json);
 
 #ifdef __cplusplus

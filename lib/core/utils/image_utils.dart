@@ -1,24 +1,12 @@
-import 'dart:io';
-import 'package:flutter/foundation.dart';
-import 'image_service.dart';
-
-/// Utility functions for image preprocessing and EXIF orientation correction.
+/// Utility functions for image preprocessing.
+///
+/// EXIF orientation correction (AGENTS.md rule 5) happens once, at capture time, in
+/// [ImageService.processRawBytes] (`img.bakeOrientation` -- lib/core/utils/image_service.dart).
+/// This class used to also carry a `correctExifOrientation` method, but nothing called it and
+/// it duplicated that same normalization; removed rather than left as a second, unused path a
+/// future reader could mistake for where the guarantee actually lives
+/// (ML_implementation_plan.md revision 7, section 12.6).
 class ImageUtils {
-  /// Corrects EXIF orientation and returns a normalized image file path.
-  static Future<String> correctExifOrientation(String imagePath) async {
-    if (kIsWeb) return imagePath;
-
-    final file = File(imagePath);
-    if (!file.existsSync()) return imagePath;
-
-    final bytes = await file.readAsBytes();
-    final result = await ImageService.processRawBytes(
-      bytes,
-      originalPath: imagePath,
-    );
-    return result.localPath ?? imagePath;
-  }
-
   /// Transforms 2D point coordinates `(x, y)` from original image dimensions
   /// `(origWidth, origHeight)` to transformed image dimensions after rotation.
   static ({double x, double y}) transformCoordinates({

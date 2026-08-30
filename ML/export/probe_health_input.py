@@ -25,7 +25,7 @@ from pathlib import Path
 
 from ML.export.common import write_json
 
-PROTOCOLS = ("full_frame", "segmentation_crop", "segmentation_masked")
+PROTOCOLS = ("full_frame", "segmentation_crop", "segmentation_masked", "abnormality_crop")
 DEFAULT_PROTOCOL = "full_frame"  # section 1.1(c): what the dataset paths indicate, pending this probe
 
 
@@ -45,33 +45,22 @@ def _prob_columns(fieldnames: list[str]) -> list[str]:
     return [c for c in fieldnames if c.startswith("prob__")]
 
 
-def _preprocess(image_path: Path, protocol: str, crop: int = 224):
-    """Full-frame resize-shorter-side + center-crop; the other two protocols need a mask
-    and are not exercisable without segmentation output, so they raise NotImplementedError
-    until a fixture corpus with masks exists (tracked as slice -1 / gate work, not this probe).
-    """
+def _preprocess(image_path: Path, protocol: str, mask=None, bbox=None, crop: int = 224):
+    """Delegates to ML.parity.reference_health_input, the single reference for all four
+    protocols (TASKS.md P5.2). `full_frame` always works; the region protocols
+    (`segmentation_crop`, `segmentation_masked`, `abnormality_crop`) need a pig region
+    (mask preferred, detector bbox otherwise) and fall back to `full_frame` when none is
+    supplied -- so without a mask/bbox fixture corpus this probe still only measures
+    `full_frame`, but it no longer raises, and it becomes a full four-protocol probe the
+    moment regions are available (section 11.3.1)."""
     import numpy as np
     from PIL import Image
 
-    from ML.export.common import IMAGENET_MEAN, IMAGENET_STD, RESIZE_RATIO
+    from ML.parity.reference_health_input import preprocess as _rhi_preprocess
 
-    if protocol != "full_frame":
-        raise NotImplementedError(
-            f"protocol {protocol!r} requires a segmentation mask; no mask fixtures are "
-            "available yet (section 11.3.1). Only full_frame can be probed until then."
-        )
-
-    img = Image.open(image_path).convert("RGB")
-    short = round(crop * RESIZE_RATIO)
-    w, h = img.size
-    scale = short / min(w, h)
-    img = img.resize((round(w * scale), round(h * scale)), Image.BILINEAR)
-    w, h = img.size
-    left, top = (w - crop) // 2, (h - crop) // 2
-    img = img.crop((left, top, left + crop, top + crop))
-    arr = np.asarray(img, dtype=np.float32) / 255.0
-    arr = (arr - np.array(IMAGENET_MEAN, dtype=np.float32)) / np.array(IMAGENET_STD, dtype=np.float32)
-    return arr.transpose(2, 0, 1)[None, ...]  # NCHW
+    img = np.asarray(Image.open(image_path).convert("RGB"), dtype=np.uint8)
+    tensor = _rhi_preprocess(img, protocol, mask=mask, bbox=bbox, crop=crop)
+    return tensor.astype(np.float32)
 
 
 def probe(*, run_dir: Path, images_root: Path | None, out: Path) -> Path:
@@ -96,15 +85,18 @@ def probe(*, run_dir: Path, images_root: Path | None, out: Path) -> Path:
         "checked_protocols": [],
     }
 
+    from ML.parity.reference_health_input import HEALTH_INPUT_PARAMS
+
     def _base(protocol: str, status: str, evidence: str) -> dict:
         return {
             "health": {
                 "input": {
                     "protocol": protocol,
                     "supported": list(PROTOCOLS),
-                    "bbox_padding_ratio": 0.06,
-                    "background_fill": "imagenet_mean",
-                    "on_segmentation_failure": "full_frame",
+                    "bbox_padding_ratio": HEALTH_INPUT_PARAMS["bbox_padding_ratio"],
+                    "background_fill": HEALTH_INPUT_PARAMS["background_fill"],
+                    "on_segmentation_failure": HEALTH_INPUT_PARAMS["on_segmentation_failure"],
+                    "abnormality": HEALTH_INPUT_PARAMS["abnormality"],
                     "evidence": evidence,
                     "probe_status": status,
                     "probe_detail": detail,
@@ -138,22 +130,34 @@ def probe(*, run_dir: Path, images_root: Path | None, out: Path) -> Path:
     model = create_model("ghostnetv3_100", pretrained=False, num_classes=len(name_to_idx)).eval()
     model.load_state_dict(ckpt["model_state"], strict=True)
 
+    # The region protocols need a per-image pig mask or detector bbox. This probe resolves
+    # photos only (test_predictions.csv records no regions), so exercising them here would
+    # just silently fall back to full_frame and score identically -- skip them honestly
+    # until a region-bearing fixture corpus exists (section 11.3.1).
+    masks_available = False
+
     scores: dict[str, float] = {}
     for protocol in PROTOCOLS:
-        try:
-            diffs = []
-            for row, img_path in found:
-                x = torch.from_numpy(_preprocess(img_path, protocol))
-                with torch.no_grad():
-                    probs = torch.softmax(model(x), dim=1).numpy()[0]
-                recorded = np.array([float(row[c]) for c in prob_cols], dtype=np.float32)
-                diffs.append(float(np.max(np.abs(probs - recorded))))
-            scores[protocol] = sum(diffs) / len(diffs)
+        if protocol != "full_frame" and not masks_available:
             detail["checked_protocols"].append(
-                {"protocol": protocol, "n": len(diffs), "mean_max_abs_diff": scores[protocol]}
+                {
+                    "protocol": protocol,
+                    "skipped": "requires a per-image pig region (mask or bbox); no region "
+                    "fixtures available yet (section 11.3.1)",
+                }
             )
-        except NotImplementedError as exc:
-            detail["checked_protocols"].append({"protocol": protocol, "skipped": str(exc)})
+            continue
+        diffs = []
+        for row, img_path in found:
+            x = torch.from_numpy(_preprocess(img_path, protocol))
+            with torch.no_grad():
+                probs = torch.softmax(model(x), dim=1).numpy()[0]
+            recorded = np.array([float(row[c]) for c in prob_cols], dtype=np.float32)
+            diffs.append(float(np.max(np.abs(probs - recorded))))
+        scores[protocol] = sum(diffs) / len(diffs)
+        detail["checked_protocols"].append(
+            {"protocol": protocol, "n": len(diffs), "mean_max_abs_diff": scores[protocol]}
+        )
 
     if not scores:
         detail["reason"] = "no protocol could be evaluated (no mask fixtures for the other two)"

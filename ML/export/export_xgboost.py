@@ -76,7 +76,7 @@ def export(*, model: Path, metadata: Path | None, out: Path, opset: int = 15) ->
     fragment = {
         "weight": {
             "available": False,
-            "unavailable_reason": "body_mask_port_incomplete",
+            "unavailable_reason": "cutter_identity_stub",
             "regressor": {
                 "format": "onnx",
                 "path": "weight/xgboost.onnx",

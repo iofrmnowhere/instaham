@@ -1,5 +1,5 @@
-"""Gate A (ML_implementation_plan.md section 5.3 / 5.5 / 11.3.1): ML/pig_cutter.py +
-ML/pig_geometry.py vs the pre-consolidation originals, on the fixture corpus.
+"""Gate A (ML_implementation_plan.md section 5.3(b) / 5.6 / 11.2): ML/pipeline/cutter.py
+vs the pre-refactor original (body_mask.py), on the fixture corpus.
 
     python -m ML.parity.gate_a
     python -m ML.parity.gate_a --against <git-rev> --fixtures test/fixtures/parity
@@ -14,8 +14,8 @@ on shape variety (does a mask take the wrapper's fast path or its fallback), not
 photographic realism.
 
 Reconstructs the originals from a pinned git revision rather than reading them off
-disk (section 5.5 precondition 3): the working tree no longer has them after the
-section-5.5 deletion.
+disk (section 5.6 precondition 3): the working tree no longer has them after the
+section-5.6 deletion.
 """
 from __future__ import annotations
 
@@ -134,11 +134,11 @@ def run(rev: str, n_synthetic: int = 12) -> int:
 
     body_mask_orig, _ = load_originals(rev, tmp_dir)
 
-    from ML.pig_cutter import isolate_body_only_mask as isolate_new
-    from ML.pig_cutter import choose_body_circle_pair as choose_new
-    from ML.pig_cutter import _choose_body_circle_pair_fixed06q as choose_alias_new
-    from ML.pig_cutter import isolate_body_only_mask as isolate_alias_check
-    from ML.pig_cutter import _isolate_body_only_mask_fixed06q as isolate_alias_new
+    from ML.pipeline.cutter import isolate_body_only_mask as isolate_new
+    from ML.pipeline.cutter import choose_body_circle_pair as choose_new
+    from ML.pipeline.cutter import _choose_body_circle_pair_fixed06q as choose_alias_new
+    from ML.pipeline.cutter import isolate_body_only_mask as isolate_alias_check
+    from ML.pipeline.cutter import _isolate_body_only_mask_fixed06q as isolate_alias_new
 
     # Section 5.2(b): the public names must resolve to the OVERRIDE, and the alias
     # names must resolve to a DIFFERENT callable (the pre-override original). If a

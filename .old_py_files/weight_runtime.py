@@ -3,27 +3,16 @@ from __future__ import annotations
 """
 InstaHAM final weight-inference wrapper.
 
-This file intentionally does NOT reimplement the research pipeline. It calls the
-five process files under ML/pipeline/ in order (ML_implementation_plan.md
-revision 7, section 5.2(5) / 5.7):
+This file intentionally does NOT reimplement the research pipeline. It imports
+and executes the frozen project modules under src/:
 
 RGB image
   -> selected YOLO checkpoint
-  -> ML.pipeline.segmentation.run_segmentation()        [stage 1]
-  -> ML.pipeline.construction.construct_pig_mask()       [stage 2]
-  -> ML.pipeline.cutter.isolate_body_only_mask()         [stage 3, NOT ported --
-                                                           C++ ships an identity dummy]
-  -> ML.pipeline.feature_calculation.extract_*_features() [stage 4]
-  -> ML.pipeline.weight_prediction                       [stage 5, NOT YET WIRED --
-                                                           slice R4b]
+  -> src.yolo_inference.predict_largest_mask()
+  -> src.body_mask.isolate_body_only_mask()
+  -> selected 5- or 16-feature extractor
+  -> final XGBoost model
   -> estimated weight (kg)
-
-Note: this class also expects a src/configs/project.yaml + src/ project tree
-(_find_project_root) that does not exist in this repository -- it was written for a
-separate training environment and is not directly runnable here. It is kept and
-repointed as the reference orchestrator section 5.2(5) describes: it maps to C++
-pipeline.cpp + manifest.cpp, not to any one stage, and it is not one of the five
-process files itself.
 """
 
 import hashlib
@@ -153,30 +142,21 @@ class WeightEstimator:
         from src.config import load_project_config, resolve_path
         from src.common import get_device, to_yolo_device
         import src.yolo_modifications as yolo_modifications
-        # Repointed (ML_implementation_plan.md revision 7, section 5.7). The four
-        # frozen modules these used to come from -- yolo_inference, body_mask,
-        # mask_features, extended_mask_features -- are deleted; each import below
-        # names the one of the five ML.pipeline.* stage files that now owns it
-        # (section 5.2). Stage 1 (segmentation) and stage 2 (construction) are called
-        # separately in predict() below, replacing the single predict_largest_mask
-        # call (section 5.4's split).
-        from ML.pipeline.construction import MASK_COORDINATE_PROTOCOL, construct_pig_mask
-        from ML.pipeline.segmentation import run_segmentation
-        from ML.pipeline.cutter import (
+        from src.yolo_inference import MASK_COORDINATE_PROTOCOL, predict_largest_mask
+        from src.body_mask import (
             BODY_MASK_PROTOCOL_VERSION,
             BODY_MASK_METHOD,
             isolate_body_only_mask,
         )
-        from ML.pipeline.feature_calculation import extract_five_features
-        from ML.pipeline.feature_calculation import (
+        from src.mask_features import extract_five_features
+        from src.extended_mask_features import (
             BASELINE5,
             CHEN16_NOHEIGHT,
             EXTENDED_FEATURE_PROTOCOL_VERSION,
             extract_chen16_features,
         )
 
-        self._run_segmentation = run_segmentation
-        self._construct_pig_mask = construct_pig_mask
+        self._predict_largest_mask = predict_largest_mask
         self._isolate_body_only_mask = isolate_body_only_mask
         self._extract_five_features = extract_five_features
         self._extract_chen16_features = extract_chen16_features
@@ -368,22 +348,15 @@ class WeightEstimator:
             )
 
     def _verify_runtime_source_hashes(self) -> None:
-        """Section 5.7: the pre-refactor four-file provenance record becomes five
-        hashes, one per ML.pipeline stage file, matching
-        manifest.pipeline.stages[*].source_sha256. All five are checked here because
-        all five determine runtime behaviour, in contrast to the earlier two-file
-        split where only the shipping cutter file was hashed at runtime and the
-        geometry reference was checked only at build time (gate B)."""
         recorded = self.candidate.get("source_hashes")
         if not isinstance(recorded, dict):
             return
 
         runtime_sources = {
-            "segmentation": self.project_root / "ML" / "pipeline" / "segmentation.py",
-            "construction": self.project_root / "ML" / "pipeline" / "construction.py",
-            "cutter": self.project_root / "ML" / "pipeline" / "cutter.py",
-            "feature_calculation": self.project_root / "ML" / "pipeline" / "feature_calculation.py",
-            "weight_prediction": self.project_root / "ML" / "pipeline" / "weight_prediction.py",
+            "yolo_inference": self.project_root / "src" / "yolo_inference.py",
+            "body_mask": self.project_root / "src" / "body_mask.py",
+            "mask_features": self.project_root / "src" / "mask_features.py",
+            "extended_mask_features": self.project_root / "src" / "extended_mask_features.py",
         }
         for key, path in runtime_sources.items():
             expected = recorded.get(key)
@@ -457,26 +430,17 @@ class WeightEstimator:
         segmentation_confidence: float | None = None
 
         try:
-            # Stage 1 (segmentation) then stage 2 (construction) -- section 5.4's
-            # split of the pre-refactor predict_largest_mask. seg_output carries the
-            # letterbox parameters through unchanged (AGENTS.md rule 9), so
-            # construct_pig_mask never re-derives them.
-            seg_output = self._run_segmentation(
+            whole_mask, confidence = self._predict_largest_mask(
                 self.yolo,
                 image_path,
                 imgsz=self.yolo_imgsz,
                 conf=self.yolo_conf,
                 device=self.yolo_device,
             )
-            segmentation_confidence = float(seg_output.confidence) if seg_output is not None else None
-            whole_mask = self._construct_pig_mask(seg_output)
+            segmentation_confidence = float(confidence)
             if whole_mask is None:
                 raise WeightRuntimeError("YOLO returned no mask.")
 
-            # Stage 3: the cutter. NOT ported (ML_implementation_plan.md section 3.4);
-            # this reference orchestrator still runs the real Python cutter, unlike
-            # the shipped C++ pipeline, which calls an identity dummy and reports
-            # weight.available=false instead of reaching this far.
             body = self._isolate_body_only_mask(
                 whole_mask,
                 sample_id=sid,

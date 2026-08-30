@@ -1,11 +1,10 @@
 // instaham_ml — C ABI implementation.
 //
-// Slice 3/4 (Android-first pass): view + health classification and segmentation detection
-// are real ONNX Runtime inference. The weight branch and the mask/geometry port (five
-// features, dorsal-core cut) remain deferred to the section-3.5 decision point -- both
-// entrypoints below still return INSTAHAM_ML_ERR_UNAVAILABLE by manifest contract
-// (weight.available is false in every manifest this build ships), which is the documented
-// behaviour, not a stub.
+// ML_implementation_plan.md revision 7: view/health classification, segmentation, mask
+// construction, and provisional (uncut) feature extraction are real. The weight branch
+// stays INSTAHAM_ML_ERR_UNAVAILABLE by manifest contract (weight.available is false in
+// every manifest this build ships) because the cutter is a permanent C++ identity dummy
+// (section 3.4) -- that is the documented behaviour, not a stub awaiting a decision.
 
 #include "include/instaham_ml.h"
 
@@ -17,7 +16,11 @@
 #include "classifier.h"
 #include "manifest.h"
 #include "onnx_runner.h"
-#include "segmenter.h"
+#include "pipeline.h"
+#include "stages/construction.h"
+#include "stages/feature_calculation.h"
+#include "stages/segmentation.h"
+#include "third_party/nlohmann_json/single_include/nlohmann/json.hpp"
 
 namespace {
 
@@ -47,7 +50,8 @@ struct Context {
 InstahamMlStatus run_classifier_entrypoint(Context* ctx, instaham_ml::OnnxRunner* runner,
                                             const instaham_ml::ClassifierCapability& cap,
                                             const char* capability_name, const char* image_path,
-                                            char** out_json) {
+                                            char** out_json,
+                                            const instaham_ml::HealthInputOptions* health_input) {
   if (!ctx || !image_path || !out_json) {
     set_error("null argument");
     return INSTAHAM_ML_ERR_INVALID_ARG;
@@ -59,7 +63,8 @@ InstahamMlStatus run_classifier_entrypoint(Context* ctx, instaham_ml::OnnxRunner
   }
   std::string json_out;
   int error_code = INSTAHAM_ML_OK;
-  bool ok = instaham_ml::run_classifier(runner, cap, image_path, &json_out, &error_code);
+  bool ok =
+      instaham_ml::run_classifier(runner, cap, image_path, &json_out, &error_code, health_input);
   *out_json = dup_cstr(json_out);
   if (!ok) {
     set_error(json_out);
@@ -121,7 +126,7 @@ void instaham_ml_destroy(InstahamMlContext* ctx) { delete reinterpret_cast<Conte
 int32_t instaham_ml_abi_version(void) { return INSTAHAM_ML_ABI_VERSION; }
 
 const char* instaham_ml_build_info(void) {
-  return "instaham_ml slice3-4 android ort=1.17.1 opencv=none(stb_image)";
+  return "instaham_ml revision7 android ort=1.17.1 opencv-mobile=4.13.0";
 }
 
 const char* instaham_ml_last_error(void) { return g_last_error.c_str(); }
@@ -144,21 +149,30 @@ InstahamMlStatus instaham_ml_classify_view_json(InstahamMlContext* raw_ctx, cons
   auto* ctx = reinterpret_cast<Context*>(raw_ctx);
   return run_classifier_entrypoint(ctx, ctx ? ctx->view_runner.get() : nullptr,
                                     ctx ? ctx->manifest.view : instaham_ml::ClassifierCapability{},
-                                    "view", image_path, out_json);
+                                    "view", image_path, out_json, nullptr);
 }
 
 InstahamMlStatus instaham_ml_classify_health_json(InstahamMlContext* raw_ctx,
                                                    const char* image_path, char** out_json) {
   auto* ctx = reinterpret_cast<Context*>(raw_ctx);
+  // The manifest's health.input.protocol is honoured here, but health_input.cpp's region
+  // protocols are stubs that fall through to full_frame, so today this changes nothing
+  // about the pixels -- only what the envelope reports. No region is passed: this
+  // per-capability entrypoint runs health in isolation, with no segmentation output to draw
+  // one from -- instaham_ml_run_pipeline_json is the call that has a real mask to pass
+  // (pipeline.cpp), and the stub would ignore this one's region regardless.
+  instaham_ml::HealthInputOptions health_input;
+  health_input.protocol = instaham_ml::parse_health_input_protocol(
+      ctx ? ctx->manifest.health.input_protocol : std::string());
+  health_input.region = nullptr;
   return run_classifier_entrypoint(
       ctx, ctx ? ctx->health_runner.get() : nullptr,
       ctx ? ctx->manifest.health : instaham_ml::ClassifierCapability{}, "health", image_path,
-      out_json);
+      out_json, &health_input);
 }
 
-// New in slice 3/4 (additive -- ABI_VERSION stays 1 per instaham_ml.h's own contract: only
-// a breaking signature change bumps it). Exposed for a future segmentation UI card; not yet
-// consumed by the weight branch, which still needs the full mask decode.
+// ML_implementation_plan.md revision 7: now runs the real segmentation + construction
+// stages and reports the constructed mask's bbox/area/protocol, not detection-only fields.
 InstahamMlStatus instaham_ml_segment_json(InstahamMlContext* raw_ctx, const char* image_path,
                                            char** out_json) {
   auto* ctx = reinterpret_cast<Context*>(raw_ctx);
@@ -171,15 +185,39 @@ InstahamMlStatus instaham_ml_segment_json(InstahamMlContext* raw_ctx, const char
     set_error("capability unavailable");
     return INSTAHAM_ML_ERR_UNAVAILABLE;
   }
-  std::string json_out;
-  int error_code = INSTAHAM_ML_OK;
-  bool ok = instaham_ml::run_segmenter(ctx->segmentation_runner.get(), ctx->manifest.segmentation,
-                                        image_path, &json_out, &error_code);
-  *out_json = dup_cstr(json_out);
-  if (!ok) {
-    set_error(json_out);
-    return static_cast<InstahamMlStatus>(error_code);
+
+  instaham_ml::stages::SegmentationOutput seg;
+  std::string error;
+  if (!instaham_ml::stages::run_segmentation(ctx->segmentation_runner.get(),
+                                              ctx->manifest.segmentation, image_path, &seg,
+                                              &error)) {
+    *out_json = dup_cstr(nlohmann::json{{"status", "error"}, {"message", error}}.dump());
+    set_error(error);
+    return INSTAHAM_ML_ERR_INFERENCE;
   }
+  if (!seg.has_detection) {
+    nlohmann::json result = {{"status", "ok"},         {"pig_count", 0}, {"confidence", 0.0},
+                              {"mask_available", false}, {"protocol_version",
+                                                           ctx->manifest.segmentation.protocol_version}};
+    *out_json = dup_cstr(result.dump());
+    set_error("");
+    return INSTAHAM_ML_OK;
+  }
+
+  instaham_ml::stages::PigMask mask = instaham_ml::stages::construct_pig_mask(seg);
+  nlohmann::json result = {
+      {"status", "ok"},
+      {"pig_count", 1},
+      {"confidence", seg.box.conf},
+      {"mask_available", !mask.empty()},
+      {"protocol_version", ctx->manifest.segmentation.protocol_version},
+  };
+  if (!mask.empty()) {
+    result["mask_protocol"] = "original_coordinate_polygon_v1";
+    result["mask_area_px"] = mask.area_px;
+    result["bbox"] = {mask.bbox_x, mask.bbox_y, mask.bbox_w, mask.bbox_h};
+  }
+  *out_json = dup_cstr(result.dump());
   set_error("");
   return INSTAHAM_ML_OK;
 }
@@ -192,27 +230,92 @@ InstahamMlStatus instaham_ml_predict_weight_json(InstahamMlContext* raw_ctx,
     set_error("out_json is null");
     return INSTAHAM_ML_ERR_INVALID_ARG;
   }
-  // weight.available is false in every manifest this build ships (section 3.5 decision
-  // point not yet taken) -- this is the documented "unavailable" contract, not a stub.
+  // weight.available is false in every manifest this build ships: the cutter is a
+  // permanent C++ identity dummy (ML_implementation_plan.md revision 7, section 3.4), not
+  // a stub awaiting a decision -- AGENTS.md rule 8 forbids emitting a number from features
+  // measured on an uncut mask.
   (void)ctx;
-  *out_json = dup_cstr(unavailable_envelope("weight", "body_mask_port_incomplete"));
-  set_error("weight unavailable: body_mask_port_incomplete");
+  *out_json = dup_cstr(unavailable_envelope("weight", "cutter_identity_stub"));
+  set_error("weight unavailable: cutter_identity_stub");
   return INSTAHAM_ML_ERR_UNAVAILABLE;
 }
 
+// ML_implementation_plan.md revision 7, section 3.4 rule 3: the one thing the identity
+// cutter DOES deliver. Real features from a real (uncut) mask, permanently labelled
+// "provisional" so no caller can mistake them for a weight input.
 InstahamMlStatus instaham_ml_extract_features_provisional_json(InstahamMlContext* raw_ctx,
                                                                  const char* image_path,
                                                                  char** out_json) {
   auto* ctx = reinterpret_cast<Context*>(raw_ctx);
-  (void)image_path;
-  if (!out_json) {
-    set_error("out_json is null");
+  if (!ctx || !image_path || !out_json) {
+    set_error("null argument");
     return INSTAHAM_ML_ERR_INVALID_ARG;
   }
-  (void)ctx;
-  *out_json = dup_cstr(unavailable_envelope("weight_provisional", "body_mask_port_incomplete"));
-  set_error("weight_provisional unavailable: body_mask_port_incomplete");
-  return INSTAHAM_ML_ERR_UNAVAILABLE;
+  if (!ctx->manifest.segmentation.available || !ctx->segmentation_runner) {
+    *out_json = dup_cstr(unavailable_envelope("weight_provisional", "segmentation_unavailable"));
+    set_error("capability unavailable");
+    return INSTAHAM_ML_ERR_UNAVAILABLE;
+  }
+
+  instaham_ml::stages::SegmentationOutput seg;
+  std::string error;
+  if (!instaham_ml::stages::run_segmentation(ctx->segmentation_runner.get(),
+                                              ctx->manifest.segmentation, image_path, &seg,
+                                              &error) ||
+      !seg.has_detection) {
+    *out_json = dup_cstr(unavailable_envelope("weight_provisional", "no_instance_above_conf"));
+    set_error(error.empty() ? "no instance above conf" : error);
+    return INSTAHAM_ML_ERR_UNAVAILABLE;
+  }
+
+  instaham_ml::stages::PigMask mask = instaham_ml::stages::construct_pig_mask(seg);
+  if (mask.empty()) {
+    *out_json = dup_cstr(unavailable_envelope("weight_provisional", "empty_mask"));
+    set_error("empty mask");
+    return INSTAHAM_ML_ERR_UNAVAILABLE;
+  }
+
+  auto feats = instaham_ml::stages::extract_five_features(mask.pixels, mask.width, mask.height,
+                                                            1.0,
+                                                            /*preserve_processed_mask=*/false);
+  if (!feats) {
+    *out_json = dup_cstr(unavailable_envelope("weight_provisional", "contour_too_small"));
+    set_error("contour too small");
+    return INSTAHAM_ML_ERR_UNAVAILABLE;
+  }
+
+  nlohmann::json result = {
+      {"status", "provisional"},
+      {"features",
+       {{"RA", feats->ra}, {"LC", feats->lc}, {"BL", feats->bl}, {"BW", feats->bw},
+        {"E", feats->e}}},
+      {"qc",
+       {{"head_removal_applied", false}, {"pair_valid", false}, {"cutter", "identity_stub"}}},
+      {"segmentation_confidence", seg.box.conf},
+  };
+  *out_json = dup_cstr(result.dump());
+  set_error("");
+  return INSTAHAM_ML_OK;
+}
+
+InstahamMlStatus instaham_ml_run_pipeline_json(InstahamMlContext* raw_ctx, const char* image_path,
+                                                char** out_json) {
+  auto* ctx = reinterpret_cast<Context*>(raw_ctx);
+  if (!ctx || !image_path || !out_json) {
+    set_error("null argument");
+    return INSTAHAM_ML_ERR_INVALID_ARG;
+  }
+  instaham_ml::PipelineRunners runners{ctx->view_runner.get(), ctx->health_runner.get(),
+                                        ctx->segmentation_runner.get()};
+  std::string json_out;
+  bool ok = instaham_ml::run_pipeline(runners, ctx->manifest, image_path, &json_out);
+  *out_json = dup_cstr(json_out);
+  if (!ok) {
+    set_error(json_out);
+    return INSTAHAM_ML_ERR_INVALID_ARG;
+  }
+  set_error("");
+  return INSTAHAM_ML_OK;
 }
 
 }  // extern "C"
