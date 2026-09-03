@@ -29,8 +29,15 @@ struct PipelineRunners {
 // reports its own status inside the envelope rather than aborting the whole call
 // (AGENTS.md rule 4/8). Returns false only for a request-level failure (null args, image
 // undecodable) that produced no usable image at all.
+//
+// `cm_per_px` (TASKS.md W5): the user-confirmed reference object's measured cm/pixel for
+// THIS capture (AGENTS.md rule 7 -- must come from nowhere else). Null when no confirmed
+// reference exists. Scales the pig mask into the regressor's training pixel space before
+// the cutter/feature/weight stages run; a null, non-finite, non-positive, or out-of-range
+// value degrades the weight branch to `{"status":"unavailable","reason":"scale_..."}`
+// rather than predicting on unnormalized pixels. Never affects the health branch.
 bool run_pipeline(const PipelineRunners& runners, const Manifest& manifest,
-                   const std::string& image_path, std::string* out_json);
+                   const std::string& image_path, const double* cm_per_px, std::string* out_json);
 
 }  // namespace instaham_ml
 

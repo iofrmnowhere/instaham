@@ -16,3 +16,18 @@ add_test(NAME test_cutter_identity COMMAND test_cutter_identity)
 # add_executable(test_construction test_construction.cpp)   # revision 7, R2
 # add_executable(test_feature_calculation test_feature_calculation.cpp)  # revision 7, R3
 # add_executable(test_pipeline_routing test_pipeline_routing.cpp)  # revision 7, R4a
+
+# TASKS.md W5/section 7.5: scale_mask_to_training_space() + extract_five_features()'s
+# explicit RA denominator. Needs opencv-mobile like the rest of stages/, so it only builds
+# when the Android toolchain provides it (see the top-level CMakeLists.txt comment on
+# INSTAHAM_ML_WITH_OPENCV) -- there is no host OpenCV build in this tree to fall back to.
+if(INSTAHAM_ML_WITH_OPENCV)
+  add_executable(test_scale_normalization
+    ../stages/construction.cpp
+    ../stages/feature_calculation.cpp
+    test_scale_normalization.cpp
+  )
+  target_include_directories(test_scale_normalization PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+  target_link_libraries(test_scale_normalization PRIVATE opencv_imgproc opencv_core)
+  add_test(NAME test_scale_normalization COMMAND test_scale_normalization)
+endif()

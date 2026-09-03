@@ -208,6 +208,44 @@ bool load_weight(const json& j, const std::string& base_dir, WeightCapability* o
     out->training_camera_height_m = contract.value("training_camera_height_m", 0.0);
     out->camera_height_is_xgboost_feature =
         contract.value("camera_height_is_xgboost_feature", false);
+    out->cm_per_px_target = contract.value("cm_per_px_target", 0.0);
+    if (contract.contains("training_frame_px")) {
+      const json& frame = contract["training_frame_px"];
+      if (frame.is_array() && frame.size() == 2) {
+        out->training_frame_w = frame[0].get<int>();
+        out->training_frame_h = frame[1].get<int>();
+      }
+    }
+  }
+
+  // TASKS.md W1: a weight-available manifest that cannot report the scale its features
+  // were trained at cannot be normalized against a live capture -- refuse to load rather
+  // than let the pipeline fall back to an unscaled k = 1.0 (AGENTS.md rule 8).
+  if (out->cm_per_px_target <= 0.0 || out->training_frame_w <= 0 || out->training_frame_h <= 0) {
+    *error =
+        "weight: capture_contract.cm_per_px_target and training_frame_px are required "
+        "when weight.available is true";
+    *error_code_out = INSTAHAM_ML_ERR_CONTRACT;
+    return false;
+  }
+
+  // ref_fix.md F3: feature_domain is optional (a manifest without it simply skips the
+  // gate at pipeline.cpp -- FeatureDomain's all-default max == 0.0 disables it per
+  // manifest.h's comment), so no load_manifest failure here even when absent.
+  if (cap.contains("feature_domain")) {
+    const json& domains = cap["feature_domain"];
+    auto load_domain = [&domains](const char* key, WeightCapability::FeatureDomain* out_domain) {
+      if (!domains.contains(key)) return;
+      const json& d = domains[key];
+      out_domain->min = d.value("min", 0.0);
+      out_domain->max = d.value("max", 0.0);
+      out_domain->upper_multiplier = d.value("upper_multiplier", 1.0);
+    };
+    load_domain("RA", &out->domain_ra);
+    load_domain("LC", &out->domain_lc);
+    load_domain("BL", &out->domain_bl);
+    load_domain("BW", &out->domain_bw);
+    load_domain("E", &out->domain_e);
   }
 
   if (!verify_hash(out->model_path, out->model_sha256, error)) {

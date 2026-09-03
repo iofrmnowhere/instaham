@@ -12,6 +12,44 @@ import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/widgets/app_card.dart';
 import '../../../../core/theme/widgets/app_scaffold.dart';
+import '../../domain/use_cases/compute_scale_use_case.dart';
+
+/// The rectangle, in the coordinates of a `widgetSize`-sized box, that `BoxFit.contain`
+/// actually paints an `imageWidthPx x imageHeightPx` image into. A pure top-level function
+/// (rather than a private method) so TASKS.md W0's letterbox math is unit-testable without
+/// pumping the whole screen. Returns null when either dimension is unknown or non-positive
+/// -- callers must refuse to place a pin rather than fall back to the full widget box
+/// (AGENTS.md rule 9).
+Rect? computeContainedImageRect({
+  required Size widgetSize,
+  required int? imageWidthPx,
+  required int? imageHeightPx,
+}) {
+  if (imageWidthPx == null ||
+      imageHeightPx == null ||
+      imageWidthPx <= 0 ||
+      imageHeightPx <= 0 ||
+      widgetSize.width <= 0 ||
+      widgetSize.height <= 0) {
+    return null;
+  }
+  final imageAspect = imageWidthPx / imageHeightPx;
+  final widgetAspect = widgetSize.width / widgetSize.height;
+  double displayWidth;
+  double displayHeight;
+  if (imageAspect > widgetAspect) {
+    // Image is relatively wider than the widget -- letterboxed top/bottom.
+    displayWidth = widgetSize.width;
+    displayHeight = displayWidth / imageAspect;
+  } else {
+    // Image is relatively taller than the widget -- letterboxed left/right.
+    displayHeight = widgetSize.height;
+    displayWidth = displayHeight * imageAspect;
+  }
+  final left = (widgetSize.width - displayWidth) / 2;
+  final top = (widgetSize.height - displayHeight) / 2;
+  return Rect.fromLTWH(left, top, displayWidth, displayHeight);
+}
 
 class ReferenceMarkingScreen extends StatefulWidget {
   final ScanFlowArgs args;
@@ -40,13 +78,43 @@ class _ReferenceMarkingScreenState extends State<ReferenceMarkingScreen> {
 
   bool get _hasSuggestion => widget.args.suggestion != null;
 
+  /// Whether the source image's pixel dimensions are known. Pin placement is refused
+  /// without them (AGENTS.md rule 9) rather than accepted and silently producing a null
+  /// scale at save time.
+  bool get _hasImageDimensions =>
+      widget.args.imageWidthPx != null && widget.args.imageHeightPx != null;
+
+  /// The rectangle, in widget-local coordinates, that `BoxFit.contain` actually paints the
+  /// photo into for a widget of size `widgetSize`. `_pins` are stored as fractions of THIS
+  /// rect, not of `widgetSize` -- with `BoxFit.contain` the two differ by the letterbox
+  /// whenever the image and widget aspect ratios don't match (AGENTS.md rule 9). Returns
+  /// null when the image dimensions aren't known yet.
+  Rect? _imageRectFor(Size widgetSize) => computeContainedImageRect(
+    widgetSize: widgetSize,
+    imageWidthPx: widget.args.imageWidthPx,
+    imageHeightPx: widget.args.imageHeightPx,
+  );
+
   void _placePin(TapUpDetails details, Size size) {
     if (_pins.length >= 2) return;
+    final rect = _imageRectFor(size);
+    if (rect == null) {
+      setState(
+        () => _error =
+            'Photo dimensions are unavailable; return to the camera and retake the photo.',
+      );
+      return;
+    }
+    if (!rect.contains(details.localPosition)) {
+      // Outside the displayed photo (in the letterbox) -- ignored, not clamped to the
+      // edge, so a stray tap can never fabricate an endpoint (AGENTS.md rule 9).
+      return;
+    }
     setState(() {
       _pins.add(
         Offset(
-          (details.localPosition.dx / size.width).clamp(0.0, 1.0),
-          (details.localPosition.dy / size.height).clamp(0.0, 1.0),
+          ((details.localPosition.dx - rect.left) / rect.width).clamp(0.0, 1.0),
+          ((details.localPosition.dy - rect.top) / rect.height).clamp(0.0, 1.0),
         ),
       );
       _error = null;
@@ -54,11 +122,13 @@ class _ReferenceMarkingScreenState extends State<ReferenceMarkingScreen> {
   }
 
   void _movePin(int index, DragUpdateDetails details, Size size) {
+    final rect = _imageRectFor(size);
+    if (rect == null) return;
     setState(() {
       final current = _pins[index];
       _pins[index] = Offset(
-        (current.dx + details.delta.dx / size.width).clamp(0.0, 1.0),
-        (current.dy + details.delta.dy / size.height).clamp(0.0, 1.0),
+        (current.dx + details.delta.dx / rect.width).clamp(0.0, 1.0),
+        (current.dy + details.delta.dy / rect.height).clamp(0.0, 1.0),
       );
       _error = null;
     });
@@ -207,9 +277,7 @@ class _ReferenceMarkingScreenState extends State<ReferenceMarkingScreen> {
     setState(() => _saving = true);
     final database = DatabaseScope.of(context);
     final pixelLength = _originalPixelLength;
-    final cmPerPixel = pixelLength == null || pixelLength <= 0
-        ? null
-        : _reference.lengthCm / pixelLength;
+    final cmPerPixel = _computeScale(pixelLength);
     await database.saveReferenceAnnotation(
       scanId: sessionId,
       reference: _reference,
@@ -239,12 +307,21 @@ class _ReferenceMarkingScreenState extends State<ReferenceMarkingScreen> {
     );
   }
 
+  /// Wraps `ComputeScaleUseCase` -- returns null (rather than throwing) whenever
+  /// `pixelLength` isn't a valid positive distance, since a screen mid-edit routinely has
+  /// zero or one pins placed.
+  double? _computeScale(double? pixelLength) {
+    if (pixelLength == null || pixelLength <= 0) return null;
+    return const ComputeScaleUseCase().execute(
+      referenceLengthCm: _reference.lengthCm,
+      referencePixelLength: pixelLength,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final pixelLength = _originalPixelLength;
-    final scale = pixelLength == null || pixelLength <= 0
-        ? null
-        : _reference.lengthCm / pixelLength;
+    final scale = _computeScale(pixelLength);
 
     return AppScaffold(
       showNav: false,
@@ -289,7 +366,9 @@ class _ReferenceMarkingScreenState extends State<ReferenceMarkingScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    _hasSuggestion
+                    !_hasImageDimensions
+                        ? 'Photo dimensions unavailable — return to the camera and retake the photo'
+                        : _hasSuggestion
                         ? 'Suggested endpoints — review before continuing'
                         : 'Automatic detection unavailable — mark both endpoints manually',
                     style: AppTextStyles.label.copyWith(fontSize: 12),
@@ -307,7 +386,20 @@ class _ReferenceMarkingScreenState extends State<ReferenceMarkingScreen> {
                     constraints.maxWidth,
                     constraints.maxHeight,
                   );
+                  // The rect BoxFit.contain actually paints the photo into -- pins are
+                  // stored as fractions of THIS rect (AGENTS.md rule 9), so every render
+                  // maps back through it rather than through the raw widget size.
+                  final imageRect = _imageRectFor(size);
+                  Offset toWidgetSpace(Offset fraction) {
+                    if (imageRect == null) return Offset.zero;
+                    return Offset(
+                      imageRect.left + fraction.dx * imageRect.width,
+                      imageRect.top + fraction.dy * imageRect.height,
+                    );
+                  }
+
                   return GestureDetector(
+                    key: const Key('referencePhotoArea'),
                     onTapUp: (details) => _placePin(details, size),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(AppRadius.lg),
@@ -321,48 +413,64 @@ class _ReferenceMarkingScreenState extends State<ReferenceMarkingScreen> {
                           if (_pins.length == 2)
                             CustomPaint(
                               painter: _ReferenceLinePainter(
-                                start: Offset(
-                                  _pins[0].dx * size.width,
-                                  _pins[0].dy * size.height,
-                                ),
-                                end: Offset(
-                                  _pins[1].dx * size.width,
-                                  _pins[1].dy * size.height,
-                                ),
+                                start: toWidgetSpace(_pins[0]),
+                                end: toWidgetSpace(_pins[1]),
                               ),
                             ),
                           ..._pins.asMap().entries.map((entry) {
-                            final point = entry.value;
+                            final point = toWidgetSpace(entry.value);
                             return Positioned(
-                              left: point.dx * size.width - 22,
-                              top: point.dy * size.height - 22,
+                              left: point.dx - 22,
+                              top: point.dy - 22,
                               child: GestureDetector(
                                 onPanUpdate: (details) =>
                                     _movePin(entry.key, details, size),
-                                child: Container(
+                                // ref_fix.md F5: the touch target stays 44x44 (AGENTS.md's
+                                // minimum), but what's PAINTED shrank from an opaque disc to
+                                // a small crosshair -- the old disc hid the exact point it
+                                // was marking, which made fine placement on a stick's
+                                // endpoint harder than it needed to be. The number badge
+                                // moves to a corner so it never covers the mark either.
+                                child: SizedBox(
                                   width: 44,
                                   height: 44,
-                                  decoration: BoxDecoration(
-                                    color: AppColors.signalPink,
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: Colors.white,
-                                      width: 3,
-                                    ),
-                                    boxShadow: const [
-                                      BoxShadow(
-                                        color: Colors.black38,
-                                        blurRadius: 6,
+                                  child: Stack(
+                                    clipBehavior: Clip.none,
+                                    children: [
+                                      const Positioned.fill(
+                                        child: CustomPaint(
+                                          painter: _CrosshairPainter(),
+                                        ),
+                                      ),
+                                      Positioned(
+                                        right: 0,
+                                        top: 0,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 5,
+                                            vertical: 1,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.signalPink,
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            border: Border.all(
+                                              color: Colors.white,
+                                              width: 1.5,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            '${entry.key + 1}',
+                                            style: AppTextStyles.label.copyWith(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 11,
+                                            ),
+                                          ),
+                                        ),
                                       ),
                                     ],
-                                  ),
-                                  alignment: Alignment.center,
-                                  child: Text(
-                                    '${entry.key + 1}',
-                                    style: AppTextStyles.label.copyWith(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                    ),
                                   ),
                                 ),
                               ),
@@ -520,6 +628,63 @@ class _ReferencePhoto extends StatelessWidget {
       ),
     );
   }
+}
+
+/// ref_fix.md F5: a small ring-and-cross marking the exact recorded point, rather than the
+/// opaque 44x44 disc that previously covered it -- painted twice, a wide white halo then a
+/// narrower pink mark, so it reads against any photo background.
+class _CrosshairPainter extends CustomPainter {
+  const _CrosshairPainter();
+
+  static const double _ringRadius = 7;
+  static const double _armLength = 5;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+
+    void drawCrosshair(Paint paint) {
+      canvas.drawCircle(center, _ringRadius, paint);
+      canvas.drawLine(
+        center + const Offset(-_ringRadius - _armLength, 0),
+        center + const Offset(-_ringRadius, 0),
+        paint,
+      );
+      canvas.drawLine(
+        center + const Offset(_ringRadius, 0),
+        center + const Offset(_ringRadius + _armLength, 0),
+        paint,
+      );
+      canvas.drawLine(
+        center + const Offset(0, -_ringRadius - _armLength),
+        center + const Offset(0, -_ringRadius),
+        paint,
+      );
+      canvas.drawLine(
+        center + const Offset(0, _ringRadius),
+        center + const Offset(0, _ringRadius + _armLength),
+        paint,
+      );
+    }
+
+    drawCrosshair(
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.5
+        ..strokeCap = StrokeCap.round,
+    );
+    drawCrosshair(
+      Paint()
+        ..color = AppColors.signalPink
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _CrosshairPainter oldDelegate) => false;
 }
 
 class _ReferenceLinePainter extends CustomPainter {

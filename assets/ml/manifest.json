@@ -1,210 +1,243 @@
 {
-  "bundle_id": "instaham-ml-9781c14",
-  "capabilities": {
-    "health": {
-      "available": true,
-      "class_map": {
-        "path": "health/classes.json",
-        "sha256": "b514707c89260b69b8ee77175e3ce2866cf57a6a360f46ee9cad2f27f5c6a6a0"
-      },
-      "input": {
-        "background_fill": "imagenet_mean",
-        "bbox_padding_ratio": 0.06,
-        "evidence": "not probed: images_root not provided or missing",
-        "on_segmentation_failure": "full_frame",
-        "probe_detail": {
-          "checked_protocols": [],
-          "images_root": null,
-          "reason": "images_root not provided or does not exist",
-          "recorded_test_rows": 2812,
-          "resolved": 0
-        },
-        "probe_status": "not_run",
-        "protocol": "full_frame",
-        "supported": [
-          "full_frame",
-          "segmentation_crop",
-          "segmentation_masked"
-        ]
-      },
-      "model": {
-        "arch_source": "timm==1.0.29",
-        "architecture": "ghostnetv3_100",
-        "fusion_max_abs_diff": 4.231929779052734e-06,
-        "input": {
-          "channels": "rgb",
-          "layout": "NCHW",
-          "name": "input",
-          "size": [
-            224,
-            224
-          ]
-        },
-        "onnx_max_abs_diff": 3.337860107421875e-06,
-        "opset": 17,
-        "path": "health/model.onnx",
-        "sha256": "a58704484622f6c3d40756b4e1dcd823284f52d822bdef27190b2e7f1b430a07"
-      },
-      "preprocessing": {
-        "center_crop": 224,
-        "exif": "expect_normalized",
-        "interpolation": "bilinear",
-        "mean": [
-          0.485,
-          0.456,
-          0.406
-        ],
-        "resize_shorter_side": 255,
-        "scale": 0.00392156862745098,
-        "std": [
-          0.229,
-          0.224,
-          0.225
-        ]
-      },
-      "protocol_version": "health_v1",
-      "source_run": {
-        "checkpoint_sha256": "642fa6a163ceee0ec7d4ac4969a0e25a61a924f33008b414826cca423eceb830"
-      }
+ "bundle_id": "instaham-ml-9781c14",
+ "capabilities": {
+  "health": {
+   "available": true,
+   "class_map": {
+    "path": "health/classes.json",
+    "sha256": "b514707c89260b69b8ee77175e3ce2866cf57a6a360f46ee9cad2f27f5c6a6a0"
+   },
+   "input": {
+    "background_fill": "imagenet_mean",
+    "bbox_padding_ratio": 0.06,
+    "evidence": "not probed: images_root not provided or missing",
+    "on_segmentation_failure": "full_frame",
+    "probe_detail": {
+     "checked_protocols": [],
+     "images_root": null,
+     "reason": "images_root not provided or does not exist",
+     "recorded_test_rows": 2812,
+     "resolved": 0
     },
-    "segmentation": {
-      "available": true,
-      "export_mode": "onnx_native",
-      "gate_b_note": "no fixture corpus in repo yet (section 11.3.1, slice -1); available=true rests on the onnx_native self-check below, not gate B",
-      "gate_b_status": "not_run",
-      "model": {
-        "architecture": "yolo11s-seg-ldconv-acmix",
-        "input": {
-          "channels": "rgb",
-          "layout": "NCHW",
-          "name": "images",
-          "size": [
-            640,
-            640
-          ]
-        },
-        "letterbox": {
-          "color": [
-            114,
-            114,
-            114
-          ],
-          "scaleup": false,
-          "stride": 32
-        },
-        "onnx_self_check": {
-          "box_mask_max_abs_diff": 0.001434326171875,
-          "note": "torch-vs-ORT graph transparency on random input, not real-photo accuracy",
-          "proto_max_abs_diff": 8.821487426757812e-06
-        },
-        "opset": 17,
-        "path": "segmentation/yolo.onnx",
-        "sha256": "a6467c75de32cddbfeedcb941659f0aa31d71d9d7b75ddf33ae01723fc0e508a"
-      },
-      "postprocess": {
-        "conf": 0.25,
-        "iou": 0.7,
-        "mask_protocol": "original_coordinate_polygon_v1",
-        "single_largest_instance": true
-      },
-      "protocol_version": "yolo11s_ldconv_acmix_fixed_seed42",
-      "source_run": {
-        "checkpoint_sha256": "ce8e9070cb56a6bab66661652bd00a1dd93afa9871499d5eaeacc7733fccbf4d"
-      }
+    "probe_status": "not_run",
+    "protocol": "full_frame",
+    "supported": [
+     "full_frame",
+     "segmentation_crop",
+     "segmentation_masked"
+    ]
+   },
+   "model": {
+    "arch_source": "timm==1.0.29",
+    "architecture": "ghostnetv3_100",
+    "fusion_max_abs_diff": 4.231929779052734e-06,
+    "input": {
+     "channels": "rgb",
+     "layout": "NCHW",
+     "name": "input",
+     "size": [
+      224,
+      224
+     ]
     },
-    "view": {
-      "available": true,
-      "class_map": {
-        "path": "view/classes.json",
-        "sha256": "fe2f46bcc1d54e8e1b9a4362d8e39ebd1c3c0ec9ff3d0c0bf3806718313e17d1"
-      },
-      "model": {
-        "arch_source": "timm==1.0.29",
-        "architecture": "ghostnetv3_100",
-        "fusion_max_abs_diff": 1.430511474609375e-06,
-        "input": {
-          "channels": "rgb",
-          "layout": "NCHW",
-          "name": "input",
-          "size": [
-            224,
-            224
-          ]
-        },
-        "onnx_max_abs_diff": 1.9073486328125e-06,
-        "opset": 17,
-        "path": "view/model.onnx",
-        "sha256": "14ae0c53bfe9afacea334b62a8c386221c4c93f10c65289941ee6a1586df068b"
-      },
-      "preprocessing": {
-        "center_crop": 224,
-        "exif": "expect_normalized",
-        "interpolation": "bilinear",
-        "mean": [
-          0.485,
-          0.456,
-          0.406
-        ],
-        "resize_shorter_side": 255,
-        "scale": 0.00392156862745098,
-        "std": [
-          0.229,
-          0.224,
-          0.225
-        ]
-      },
-      "protocol_version": "view_v1",
-      "source_run": {
-        "checkpoint_sha256": "94be976320e4f00de331254ad3b14b2f59981e06819c4fe87b12e819ffa3c1e9"
-      }
+    "onnx_max_abs_diff": 3.337860107421875e-06,
+    "opset": 17,
+    "path": "health/model.onnx",
+    "sha256": "a58704484622f6c3d40756b4e1dcd823284f52d822bdef27190b2e7f1b430a07"
+   },
+   "preprocessing": {
+    "center_crop": 224,
+    "exif": "expect_normalized",
+    "interpolation": "bilinear",
+    "mean": [
+     0.485,
+     0.456,
+     0.406
+    ],
+    "resize_shorter_side": 255,
+    "scale": 0.00392156862745098,
+    "std": [
+     0.229,
+     0.224,
+     0.225
+    ]
+   },
+   "protocol_version": "health_v1",
+   "source_run": {
+    "checkpoint_sha256": "642fa6a163ceee0ec7d4ac4969a0e25a61a924f33008b414826cca423eceb830"
+   }
+  },
+  "segmentation": {
+   "available": true,
+   "export_mode": "onnx_native",
+   "gate_b_note": "no fixture corpus in repo yet (section 11.3.1, slice -1); available=true rests on the onnx_native self-check below, not gate B",
+   "gate_b_status": "not_run",
+   "model": {
+    "architecture": "yolo11s-seg-ldconv-acmix",
+    "input": {
+     "channels": "rgb",
+     "layout": "NCHW",
+     "name": "images",
+     "size": [
+      640,
+      640
+     ]
     },
-    "weight": {
-      "available": true,
-      "body_mask": {
-        "ported_functions": [
-          "clean_binary_mask",
-          "isolate_dorsal_core_ji_duan",
-          "extract_five_features",
-          "unletterbox_native_mask"
-        ],
-        "protocol_version": "ji_duan_residual_06q_v9_headfit_exact_twotangent_v26",
-        "stage": "provisional"
-      },
-      "capture_contract": {
-        "camera_height_is_xgboost_feature": false,
-        "feature_space": "fixed_camera_pixels",
-        "training_camera_height_m": 1.88
-      },
-      "feature_extractor": {
-        "linear_scale": 1.0,
-        "names": [
-          "RA",
-          "LC",
-          "BL",
-          "BW",
-          "E"
-        ],
-        "protocol_version": "baseline5_v1"
-      },
-      "note": "TEST OVERRIDE: cutter is the identity stub (head/neck not removed). estimated_kg overestimates the research protocol's number.",
-      "regressor": {
-        "feature_family": "baseline5",
-        "feature_order_path": "weight/feature_order.json",
-        "feature_order_sha256": "09a9a2165a9869238c6bcb18ffb8e789f410a9d302a92db5a89b0043bf0f9cd5",
-        "format": "onnx",
-        "meta_path": "weight/xgboost.meta.json",
-        "meta_sha256": "324d217131f363c049fd49a6e2898e89746cf33112602875246b334639a1298c",
-        "objective": "reg:squarederror",
-        "path": "weight/xgboost.onnx",
-        "sha256": "0d720b2b3283f4443b52a580f6ecfbc7896f9c3d7f02247b23c05bb67edddf6d"
-      },
-      "stability": "temporary"
+    "letterbox": {
+     "color": [
+      114,
+      114,
+      114
+     ],
+     "scaleup": false,
+     "stride": 32
+    },
+    "onnx_self_check": {
+     "box_mask_max_abs_diff": 0.001434326171875,
+     "note": "torch-vs-ORT graph transparency on random input, not real-photo accuracy",
+     "proto_max_abs_diff": 8.821487426757812e-06
+    },
+    "opset": 17,
+    "path": "segmentation/yolo.onnx",
+    "sha256": "a6467c75de32cddbfeedcb941659f0aa31d71d9d7b75ddf33ae01723fc0e508a"
+   },
+   "postprocess": {
+    "conf": 0.25,
+    "iou": 0.7,
+    "mask_protocol": "original_coordinate_polygon_v1",
+    "single_largest_instance": true
+   },
+   "protocol_version": "yolo11s_ldconv_acmix_fixed_seed42",
+   "source_run": {
+    "checkpoint_sha256": "ce8e9070cb56a6bab66661652bd00a1dd93afa9871499d5eaeacc7733fccbf4d"
+   }
+  },
+  "view": {
+   "available": true,
+   "class_map": {
+    "path": "view/classes.json",
+    "sha256": "fe2f46bcc1d54e8e1b9a4362d8e39ebd1c3c0ec9ff3d0c0bf3806718313e17d1"
+   },
+   "model": {
+    "arch_source": "timm==1.0.29",
+    "architecture": "ghostnetv3_100",
+    "fusion_max_abs_diff": 1.430511474609375e-06,
+    "input": {
+     "channels": "rgb",
+     "layout": "NCHW",
+     "name": "input",
+     "size": [
+      224,
+      224
+     ]
+    },
+    "onnx_max_abs_diff": 1.9073486328125e-06,
+    "opset": 17,
+    "path": "view/model.onnx",
+    "sha256": "14ae0c53bfe9afacea334b62a8c386221c4c93f10c65289941ee6a1586df068b"
+   },
+   "preprocessing": {
+    "center_crop": 224,
+    "exif": "expect_normalized",
+    "interpolation": "bilinear",
+    "mean": [
+     0.485,
+     0.456,
+     0.406
+    ],
+    "resize_shorter_side": 255,
+    "scale": 0.00392156862745098,
+    "std": [
+     0.229,
+     0.224,
+     0.225
+    ]
+   },
+   "protocol_version": "view_v1",
+   "source_run": {
+    "checkpoint_sha256": "94be976320e4f00de331254ad3b14b2f59981e06819c4fe87b12e819ffa3c1e9"
+   }
+  },
+  "weight": {
+   "available": true,
+   "body_mask": {
+    "ported_functions": [
+     "clean_binary_mask",
+     "isolate_dorsal_core_ji_duan",
+     "extract_five_features",
+     "unletterbox_native_mask"
+    ],
+    "protocol_version": "ji_duan_residual_06q_v9_headfit_exact_twotangent_v26",
+    "stage": "provisional"
+   },
+   "capture_contract": {
+    "camera_height_is_xgboost_feature": false,
+    "cm_per_px_target": 0.26,
+    "cm_per_px_target_source": "UNCALIBRATED_seed_estimate_pending_1p88m_calibration_capture",
+    "feature_space": "fixed_camera_pixels",
+    "training_camera_height_m": 1.88,
+    "training_frame_px": [
+     720,
+     720
+    ]
+   },
+   "feature_domain": {
+    "BL": {
+     "max": 638.017,
+     "min": 312.4134,
+     "upper_multiplier": 1.5
+    },
+    "BW": {
+     "max": 207.9156,
+     "min": 118.4502,
+     "upper_multiplier": 1.2
+    },
+    "E": {
+     "max": 0.9773,
+     "min": 0.8888,
+     "upper_multiplier": 1.05
+    },
+    "LC": {
+     "max": 1540.2884,
+     "min": 811.5605,
+     "upper_multiplier": 1.5
+    },
+    "RA": {
+     "max": 0.1865,
+     "min": 0.0635,
+     "upper_multiplier": 1.5
     }
-  },
-  "reference_commit": "9781c14",
-  "runtime": {
-    "engine": "onnxruntime",
-    "min_abi_version": 1
-  },
-  "schema_version": 1
+   },
+   "feature_extractor": {
+    "linear_scale": 1.0,
+    "names": [
+     "RA",
+     "LC",
+     "BL",
+     "BW",
+     "E"
+    ],
+    "protocol_version": "baseline5_v1"
+   },
+   "note": "TEST OVERRIDE: cutter is the identity stub (head/neck not removed). estimated_kg overestimates the research protocol's number.",
+   "regressor": {
+    "feature_family": "baseline5",
+    "feature_order_path": "weight/feature_order.json",
+    "feature_order_sha256": "09a9a2165a9869238c6bcb18ffb8e789f410a9d302a92db5a89b0043bf0f9cd5",
+    "format": "onnx",
+    "meta_path": "weight/xgboost.meta.json",
+    "meta_sha256": "324d217131f363c049fd49a6e2898e89746cf33112602875246b334639a1298c",
+    "objective": "reg:squarederror",
+    "path": "weight/xgboost.onnx",
+    "sha256": "0d720b2b3283f4443b52a580f6ecfbc7896f9c3d7f02247b23c05bb67edddf6d"
+   },
+   "stability": "temporary"
+  }
+ },
+ "reference_commit": "9781c14",
+ "runtime": {
+  "engine": "onnxruntime",
+  "min_abi_version": 1
+ },
+ "schema_version": 1
 }

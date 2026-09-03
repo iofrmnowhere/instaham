@@ -131,6 +131,41 @@ def export(
                 "feature_space": "fixed_camera_pixels",
                 "training_camera_height_m": 1.88,
                 "camera_height_is_xgboost_feature": False,
+                # TASKS.md W1: cm/px this regressor's features were trained at, and the
+                # frame (px) RA's denominator was measured against -- 720x720 is recovered
+                # exactly (body_mask_area_px / RA on every row of
+                # ML/weight_prediction/fixed_test_predictions_POSTHOC.csv). cm_per_px_target
+                # is NOT recoverable from anything in this repo and the value below is an
+                # unmeasured order-of-magnitude seed (see TASKS.md section 3.2/4) -- replace
+                # it with the median of several 1.88m calibration captures (TASKS.md W1)
+                # before trusting a predicted weight. packages/instaham_ml_ffi's
+                # load_manifest() refuses to load a weight-available manifest missing
+                # either field, so this contract must travel with every export.
+                "cm_per_px_target": 0.26,
+                "cm_per_px_target_source": (
+                    "UNCALIBRATED_seed_estimate_pending_1p88m_calibration_capture"
+                ),
+                "training_frame_px": [720, 720],
+            },
+            # ref_fix.md F3: the [min, max] each feature actually took across the
+            # regressor's own eval set (ML/weight_prediction/fixed_test_predictions_POSTHOC.csv,
+            # 2014 rows) -- a normalized feature vector outside this range is rejected by
+            # the native pipeline rather than fed to the regressor (AGENTS.md rule 8),
+            # replacing a resolution-blind k-range check with a check on the thing that
+            # actually determines whether the model has ever seen anything like this input.
+            # `upper_multiplier` widens only the max: RA/LC/BL legitimately run high while
+            # the cutter is the identity stub (head/neck left in the mask), so the max is
+            # given headroom; the min is never widened, since nothing here can make a
+            # feature come out SMALLER than a correctly head-removed mask would give.
+            # Retune (tighten toward 1.0) once the real cutter lands -- section 3.2's
+            # ~0.892 median body/whole area ratio is the source of the 1.5x figure below,
+            # applied uniformly rather than per-feature for lack of a per-feature number.
+            "feature_domain": {
+                "RA": {"min": 0.0635, "max": 0.1865, "upper_multiplier": 1.5},
+                "LC": {"min": 811.5605, "max": 1540.2884, "upper_multiplier": 1.5},
+                "BL": {"min": 312.4134, "max": 638.0170, "upper_multiplier": 1.5},
+                "BW": {"min": 118.4502, "max": 207.9156, "upper_multiplier": 1.2},
+                "E": {"min": 0.8888, "max": 0.9773, "upper_multiplier": 1.05},
             },
         }
     }

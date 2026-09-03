@@ -159,6 +159,21 @@ INSTAHAM_ML_API InstahamMlStatus instaham_ml_extract_features_provisional_json(
 INSTAHAM_ML_API InstahamMlStatus instaham_ml_run_pipeline_json(
     InstahamMlContext* ctx, const char* image_path, char** out_json);
 
+/*
+ * Added TASKS.md W4 (additive; ABI_VERSION stays 1 -- a new symbol, not a signature
+ * change to an existing one). Request-shaped variant of instaham_ml_run_pipeline_json:
+ *   request_json: {"image_path":<str>, "cm_per_px":<num|omitted>}
+ * `cm_per_px` is the user-confirmed reference object's measured cm/pixel for this capture
+ * (AGENTS.md rule 7); omit it (or pass null) for a scan with no confirmed reference. Every
+ * other key is ignored, so future inputs (a confirmed ROI, capture metadata) are additive
+ * fields here rather than another entrypoint apiece. Returns the same section-9 envelope
+ * as instaham_ml_run_pipeline_json, plus a "scale" block reporting whether/how cm_per_px
+ * was applied. instaham_ml_run_pipeline_json is implemented as a call into this one with
+ * cm_per_px omitted, so its behaviour and every existing test of it are unchanged.
+ */
+INSTAHAM_ML_API InstahamMlStatus instaham_ml_run_pipeline_request_json(
+    InstahamMlContext* ctx, const char* request_json, char** out_json);
+
 #ifdef __cplusplus
 }  /* extern "C" */
 #endif

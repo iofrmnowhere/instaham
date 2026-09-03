@@ -393,16 +393,53 @@ InstahamMlStatus instaham_ml_extract_features_provisional_json(InstahamMlContext
 
 InstahamMlStatus instaham_ml_run_pipeline_json(InstahamMlContext* raw_ctx, const char* image_path,
                                                 char** out_json) {
-  auto* ctx = reinterpret_cast<Context*>(raw_ctx);
-  if (!ctx || !image_path || !out_json) {
+  // Thin call into the request-shaped entrypoint with cm_per_px absent -- TASKS.md W4, so
+  // this signature (and every existing caller/test of it) is untouched by the scale work.
+  if (!image_path) {
     set_error("null argument");
     return INSTAHAM_ML_ERR_INVALID_ARG;
   }
+  nlohmann::json request = {{"image_path", image_path}};
+  return instaham_ml_run_pipeline_request_json(raw_ctx, request.dump().c_str(), out_json);
+}
+
+InstahamMlStatus instaham_ml_run_pipeline_request_json(InstahamMlContext* raw_ctx,
+                                                         const char* request_json,
+                                                         char** out_json) {
+  auto* ctx = reinterpret_cast<Context*>(raw_ctx);
+  if (!ctx || !request_json || !out_json) {
+    set_error("null argument");
+    return INSTAHAM_ML_ERR_INVALID_ARG;
+  }
+  nlohmann::json request;
+  try {
+    request = nlohmann::json::parse(request_json);
+  } catch (const std::exception&) {
+    set_error("request_json did not parse");
+    return INSTAHAM_ML_ERR_INVALID_ARG;
+  }
+  if (!request.contains("image_path") || !request["image_path"].is_string()) {
+    set_error("request_json missing string image_path");
+    return INSTAHAM_ML_ERR_INVALID_ARG;
+  }
+  std::string image_path = request["image_path"].get<std::string>();
+
+  // TASKS.md W3/W4: the user-confirmed reference object's cm/pixel for this capture
+  // (AGENTS.md rule 7). Absent, null, or non-numeric all mean "no confirmed reference" --
+  // run_pipeline() degrades the weight branch rather than assuming a scale.
+  double cm_per_px_value = 0.0;
+  const double* cm_per_px = nullptr;
+  if (request.contains("cm_per_px") && request["cm_per_px"].is_number()) {
+    cm_per_px_value = request["cm_per_px"].get<double>();
+    cm_per_px = &cm_per_px_value;
+  }
+
   instaham_ml::PipelineRunners runners{ctx->view_runner.get(), ctx->health_runner.get(),
                                         ctx->segmentation_runner.get(),
                                         ctx->weight_runner.get()};
   std::string json_out;
-  bool ok = instaham_ml::run_pipeline(runners, ctx->manifest, image_path, &json_out);
+  bool ok =
+      instaham_ml::run_pipeline(runners, ctx->manifest, image_path, cm_per_px, &json_out);
   *out_json = dup_cstr(json_out);
   if (!ok) {
     set_error(json_out);

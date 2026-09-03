@@ -50,6 +50,36 @@ struct WeightCapability {
   std::vector<std::string> feature_order;
   double training_camera_height_m = 0.0;
   bool camera_height_is_xgboost_feature = false;
+
+  // TASKS.md W1: cm/px the regressor's feature space was trained at, and the frame (in
+  // pixels) `RA`'s denominator was measured against -- recovered from
+  // ML/weight_prediction/fixed_test_predictions_POSTHOC.csv, where
+  // body_mask_area_px / RA == 720*720 on every one of 2014 rows. A weight-available
+  // manifest missing either field fails to load (load_manifest, INSTAHAM_ML_ERR_CONTRACT)
+  // rather than silently defaulting to an unscaled k = 1.0 (AGENTS.md rule 8).
+  double cm_per_px_target = 0.0;
+  int training_frame_w = 0;
+  int training_frame_h = 0;
+
+  // ref_fix.md F3: the [min, max] each of RA/LC/BL/BW/E actually took across the
+  // regressor's own training/eval set (ML/weight_prediction/fixed_test_predictions_POSTHOC.csv,
+  // 2014 rows) -- the real question a scale sanity check should ask ("would this feature
+  // vector even make sense to this model?") rather than the proxy question k's range asks.
+  // `upper_multiplier` widens only the max, to allow for the identity-stub cutter leaving
+  // the head/neck in the mask (so BL/LC/RA legitimately run above their trained range until
+  // the real cutter lands) -- the min is never widened, since a smaller-than-trained value
+  // has no such excuse. Empty (all-default) FeatureDomain entries mean "no manifest data
+  // yet"; the gate at pipeline.cpp only applies to a feature whose domain has max > 0.
+  struct FeatureDomain {
+    double min = 0.0;
+    double max = 0.0;
+    double upper_multiplier = 1.0;
+  };
+  FeatureDomain domain_ra;
+  FeatureDomain domain_lc;
+  FeatureDomain domain_bl;
+  FeatureDomain domain_bw;
+  FeatureDomain domain_e;
 };
 
 struct Manifest {

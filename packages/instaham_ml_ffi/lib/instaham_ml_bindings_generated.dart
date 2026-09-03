@@ -94,6 +94,12 @@ class InstahamMlBindings {
         ),
         _featuresProvisional = _lib.lookupFunction<_InferNative, _InferDart>(
           'instaham_ml_extract_features_provisional_json',
+        ),
+        _runPipeline = _lib.lookupFunction<_InferNative, _InferDart>(
+          'instaham_ml_run_pipeline_json',
+        ),
+        _runPipelineRequest = _lib.lookupFunction<_InferNative, _InferDart>(
+          'instaham_ml_run_pipeline_request_json',
         );
 
   final _CreateDart _create;
@@ -108,6 +114,8 @@ class InstahamMlBindings {
   final _InferDart _segment;
   final _InferDart _weight;
   final _InferDart _featuresProvisional;
+  final _InferDart _runPipeline;
+  final _InferDart _runPipelineRequest;
 
   int get abiVersion => _abi();
   String get buildInfo => _info().toDartString();
@@ -184,4 +192,23 @@ class InstahamMlBindings {
     String imagePath,
   ) =>
       _invoke(_featuresProvisional, ctx, imagePath);
+
+  /// TASKS.md P0: runs view -> segmentation -> construction -> (health | cutter ->
+  /// feature_calculation -> weight_prediction) in one native call, reusing the single
+  /// constructed mask for both the health and weight branches instead of the three
+  /// per-capability calls each re-segmenting from the image path.
+  (MlStatus, String) runPipeline(
+    Pointer<InstahamMlContext> ctx,
+    String imagePath,
+  ) =>
+      _invoke(_runPipeline, ctx, imagePath);
+
+  /// TASKS.md W4: the request-shaped variant. `requestJson` is
+  /// `{"image_path":<str>, "cm_per_px":<num|omitted>}` -- built by the caller (ml_runtime.dart)
+  /// so this class stays a thin typed wrapper, not a place that knows the request schema.
+  (MlStatus, String) runPipelineRequest(
+    Pointer<InstahamMlContext> ctx,
+    String requestJson,
+  ) =>
+      _invoke(_runPipelineRequest, ctx, requestJson);
 }

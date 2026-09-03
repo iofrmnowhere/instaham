@@ -137,4 +137,35 @@ class MlRuntime {
   /// the caveat this carries.
   (MlStatus, Map<String, dynamic>) predictWeight(String imagePath) =>
       _invoke(_bindings.predictWeight, imagePath);
+
+  /// TASKS.md P0: the whole-graph call. One native pass instead of the up-to-three
+  /// per-capability calls each re-segmenting -- see run_and_persist_pipeline_use_case.dart.
+  ///
+  /// TASKS.md W3: `cmPerPixel` is the user-confirmed reference object's measured cm/pixel
+  /// for this capture (AGENTS.md rule 7 -- callers must pass it ONLY when the annotation
+  /// was user-confirmed and coplanar-confirmed, never a guess). Omitted or null routes to
+  /// the plain `instaham_ml_run_pipeline_json` entrypoint unchanged; passing it uses the
+  /// request-shaped `instaham_ml_run_pipeline_request_json` (TASKS.md W4) instead, which
+  /// degrades the weight branch to `{"status":"unavailable","reason":"scale_..."}` rather
+  /// than predicting on unnormalized pixels when the value can't be applied.
+  (MlStatus, Map<String, dynamic>) runPipeline(
+    String imagePath, {
+    double? cmPerPixel,
+  }) {
+    if (cmPerPixel == null) {
+      return _invoke(_bindings.runPipeline, imagePath);
+    }
+    final requestJson = jsonEncode({
+      'image_path': imagePath,
+      'cm_per_px': cmPerPixel,
+    });
+    final (status, json) = _bindings.runPipelineRequest(_ctx, requestJson);
+    Map<String, dynamic> decoded;
+    try {
+      decoded = jsonDecode(json) as Map<String, dynamic>;
+    } catch (_) {
+      decoded = <String, dynamic>{};
+    }
+    return (status, decoded);
+  }
 }

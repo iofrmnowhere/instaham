@@ -12,7 +12,8 @@ namespace stages {
 
 std::optional<FiveFeatures> extract_five_features(const std::vector<uint8_t>& mask, int w, int h,
                                                    double linear_scale,
-                                                   bool preserve_processed_mask) {
+                                                   bool preserve_processed_mask, int ra_frame_w,
+                                                   int ra_frame_h) {
   std::vector<uint8_t> clean = preserve_processed_mask
                                     ? largest_component_fill(mask, w, h)
                                     : clean_binary_mask(mask, w, h);
@@ -31,7 +32,9 @@ std::optional<FiveFeatures> extract_five_features(const std::vector<uint8_t>& ma
 
   FiveFeatures out;
   out.area_pixels = double(cv::countNonZero(clean_mat));
-  out.ra = out.area_pixels / (double(w) * double(h));
+  const double denom_w = ra_frame_w > 0 ? double(ra_frame_w) : double(w);
+  const double denom_h = ra_frame_h > 0 ? double(ra_frame_h) : double(h);
+  out.ra = out.area_pixels / (denom_w * denom_h);
   out.lc = cv::arcLength(contour, true) * linear_scale;
 
   cv::RotatedRect rect = cv::minAreaRect(contour);

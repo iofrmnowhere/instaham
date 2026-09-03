@@ -117,6 +117,45 @@ PigMask construct_pig_mask(const SegmentationOutput& seg) {
   return out;
 }
 
+PigMask scale_mask_to_training_space(const PigMask& mask, double k) {
+  PigMask out;
+  if (mask.empty() || !std::isfinite(k) || k <= 0.0) return out;
+
+  const int scaled_w = std::max(1, int(std::lround(mask.width * k)));
+  const int scaled_h = std::max(1, int(std::lround(mask.height * k)));
+
+  cv::Mat src(mask.height, mask.width, CV_8UC1, const_cast<uint8_t*>(mask.pixels.data()));
+  cv::Mat resized;
+  cv::resize(src, resized, cv::Size(scaled_w, scaled_h), 0, 0, cv::INTER_NEAREST);
+
+  out.width = scaled_w;
+  out.height = scaled_h;
+  out.pixels.assign(resized.data, resized.data + size_t(resized.total()));
+
+  int min_x = out.width, min_y = out.height, max_x = -1, max_y = -1;
+  long long area = 0;
+  for (int y = 0; y < out.height; ++y) {
+    const uint8_t* row = out.pixels.data() + size_t(y) * out.width;
+    for (int x = 0; x < out.width; ++x) {
+      if (row[x] > 0) {
+        ++area;
+        min_x = std::min(min_x, x);
+        min_y = std::min(min_y, y);
+        max_x = std::max(max_x, x);
+        max_y = std::max(max_y, y);
+      }
+    }
+  }
+  out.area_px = area;
+  if (max_x >= min_x) {
+    out.bbox_x = min_x;
+    out.bbox_y = min_y;
+    out.bbox_w = max_x - min_x + 1;
+    out.bbox_h = max_y - min_y + 1;
+  }
+  return out;
+}
+
 std::vector<uint8_t> largest_component_fill(const std::vector<uint8_t>& mask, int w, int h) {
   cv::Mat binary(h, w, CV_8UC1, const_cast<uint8_t*>(mask.data()));
   cv::Mat thresholded;

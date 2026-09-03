@@ -1,550 +1,644 @@
-# Plan — Misclassification, spurious "Unavailable", and the un-skipped reference step
+# TASKS.md — Wiring the reference object into the weight pipeline
 
-**Status:** proposed, not implemented. Written 2026-08-29 after the first on-device run of the
-slice 3/4 build.
+**Goal.** Turn the reference-object marking screen from a dummy that computes a number nobody
+reads into the scale source for the weight branch, so that XGBoost receives `RA, LC, BL, BW, E`
+expressed in the pixel space the regressor was trained on, regardless of the height the phone was
+held at.
 
-## Observed symptoms
+**Status of the code this plan touches:** verified against the working tree on branch
+`initial_health` (commit `8c98aac`).
 
-1. Classification sometimes reads "Unavailable".
-2. Classification is sometimes wrong.
-3. The app still asks for reference-object marking on photos that are not dorsal, even though a
-   non-dorsal photo can never produce a weight.
+---
 
-These have three different causes. Symptom 3 and most of symptom 1 are code defects. Symptom 2 is
-substantially a model/data problem that no amount of app code will fix.
+## 1. What exists today
 
-## Cause A — Reference marking is routed before the view model ever runs (code defect)
+### 1.1 The reference tool (works, but nothing consumes it)
 
-`lib/features/capture/presentation/screens/capture_screen.dart`, `_usePhoto()` chooses the next
-screen purely from `_mode`, a user-facing toggle that defaults to `MeasurementMode.referenceObject`:
+`lib/features/weight_estimation/presentation/screens/reference_marking_screen.dart` lets the user
+place two pins, drag them, and pick a preset (`meter_stick` 100 cm, `porac_stick` 131 cm) or a
+custom length. It computes the pixel distance in **original image pixels**
+(`_originalPixelLength`, lines 67–77) using `args.imageWidthPx` / `args.imageHeightPx`, divides
+`lengthCm` by it (line 206), and persists the result:
 
 ```dart
-if (_mode == MeasurementMode.referenceObject) {
-  context.push('/reference-marking', extra: args);   // always, regardless of view type
-} else {
-  context.push('/analysis', extra: args);
-}
+await database.saveReferenceAnnotation(
+  scanId: sessionId, reference: _reference,
+  startX: ..., startY: ..., endX: ..., endY: ...,
+  pixelLength: pixelLength, cmPerPixel: cmPerPixel, ...);
 ```
 
-The view classifier does not run here. It runs later, inside `ResultsScreen`, via
-`RunAndPersistPipelineUseCase`. So the effective order in the shipped app is:
+`ReferenceAnnotations` (`lib/core/database/app_database.dart:50`) already stores
+`pixelLength` and `cmPerPixel`. Nothing ever reads them back — there is no
+`getReferenceAnnotation` query anywhere in `lib/`, and the only other references to that table are
+the insert at line 303 and the wipe at line 587.
 
+`ComputeScaleUseCase` (`lib/features/weight_estimation/domain/use_cases/compute_scale_use_case.dart`)
+implements exactly this division with proper validation, and is **dead code**: its only caller is
+its own test. The screen re-implements the same division inline instead of using it. Same story for
+`WeightEligibilityChecker` — 9 checks, fully tested, checks 5–8 are all about the reference object,
+and no production code path calls it.
+
+### 1.2 The pipeline (one native call, no scale input)
+
+`RunAndPersistPipelineUseCase.execute(db, scanId, imagePath)`
+(`lib/features/inference_pipeline/domain/use_cases/run_and_persist_pipeline_use_case.dart`) makes a
+single call `pipelineService.run(imagePath)` →
+`MlRuntime.runPipeline(imagePath)` → `instaham_ml_run_pipeline_json(ctx, image_path, out_json)`.
+The image path is the **only** input. There is no parameter through which a scale could travel, at
+any layer: not the Dart use case, not `IPipelineService`, not `MlRuntime`, not the generated
+bindings (`_InferDart` is `(ctx, imagePath) -> json`), not the C ABI.
+
+Inside `packages/instaham_ml_ffi/src/pipeline.cpp` the weight branch calls:
+
+```cpp
+auto feats = stages::extract_five_features(cutter_result.mask, cutter_result.width,
+                                           cutter_result.height, 1.0,
+                                           /*preserve_processed_mask=*/true);
 ```
-capture -> reference marking -> analysis (view -> health -> segmentation)
+
+`1.0` is the `linear_scale` argument. Every shipped path hardcodes it — `ML/weight_runtime.py:499`,
+`ML/parity/run_reference.py:70`, and the manifest's own
+`weight.feature_extractor.linear_scale: 1.0` (`ML/export/export_xgboost.py:118`).
+
+### 1.3 The regressor's capture contract
+
+`assets/ml/manifest.json` → `capabilities.weight.capture_contract`:
+
+```json
+{ "feature_space": "fixed_camera_pixels",
+  "training_camera_height_m": 1.88,
+  "camera_height_is_xgboost_feature": false }
 ```
 
-The order this file specifies at the top is:
+Parsed into `WeightCapability` at `packages/instaham_ml_ffi/src/manifest.cpp:206-211`. The contract
+is *recorded* and *reported* in the envelope; it is never *enforced*. A photo taken at 2.5 m runs
+through the identical code path as one taken at 1.88 m and produces a confident, wrong number.
 
-```
-capture -> view type -> segment -> dorsal? -> (reference/scale + weight) or (health only)
-```
+Note that in this working tree `capabilities.weight.available` is **true** — this is an
+`export_xgboost.py --enable-for-testing` bundle — so the weight branch is live and testable right
+now, uncut mask and all.
 
-The view gate is supposed to be the first thing that runs and the thing that decides whether the
-weight branch — and therefore the reference-object step that exists only to serve it — happens at
-all. Today it is the last thing that runs, so it cannot gate anything upstream of itself. This is
-purely an ordering defect in the Flutter navigation flow; the classifier itself is not involved.
+---
 
-## Cause B — An app-invented confidence threshold manufactures rejects (code defect)
+## 2. Three defects that must be fixed before cm/px means anything
 
-`RunAndPersistPipelineUseCase` declares `kViewConfidenceThreshold = 0.70` and rewrites any
-prediction below it to `reject`. That constant is not in the manifest, is not in the checkpoint,
-and is not the rule the model was evaluated under. The model's recorded 0.9727 accuracy is an
-argmax number.
+These are ordered by how badly they corrupt the number. Fixing #1 is a prerequisite for the whole
+plan; a scale computed from bad pin coordinates is worse than no scale at all.
 
-Replaying `ML/view_model/test_predictions.csv` (5898 rows) through the app's exact logic:
+### D1 — Pin coordinates are normalized against the widget, not the displayed image rect
 
-| Threshold | Forced to `reject` | ...of which the model was **correct** | True `dorsal_valid` destroyed |
+`AGENTS.md` critical rule 9 says reference-point coordinates must map to the actual displayed image
+rectangle including `BoxFit` letterboxing. The screen does the opposite:
+
+- `_ReferencePhoto` renders with `fit: BoxFit.contain` (lines 501 and 504).
+- `_placePin` (line 42) divides the tap position by the **`LayoutBuilder` constraints**, i.e. the
+  full widget box, and `_movePin` (line 55) does the same for drag deltas.
+- `_originalPixelLength` then multiplies those fractions by `imageWidthPx` / `imageHeightPx`.
+
+With `BoxFit.contain` the image occupies only part of the widget in one axis. A 4:3 photo in a
+3:4 widget box leaves ~44 % of the height as empty letterbox. A pin the user places at the visual
+midpoint of the stick maps to a normalized coordinate that is wrong in that axis by the letterbox
+ratio, and the error is **anisotropic** — it distorts diagonal reference placements more than
+axis-aligned ones. The resulting cm/px can be off by tens of percent, and the error is invisible
+because the on-screen line still looks right.
+
+**Fix:** compute the displayed image rect from the image's aspect ratio and the widget
+constraints, hit-test against that rect, and normalize against it. Reject taps outside it rather
+than clamping them to the edge (clamping silently fabricates an endpoint). This requires knowing
+the image aspect ratio at layout time — `args.imageWidthPx`/`imageHeightPx` already carry it, and
+the screen should refuse to accept pins at all when they are null, instead of the current behaviour
+of accepting pins and then quietly producing `cmPerPixel: null` at save time (line 204).
+
+### D2 — `cmPerPixel` is persisted but unreachable from the pipeline
+
+`RunAndPersistPipelineUseCase.execute` takes `(db, scanId, imagePath)` and never queries
+`referenceAnnotations`. Even a perfect cm/px value cannot reach the native layer.
+
+### D3 — There is no ABI through which a scale can be passed
+
+`instaham_ml_run_pipeline_json` takes `(ctx, image_path, out_json)`. `instaham_ml.h`'s own contract
+states `ABI_VERSION` bumps only on a breaking signature change, so this needs either a new
+entrypoint or an ABI bump. See §5.3.
+
+---
+
+## 3. The math — what "normalize to the training space" actually requires
+
+The instruction gives:
+
+> `k = cm_per_px_actual / cm_per_px_target`
+
+That is correct for the **length-dimensioned** features, and it is not sufficient for the whole
+feature vector. Working through all five:
+
+| Feature | Definition (`ML/pipeline/feature_calculation.py:44-52`) | Dimension | Behaviour under a k-resize |
 |---|---|---|---|
-| none (argmax) | 0 | 0 | 0 |
-| 0.60 | 63 | 26 | 26 |
-| **0.70 (shipped)** | **127** | **70** | **70** |
-| 0.80 | 222 | 145 | 144 |
+| `RA` | `area_pixels / (height * width)` | dimensionless *ratio of areas* | **invariant** — both numerator and denominator scale by k² |
+| `LC` | `cv2.arcLength(contour) * linear_scale` | length | scales by k ✔ |
+| `BL` | `max(minAreaRect side) * linear_scale` | length | scales by k ✔ |
+| `BW` | `min(minAreaRect side) * linear_scale` | length | scales by k ✔ |
+| `E` | eccentricity from `fitEllipse` axis ratio | dimensionless *ratio of lengths* | **invariant** ✔ (correctly so) |
 
-The shipped threshold discards 70 correctly-classified dorsal images out of 2599 — a 2.7 % extra
-false-reject rate stacked on top of the model's own recorded 2.89 % (`safety_metrics.json`),
-roughly doubling it. Every one of those surfaces to the user as a scan that refuses to proceed.
+`LC`, `BL`, `BW` are handled by `linear_scale = k`; `E` is genuinely scale-free and needs nothing.
+`RA` is the problem. It is invariant to a resize, but it is **not invariant to camera height** —
+a pig photographed from 2.5 m fills less of the frame, so its `RA` is smaller by (1.88/2.5)². A
+naive whole-image resize by `k` scales the pig **and the canvas**, so `RA` comes out unchanged and
+therefore still wrong. `RA` is the one feature that encodes "how much of the frame the animal
+occupies", which is exactly the thing camera height changes.
 
-`ML_implementation_plan.md` section 2.1 already states the view-gate safety numbers are "recorded
-metrics, never runtime thresholds". The shipped code does the opposite.
+The correct transform keeps the numerator in normalized pixels and pins the denominator to the
+**training frame**:
 
-`kHealthConfidenceThreshold = 0.60` has the same provenance problem, though it only sets an
-`uncertain` flag rather than suppressing a result.
+```
+RA_normalized = (area_px_actual * k²) / (W_train * H_train)
+```
 
-## Cause C — "Unavailable" is the wrong word for "the view gate stopped this" (code defect)
+### 3.1 `W_train × H_train` is recoverable from the repo — it is 720 × 720
 
-When the view gate rejects, `RunAndPersistPipelineUseCase` writes a health row with
-`eligible: false`, and `_healthCard` renders any non-eligible row as the single word
-**"Unavailable"**. Meanwhile there is no view card in `ResultsScreen` at all — only `_weightCard`
-and `_healthCard` are rendered. `ViewResultEntity` exists in
-`lib/features/view_suitability/` but nothing in the running flow displays it.
+`ML/weight_prediction/fixed_test_predictions_POSTHOC.csv` carries both `RA` and
+`body_mask_area_px` per row. Dividing them recovers the denominator the training features were
+computed against. Across **all 2014 rows** the quotient is exactly **518400 = 720 × 720**, with no
+second value:
 
-The user is therefore shown a health failure for what is really a framing decision made two stages
-earlier, with no indication of which stage failed, what it decided, or how confident it was. Much
-of the reported "unavailable" confusion is this labelling, not a model failure.
+```
+row 1:  49757 / 0.0959818672839506 = 518400
+row 2:  49004 / 0.0945293209876543 = 518400
+```
 
-## Cause D — Both classifiers are being run outside their training distribution (model/data problem)
+Every row also has `camera_height_m = 1.88` and `feature_space = fixed_camera_pixels`, confirming
+the contract is uniform across the training set. So the training frame constant is not a guess —
+it is a measured property of the shipped model's own evaluation artefact.
 
-This is the part that is genuinely not a code bug.
+### 3.2 `cm_per_px_target` is *not* recoverable from the repo
 
-**View model.** Its three classes are drawn from disjoint source datasets
-(`test_predictions.csv` sample-id prefixes):
+Nothing in `ML/` records a physical length. The dataset (`PIGRGB-Weight`, subset `RGB_9579`)
+gives pixel geometry and kilograms, never centimetres. So `cm_per_px_target` must be **measured**,
+and it is the one genuinely new constant this work introduces. §4 covers how.
 
-- `dorsal_valid` (2599) — `pigrgb_rgb`, `pigrgb_masked`, `piglife`, `porac`
-- `health_only` (2859) — **entirely** the `health` Roboflow set
-- `reject` (440) — weakest class, recall 0.8045
+An order-of-magnitude seed is available for sanity-checking whatever measurement comes back.
+Training `BL` (post-head-removal trunk length) has median 426.6 px over a 87–192 kg weight range,
+median 108 kg. A 108 kg market pig's trunk is roughly 105–115 cm, giving
+`cm_per_px_target ≈ 110/426.6 ≈ 0.26 cm/px`. That implies a 720 px frame spans ~186 cm at 1.88 m,
+i.e. a horizontal field of view of ~53° — an entirely ordinary camera. **A measured value outside
+roughly 0.15–0.40 cm/px should be treated as a measurement error, not accepted.**
 
-Because `health_only` is exactly one source and `dorsal_valid` is a different set of sources, the
-easiest decision boundary available during training was "which dataset did this image come from",
-not "what pose is this pig in". A phone photo taken in a real pen resembles none of those sources
-closely, so the model is extrapolating, and its 0.9727 test accuracy does not transfer. This is
-consistent with the user seeing confident-but-wrong labels on real photos.
+### 3.3 Where to apply `k` in the flow
 
-**Health model.** `ML/health_cnn/test_predictions.csv` is 2812 rows, 100 % from the `health`
-source — close-up skin-lesion crops. The shipped manifest runs it with
-`health.input.protocol = "full_frame"` on the whole phone photo. A distant full-frame shot of an
-entire pig is a large distribution shift away from a close-up lesion crop, and the model will
-still return a confident-looking label because softmax always does.
+The instruction's flow is:
 
-Note this is also where the pipeline at the top of this file and the current build disagree: that
-pipeline says health should consume the **base segmentation mask**, but the shipped manifest feeds
-`full_frame`. `ML_implementation_plan.md` section 1.1(c) chose `full_frame` deliberately, arguing
-the checkpoint was trained on unmasked photos so a masked crop would be its own train/serve skew.
-Both readings are defensible and the question is currently unresolved by evidence: the probe that
-would settle it (`ML/export/probe_health_input.py`) reports `probe_status: "not_run"` because the
-2812 test images are not in the repository.
+```
+Original RGB -> aspect-preserving resize -> letterbox -> 640x640 -> YOLO seg
+Remove padding / recover original coordinates -> Mask H x W -> Ji/Duan + body-masking
+  -> features -> RA, LC, BL, BW, E -> XGBoost
+```
 
-## Proposed work, in order
+The letterbox resize in the first line is YOLO's own preprocessing and already exists
+(`SegmentationOutput` carries `letterbox_scale` / `letterbox_pad_left` / `letterbox_pad_top`
+verbatim, and `construct_pig_mask` unletterboxes back to `orig_w × orig_h` — this is already
+correct and parity-gated, do not touch it). The `k` scaling is a **separate** step, and there are
+two defensible places for it:
 
-### P0 — Move the view gate ahead of reference marking
+**Option A — analytical (no resampling).** Leave the mask at original dimensions. Pass
+`linear_scale = k` into `extract_five_features`, and additionally override the `RA` denominator to
+`W_train * H_train` with the numerator multiplied by k². Exact, zero resampling error, ~4 lines of
+change.
 
-Run view classification immediately after capture, before any routing decision, and let its result
-drive the flow:
+**Option B — resample the mask (recommended).** Between construction and the cutter, resample the
+binary mask by `k` (INTER_NEAREST or area) into normalized-training pixel space, then run the
+cutter and feature extraction on that mask with `linear_scale = 1.0`, with the `RA` denominator
+taken from the manifest's training frame.
 
-- `dorsal_valid` and reference mode selected → reference marking, then analysis (as today).
-- `health_only` → skip reference marking entirely, go straight to analysis; record that the weight
-  branch was skipped because the pose was not dorsal.
-- `reject` → do not proceed to reference marking or analysis; show a retake prompt explaining why.
+Option B is recommended even though Option A is cheaper and exactly equivalent *today*, because the
+Ji/Duan cutter is a pixel-space algorithm. `cutter.cpp` is currently an identity stub, but the
+protocol it will implement (`ji_duan_residual_06q_v9_headfit_exact_twotangent_v26`) has thresholds
+and structuring elements calibrated in training pixels. Under Option A the real cutter would
+operate on unnormalized pixels and its thresholds would silently mean different physical sizes per
+photo. Option B makes the instruction's "Mask H × W (this is what goes downstream)" literally true
+and keeps the cutter correct by construction when it lands. The cost is one nearest-neighbour
+resample of a binary mask — negligible next to a 640×640 YOLO pass.
 
-Practically this means a small "classify then route" step in `capture_screen.dart`'s `_usePhoto()`,
-with `RunAndPersistPipelineUseCase` refactored so the view stage can be invoked on its own and its
-result persisted once, rather than being re-run inside `ResultsScreen`. Guard the flow so a native
-runtime failure falls back to today's behaviour rather than trapping the user.
-
-Directly resolves symptom 3.
-
-### P1 — Stop suppressing predictions with an invented threshold
-
-Delete `kViewConfidenceThreshold`'s suppression behaviour. Take the model's argmax label as the
-decision, which is the rule under which every recorded metric was produced. If a confidence floor
-is genuinely wanted later, it must come from the manifest, be justified against a real
-precision/recall trade-off on held-out data, and be recorded as such — not hardcoded in a use case.
-
-Keep `kHealthConfidenceThreshold` only as the `uncertain` display flag it already is, and move its
-value into the manifest.
-
-Recovers 70 of 127 spurious rejects on the recorded test set.
-
-### P2 — Show the view stage in the UI, and name failures accurately
-
-Add a view/framing card to `ResultsScreen` showing the label and confidence, wired to the existing
-`ViewResultEntity`. Change the health card so a view-gated scan reads as
-"Skipped — photo was not usable for health screening" rather than "Unavailable", and so a genuine
-inference error reads as an error. Persist the view label so the card survives a reload.
-
-This alone will remove most of the reported confusion even before P3.
-
-### P3 — Establish whether the models actually work on real photos
-
-Nothing above improves accuracy; it only stops the app from misrepresenting the models. To answer
-"is it a model problem", collect a small labelled set of real photos taken with the app on the
-target phone — on the order of 100–200 images spanning dorsal, non-dorsal, and non-pig — and score
-both classifiers against it. That produces the first honest accuracy number for the deployed
-conditions, as distinct from the training-set numbers, and tells you whether the gap is large
-enough to require fine-tuning or recapture of training data.
-
-This subsumes the outstanding slice −1 work: the same collection effort supplies the images
-`probe_health_input.py` needs to finally decide `health.input.protocol` on evidence, and the
-fixture corpus gate A and gate B are both blocked on.
-
-### P4 — Revisit the health input protocol once P3 has data
-
-With a real labelled set in hand, run the health checkpoint under `full_frame`,
-`segmentation_crop`, and `segmentation_masked` and pick the winner by measured accuracy. This
-resolves the standing disagreement between this file's pipeline and section 1.1(c) of the
-implementation plan with a number instead of an argument. `segmentation_crop` requires the mask
-decode that is currently deferred, so this depends on that port landing.
-
-## What this plan deliberately does not do
-
-- It does not touch the native C ABI, the ONNX exports, or the manifest schema.
-- It does not implement the weight branch or the mask/geometry port.
-- It does not retrain or fine-tune anything; P3 is measurement, and any retraining decision comes
-  after its result.
-
-## Plan rating: 7.5 / 10
-
-**Pros.** P0–P2 are small, well-localised Flutter changes against causes verified against the
-source and the recorded prediction CSVs, not inferred. They fix the stated complaint and, more
-importantly, stop the app from presenting model limitations as failures the user can do nothing
-about. P1 is a deletion that measurably improves behaviour. The ordering is honest: it puts the
-cheap certain fixes first and does not pretend they improve accuracy.
-
-**Cons.** The plan cannot promise better classification, which is probably what is actually wanted
-— P3 is data collection with an open-ended outcome, and if it confirms a large distribution gap,
-the real remedy is retraining, which is outside this plan and potentially expensive. P0 also
-changes the capture flow's shape, which risks regressions in a screen that currently works, and it
-introduces a user-visible dependency on native inference succeeding at capture time rather than at
-results time, so its fallback path needs care. P4 is blocked on the deferred mask decode and may
-sit unresolved for a while. Rating held below 8 mainly because the highest-value item (P3) is the
-least defined and the least under the app's control.
+Placing the resample **after** construction also keeps the existing parity gates valid:
+gate B compares `construct_pig_mask`'s output against the Python reference, and that output is
+unchanged.
 
 ---
 
-# Addendum — Cropping the largest abnormality as health-model input
+## 4. Establishing `cm_per_px_target`
 
-**Status:** proposed, not implemented. Written 2026-08-29 after P0–P2 landed and the health
-classification and view-model flow were fixed; revised the same day to adopt the healthy-first
-gate, to state the classical-CV scope explicitly, and to record that the work is not blocked on the
-mask decode after all.
+Two paths. Do W1 first; W1b is an optional refinement that should not block the rest of the plan.
 
-## The idea, and why it is well-aimed
+**W1 — single calibration capture (the instruction's own suggestion).**
+Mount or hold the phone so the sensor is exactly 1.88 m above the floor, place a 1 m stick flat on
+the floor plane, capture through the app's normal capture path (so EXIF baking and JPEG encoding
+match production exactly), mark both endpoints in the existing reference screen, and read the
+resulting `cmPerPixel` from `ReferenceAnnotations`. Repeat 3–5 times with the stick in different
+positions and orientations in frame and take the median; the spread across repeats is the honest
+error bar on the constant and should be recorded next to it.
 
-Feed the health classifier a crop centred on the pig's largest visually abnormal region instead of
-the whole photo.
+**Caveat that must be written down with the number:** this measures the cm/px of *this* phone's
+camera at 1.88 m, not the research rig's. They coincide only if the two cameras share a horizontal
+field of view and the training images were not cropped from a wider frame. The 720×720 training
+frame is square, which strongly suggests a crop or resize of a non-square original — so the
+constant recovered this way is an approximation whose residual error shows up as a systematic bias
+in predicted kilograms. That bias is acceptable to ship behind the "provisional" labelling the
+weight branch already carries; it is not acceptable to present as calibrated.
 
-This is aimed at the right target. Cause D above records that `ML/health_cnn/test_predictions.csv`
-is 100 % close-up skin-lesion photos from the `health` Roboflow set, while the shipped manifest runs
-the checkpoint with `health.input.protocol = "full_frame"` on a phone photo of an entire pig taken
-from a distance. The dominant train/serve mismatch is one of **scale**: the model learned what a
-lesion looks like when it fills the frame, and it is being shown one that occupies a few percent of
-it. Cropping to a lesion-scale region is a direct attack on that mismatch, and it is the first
-proposal in this file that could plausibly move accuracy rather than only stop the app
-misrepresenting the model.
+**W1b — refinement by sweep (optional, only if weighed pigs are already on hand).**
+If any scans exist with both a reference marking and a scale-verified true weight, sweep
+`cm_per_px_target` over 0.15–0.40 in 0.005 steps, recompute the five features per candidate,
+run the regressor, and pick the value minimizing MAE. This estimates the constant *in the units the
+model actually cares about* and absorbs the FOV mismatch above. It needs no new data collection
+beyond what a normal validation session produces. Do not gate W2–W6 on this.
 
-## Nothing here is retraining — the whole proposal is classical CV
+**Storage.** The constant goes in the manifest, never in Dart or C++ source — `AGENTS.md` rule 1's
+principle (mappings and model-space constants come from model metadata) applies directly.
+Extend `export_xgboost.py`'s `capture_contract` block:
 
-Worth stating flatly, because the revision request asked whether CV could be used *instead* of more
-training: it already is, everywhere, and no step below fine-tunes, retrains, or otherwise modifies
-either checkpoint.
-
-- The abnormality proposer (P5.2) is CIELAB statistics, morphology, and connected components —
-  OpenCV and NumPy, no learned parameters at all.
-- The tile sweep (P5.4) runs the *existing* checkpoint forward. It is inference used as a
-  measuring instrument, not a training loop.
-- The domain normalisation of P5.3 is colour constancy and scale matching, both classical.
-
-The only place retraining appears in this document is as the acknowledged fallback if measurement
-shows CV cannot close the gap — see the honest limit stated at the end of P5.3. It is named as the
-thing this plan is trying to avoid, not as part of the plan.
-
-## Where it belongs — not `pig_geometry.py`
-
-The suggested home is the wrong one, for three independent reasons.
-
-**1. It would break gate B.** `ML/pig_geometry.py` is the line-for-line reference that
-`geometry/pig_geometry.cpp` is measured against. Section 3.1.1 of `ML_implementation_plan.md` states
-the invariant plainly: "everything in `pig_geometry.cpp` has a line in `pig_geometry.py` to be
-measured against, and nothing else does." Abnormality cropping has no research ancestor — it is new
-logic — so putting it in that file adds C++ that gate B cannot score against anything.
-
-**2. The plan already designates a home for exactly this.** Section 3.1.1 carves out
-`geometry/health_input.{hpp,cpp}` as "the one deliberate exception" to the one-helper-file rule,
-precisely because the health input protocols of section 1.1(c) "were never research code". An
-abnormality crop is a fourth health input protocol alongside `full_frame`, `segmentation_crop`, and
-`segmentation_masked`. It belongs in `health_input` by the plan's own rule, not by preference.
-
-**3. Neither helper file may touch the photo.** Every function in `pig_geometry.py` takes a mask,
-not pixels; abnormality detection is inherently a colour and texture operation on the image. The
-other helper, `ML/pig_cutter.py`, is barred from the photo twice over — section 3.3 fixes the
-runtime boundary at the segmentation mask ("No photo crosses the boundary — only a binary mask and
-five floats"), and `scripts/check_cutter_purity.sh` fails the build on any file IO or non-mask
-input.
-
-The Python-side reference therefore goes in a **new `ML/parity/reference_health_input.py`**,
-mirroring the established pattern where `ML/parity/reference_yolo.py` is the Python reference for
-the C++ segmenter. Parity files are not helper files, so `scripts/check_one_helper.sh` stays green.
-
-## The healthy-first gate — crop only to refine a disease, never to find one
-
-The first draft of this addendum identified the crop's worst failure mode: every healthy pig has
-*some* most-unusual patch — mud, a shadow, an ear tag, a skin fold, wet ground at the body edge —
-so a pipeline that always crops to the most abnormal region and classifies it will manufacture
-disease from healthy animals. `Healthy` currently has the highest recall of any class at 0.9929
-(`ML/health_cnn/metrics.json`), and that is exactly what such a design spends.
-
-The gate proposed in review resolves this structurally:
-
-```
-full-frame health pass
-      |
-      +-- label == Healthy      --> report Healthy. Stop. No crop, no second pass.
-      |
-      +-- label != Healthy      --> propose region, crop, re-run health on the crop,
-                                    use the crop's label to name WHICH disease.
+```python
+"capture_contract": {
+    "feature_space": "fixed_camera_pixels",
+    "training_camera_height_m": 1.88,
+    "camera_height_is_xgboost_feature": False,
+    "cm_per_px_target": <measured>,          # NEW
+    "cm_per_px_target_source": "calibration_capture_1p88m_median_of_5",  # NEW, provenance
+    "training_frame_px": [720, 720],         # NEW, measured in §3.1
+},
 ```
 
-This is a better design than the first draft's, and it is adopted. Its merits are worth being
-explicit about:
-
-- **The Healthy-recall risk disappears by construction.** The crop stage is unreachable unless the
-  full-frame pass has already said "disease", so cropping can never flip a healthy animal to a
-  diagnosis. The first draft handled this with an acceptance criterion in P5.6 — "Healthy recall
-  must not fall" — which only *detects* the regression after the fact. A routing rule that makes
-  the regression impossible is strictly stronger than a test that catches it.
-- **It is a routing rule, not a threshold.** It branches on the model's own argmax label, which is
-  the rule every recorded metric was produced under. It invents no constant, so it does not repeat
-  the mistake documented in Cause B.
-- **It costs nothing on the common path.** A healthy herd is the expected case, and on it the
-  pipeline does exactly one forward pass, as today. The proposer and the second pass are paid for
-  only when there is something to refine.
-- **It matches what the crop is actually good at.** The scale argument says a close-up view helps
-  distinguish *which* lesion this is — the confusion matrix's real problem, where Mange absorbs 16
-  Erysipelas and 21 Greasy Pig Disease samples, and Mange itself leaks 15 into Foot-and-Mouth. It
-  was never obvious that a crop helps decide *whether* there is a lesion. The gate assigns each
-  stage the job it is suited to.
-
-### The one asymmetry the gate introduces, and how to measure it
-
-The gate makes false-positive disease impossible and false-negative disease permanent. If the
-full-frame pass misses a small, distant lesion and says `Healthy`, the pipeline stops, and the crop
-stage that was most likely to catch it never runs. That is the precise case the scale argument says
-full-frame is *worst* at.
-
-For a livestock screening tool this is the more expensive error — a missed infection spreads, a
-false alarm costs one inspection. So the gate should not be shipped blind, but neither should it be
-complicated on speculation. The cheap resolution:
-
-- **During the P3 measurement run only**, ignore the gate and run both stages on every photo,
-  recording both labels. This costs nothing in production because it is not production.
-- Count the disagreement cell: full-frame says `Healthy`, crop says disease. If it is rare, the
-  gate ships exactly as described above and this paragraph is deleted. If it is common *and
-  correct*, add a third outcome — "possible lesion, review" — which reports the disagreement
-  rather than silently resolving it either way. Reporting a genuine disagreement between two views
-  of one photo is consistent with this file's standing position on naming stage outcomes
-  accurately (Cause C), and it invents no score.
-- Either way the decision is made from a counted number, not from this document.
-
-## This is not blocked on the mask decode
-
-The first draft asserted P5 was hard-blocked behind the deferred mask decode, on the reasoning that
-without a pig mask an anomaly search would be dominated by pen floor and bedding. The second half of
-that reasoning is right; the premise is wrong.
-
-`packages/instaham_ml_ffi/src/segmenter.cpp` already decodes bounding boxes — `cx, cy, w, h` per
-anchor, filtered by `conf_threshold`, passed through NMS, and sorted by confidence — and
-`util/image_io.h`'s `letterbox()` already returns the `scale`, `pad_left` and `pad_top` needed to
-map one back to original image coordinates. What is missing is only that
-`instaham_ml_segment_json` does not *emit* the box. Adding it is a few lines of arithmetic over
-values that are already in memory, not the polygon and coefficient decode that P4 is waiting on.
-
-So the proposer restricts its search to the **pig's bounding box**, which is available now, and is
-upgraded to the exact mask later when the decode lands. The envelope records which was used in a
-`region_source` field (`"bbox"` or `"mask"`), so the difference is visible in results rather than
-assumed. The bbox is a weaker constraint — it admits background in the corners around a standing
-pig — which is a reason to prefer the mask when it exists, not a reason to wait for it.
-
-**Adjacent honesty defect, cheap to fix while in this file.** `segment_json` currently reports
-`"mask_available": true` whenever any detection survives NMS, even though the header comment for
-that entry point states it "does not decode the mask/coefficients into pixels". Nothing downstream
-can obtain a mask from a `true` there. Rename or correct it while adding the box.
-
-## P5 — Abnormality-crop health input protocol
-
-Deliberately numbered after P4: it is an accuracy experiment, and P0–P2 are correctness fixes that
-should ship first.
-
-### P5.1 Emit the pig bounding box, and declare a fourth protocol
-
-Add the un-letterboxed bounding box of the highest-confidence detection to `segment_json`, and fix
-the `mask_available` claim above. Extend `health.input.supported` with `abnormality_crop` and add it
-to the `PROTOCOLS` tuple in `ML/export/probe_health_input.py`. The default stays `full_frame` until
-a measurement says otherwise — the same discipline P4 follows. Record the proposer's parameters in
-a manifest block beside the existing `bbox_padding_ratio` and `background_fill` keys, so they are
-declared and swappable rather than compiled in.
-
-### P5.2 Write the Python reference — `ML/parity/reference_health_input.py`
-
-One function per protocol, taking `(image, region)` and returning the 224×224 tensor. This also
-retires a stub: `probe_health_input.py::_preprocess` currently raises for the two mask protocols
-because no reference exists, so this file makes the existing P4 probe runnable as a side effect.
-
-The abnormality proposer, all classical CV, in order:
-
-1. Take the pig region — mask if available, bounding box otherwise — and erode it slightly so the
-   body outline does not itself register as an anomaly.
-2. Convert to CIELAB and estimate the pig's dominant skin appearance robustly over the eroded
-   interior: per-channel median and median-absolute-deviation, not mean and standard deviation, so
-   a large lesion cannot drag the reference toward itself.
-3. Score each interior pixel by chromatic deviation on `a` and `b`, combined with a local texture
-   term — local standard deviation of `L`, or gradient energy — so that scaly and crusty
-   presentations (mange, ringworm, greasy pig disease) register as strongly as purely discoloured
-   ones.
-4. Select by **rank, not absolute value**: keep the top-k percent of interior pixels. A rank is
-   self-referential and cannot silently reject an image the way an absolute cut can.
-5. Connected components; keep the largest by area; take its bounding box; pad by
-   `bbox_padding_ratio`; expand to at least the training crop scale; clamp to the image.
-6. Fall back to the manifest's `on_segmentation_failure` value when no region, or no component, is
-   available.
-
-### P5.3 Close the domain gap with CV rather than retraining
-
-Scale is the largest axis of the train/serve gap but not the only one. Roboflow disease photos are
-lit and framed unlike a phone photo taken in a pen. Two further classical corrections are cheap,
-need no training, and are applied to the crop before normalisation:
-
-- **Colour constancy.** Grey-world or shades-of-grey on the crop, so that the warm cast of a shed
-  lamp or the blue cast of open shade does not move a lesion's `a`/`b` statistics — the very
-  channels several of these classes are separated on.
-- **Scale matching.** Choose the crop window so that the lesion-to-frame ratio approximates the
-  training distribution, rather than always cutting a fixed 224 window. The pig's pixel size gives
-  the scale estimate directly.
-- **Test-time augmentation**, optional and measured: average the softmax over a horizontal flip and
-  a small scale jitter. Standard, training-free, and it reduces variance at the cost of forward
-  passes — so it is only worth keeping if P5.6 shows it earns them.
-
-**The honest limit.** These corrections address *framing, illumination and scale* skew, which is
-what CV can reach. They cannot repair a checkpoint that learned source-specific artifacts — Cause D
-notes the health set is a single Roboflow source, and if the weakness is that the model keys on that
-source's idiosyncrasies rather than on lesion appearance, no input transform recovers it and
-retraining is the only remedy. P5.6 is what tells the two cases apart: a real gain from the crop
-means the gap was framing, a flat result means it was not.
-
-### P5.4 Validate the proposer without lesion labels — the tile sweep
-
-The proposer picks one region and there is no annotation to check it against. Build a second,
-dumber instrument offline: grid the pig region into overlapping 224-scale tiles, run the existing
-health checkpoint on every tile, and take the tile with the highest non-`Healthy` probability. That
-is what the model itself considers most abnormal, so agreement between the cheap CV proposer and the
-tile sweep's argmax is evidence the proposer is finding the right thing — obtained without a single
-lesion annotation and without training anything.
-
-The tile sweep stays offline. It costs one forward pass per tile, and it is far more biased toward
-"infected" than a single crop is, since it maximises over a dozen chances to look diseased.
-
-### P5.5 Port to C++ — `src/health_input.{h,cpp}`
-
-New translation unit next to `classifier.cpp`. Note the native tree is currently flat, so this is
-`packages/instaham_ml_ffi/src/health_input.*`, not `src/geometry/health_input.*`, until the
-section 4.1 restructure happens; the file name fixed by section 3.1.1 is what matters.
-
-`run_classifier` gains an optional pre-cropped image, so protocol selection happens before it and
-the softmax path is untouched. The gate itself lives in the pipeline layer, not in
-`health_input` — the proposer's job is to produce a region, and deciding whether to ask for one is
-a pipeline decision.
-
-### P5.6 Report both passes honestly
-
-`classify_health_json` gains `input_protocol`, `region_source`, the selected `region` (bounding box
-plus its area as a fraction of the pig region), and — when the gate fired — the full-frame
-probabilities alongside the crop's. These are additive JSON fields, so `INSTAHAM_ML_ABI_VERSION`
-does not move; the header's stability contract explicitly allows this.
-
-Surface the region in `ResultsScreen` so the user can see which patch of the pig produced the
-diagnosis. A wrong crop then becomes visible and reportable instead of an invisible cause of a wrong
-label. When the gate did not fire, say so plainly — the health card should read as a whole-animal
-assessment, not imply a close inspection that never happened.
-
-### P5.7 Decide by measurement
-
-On the P3 photo set, with the gate disabled so both stages run on every image, record: overall
-health accuracy under `full_frame` alone versus gate-plus-crop; the confusion matrix of the second
-stage on the images the gate routed to it, which is where the Mange/Erysipelas/Greasy-Pig confusions
-should shrink if the scale argument holds; the size of the disagreement cell described above; and
-the proposer-versus-tile-sweep agreement rate from P5.4.
-
-`Healthy` recall is no longer an acceptance criterion, because the gate makes it structurally equal
-to the full-frame model's own. It should still be reported, as the check that the gate was
-implemented as specified.
-
-## Ordering
-
-```
-available now ------> P5.1 --> P5.2 --> P5.3 --> P5.5 --> P5.6
-mask decode --------> region_source upgrade: bbox -> mask   (also unblocks P4)
-P3 photo set -------> P5.4, P5.7
-```
-
-Only the evidence is behind P3 now. The build is not behind anything: the bounding box needed to
-start exists in `segmenter.cpp` today.
-
-## What this addendum deliberately does not do
-
-- It does not modify `ML/pig_geometry.py` or `ML/pig_cutter.py`; both purity gates stay green.
-- It does not change any C ABI function signature.
-- It does not train, fine-tune, or modify either checkpoint.
-- It does not train a lesion detector or annotate lesion regions.
-- It does not set a confidence threshold anywhere.
-
-## Plan rating: 7.5 / 10
-
-**Pros.** The healthy-first gate is what earns the increase over the first draft's 6.5. It removes
-this proposal's single worst risk — cropping manufacturing disease from healthy animals — by making
-that path unreachable rather than by testing for it afterwards, and it does so with a routing rule
-on the model's own argmax, inventing no constant and repeating none of Cause B's mistake. It also
-happens to be free on the common path, and it points the crop at the confusion the matrix actually
-shows: telling diseases apart, not detecting that one exists. The second improvement is that the
-work is no longer blocked: the bounding box the proposer needs is already decoded in
-`segmenter.cpp` and only needs emitting, so the build can start immediately and upgrade to the
-exact mask later. Everything in the proposal is classical CV against unmodified checkpoints, so
-nothing here commits to a training run. P5.4 remains the strongest measurement idea — it gets real
-evidence about an unsupervised component without the annotations that component would normally
-need.
-
-**Cons.** The gate's asymmetry is real and is the plan's main open risk: it converts every
-full-frame false negative into a permanent one, in exactly the small-distant-lesion case the scale
-argument says full-frame handles worst, and the mitigation is deferred to a count that P3 has to
-supply. The proposer is still a hand-designed colour and texture heuristic with several free
-parameters and no ground truth — the kind of component that reviews well and behaves unpredictably
-on real pen photos with mud, wet skin, and hard shadows — and the bbox-first variant makes that
-worse until the mask lands, since a bounding box around a standing pig admits a good deal of floor.
-Nothing here can be shown to work until P3 exists, so there remains a real chance of building it and
-measuring no gain. And the CV corrections in P5.3 reach only framing, illumination, and scale; if
-Cause D's deeper reading is right and the checkpoint keys on single-source artifacts, this whole
-addendum returns nothing and retraining is the answer after all.
+and parse the three new fields into `WeightCapability` alongside the existing two
+(`manifest.cpp:206-211`). A manifest whose `weight.available` is true but which lacks
+`cm_per_px_target` or `training_frame_px` must **fail to load** with
+`INSTAHAM_ML_ERR_CONTRACT` — the same bundle-level assertion style the plan already uses for
+`weight.available ⇒ cutter.protocol_implemented`. Silently defaulting to 1.0 is exactly the
+failure mode `AGENTS.md` rule 8 exists to prevent.
 
 ---
 
-## Execution log — 2026-08-29 (Python slice)
+## 5. Work plan
 
-**Done.** The classical-CV reference and the probe wiring, the parts that need no build
-toolchain and no P3 data:
+### W0 — Fix D1: pin coordinates against the displayed image rect
 
-- **P5.1 (Python half).** `ML/export/probe_health_input.py`: `abnormality_crop` added to
-  `PROTOCOLS`; the manifest `input` block now carries an `abnormality` params sub-block
-  (erode fraction, top-k percent, texture weight/window, target region fill, grey-world
-  flag) sourced from `HEALTH_INPUT_PARAMS` so it is manifest-declared, not compiled in.
-- **P5.2.** New `ML/parity/reference_health_input.py` — the single Python reference for all
-  four protocols. `full_frame`, `segmentation_crop`, `segmentation_masked`, and
-  `abnormality_crop`, plus `propose_abnormality_region()` (mask-erode → CIELAB median/MAD
-  skin reference → chroma+texture score → top-k-percent rank → largest connected component
-  → padded, scale-expanded, clamped bbox) and a `PigRegion` type that accepts a mask when
-  available and the detector bbox otherwise (`source` field records which). This is the
-  gate-B reference for the future `src/health_input.cpp`.
-- **P5.3.** `apply_domain_corrections()` (grey-world colour constancy) in the same file;
-  scale matching folded into the proposer's `target_region_fill` expansion.
-- `probe_health_input.py::_preprocess` now delegates to the reference instead of raising
-  `NotImplementedError` for the region protocols — the probe becomes a full four-protocol
-  probe automatically once region fixtures exist. Region protocols are still skipped
-  honestly in the probe loop today (no per-image masks in `test_predictions.csv`).
-- Tests: `ML/parity/test_health_input.py` (7 synthetic smoke tests, all pass). Full
-  `pytest ML/parity/` green (11 passed); `check_one_helper.sh` and
-  `check_cutter_purity.sh` green.
+**Files:** `lib/features/weight_estimation/presentation/screens/reference_marking_screen.dart`
 
-**Not done — needs the Android build toolchain (cannot run/verify here):**
+- Add a helper that, given widget constraints and the image's `(widthPx, heightPx)`, returns the
+  `Rect` `BoxFit.contain` actually paints into.
+- `_placePin` / `_movePin` normalize against that rect; taps outside it are ignored (no pin
+  placed, no clamp).
+- The pin overlay and `_ReferenceLinePainter` position from the same rect, so what the user sees
+  and what is stored cannot diverge.
+- When `imageWidthPx`/`imageHeightPx` are null, disable pin placement and show why, instead of
+  accepting pins and saving `cmPerPixel: null`.
+- Replace the inline `_reference.lengthCm / pixelLength` divisions (lines 206 and ~233) with the
+  already-tested `ComputeScaleUseCase`, deleting the duplicate logic rather than keeping two.
 
-- **P5.1 (native half).** Emit the highest-confidence detection's un-letterboxed bbox in
-  `instaham_ml_segment_json`, and correct the `"mask_available": true` claim in
-  `segmenter.cpp` (it is set on any surviving NMS detection though no mask is decoded).
-- **P5.5.** `packages/instaham_ml_ffi/src/health_input.{h,cpp}` — C++ port of
-  `reference_health_input.py`; the healthy-first gate wired in the pipeline layer, not in
-  `health_input` itself.
-- **P5.6.** `classify_health_json` additive fields (`input_protocol`, `region_source`,
-  `region`, full-frame probabilities when the gate fired); `ResultsScreen` region display.
-- Manifest default stays `full_frame` — changing it is a measured decision (P5.7), not
-  this slice.
+**Acceptance:** a widget test that lays the screen out at an aspect ratio deliberately mismatched
+to the image, taps two points a known number of logical pixels apart along the letterboxed axis,
+and asserts the stored `pixelLength` equals the geometrically correct value. This test fails
+against today's code — that is the point.
 
-**Not done — needs P3 data (a real labelled photo set, does not exist yet):**
+### W1 — Establish and ship `cm_per_px_target`
 
-- **P5.4** proposer-vs-tile-sweep agreement check.
-- **P5.7** the accuracy measurement and the gate-asymmetry disagreement count that decides
-  whether the healthy-first gate ships as-is or gains a "possible lesion, review" state.
+Per §4. Deliverables: the measured constant with its spread, the three new manifest fields, the
+`manifest.cpp` parse, and the contract assertion that refuses a weight-available manifest missing
+them. Ships independently of W2–W6.
+
+### W2 — Read the reference annotation back
+
+**Files:** `lib/core/database/app_database.dart`, or a new focused DAO under
+`lib/features/weight_estimation/data/` (preferred — `AGENTS.md`'s database rules ask for focused
+DAOs rather than growing the god-object, and `custom_references_dao.dart` is the existing
+precedent).
+
+- `Future<ReferenceAnnotation?> getReferenceAnnotation(String scanId)`.
+- No schema change is needed anywhere in this plan. `WeightResults` already has nullable
+  `referenceLengthCm`, `referencePixelLength` and `cmPerPixel` columns
+  (`app_database.dart:77-79`) that `saveWeightResult` currently never populates; `k` is derived on
+  read as `cmPerPixel / manifest.cm_per_px_target`. **`schemaVersion` stays 3.**
+
+### W3 — Thread the scale through Dart
+
+**Files:** `lib/services/ml/pipeline_service.dart`, `lib/services/ml/ml_runtime.dart`,
+`packages/instaham_ml_ffi/lib/instaham_ml_bindings_generated.dart`,
+`lib/features/inference_pipeline/domain/use_cases/run_and_persist_pipeline_use_case.dart`
+
+- `IPipelineService.run(String imagePath, {double? cmPerPixel})`.
+- `MlRuntime.runPipeline(String imagePath, {double? cmPerPixel})`.
+- `execute()` fetches the annotation via W2's DAO before calling `run`, and passes
+  `cmPerPixel` only when `userConfirmed && sameFloorPlaneConfirmed` are both true — an unconfirmed
+  or non-coplanar reference is not a scale (`AGENTS.md` rule 7: derive cm/pixel only from the
+  user-confirmed reference object).
+
+### W4 — Extend the C ABI (D3)
+
+**Files:** `packages/instaham_ml_ffi/src/include/instaham_ml.h`,
+`packages/instaham_ml_ffi/src/instaham_ml.cpp`, `packages/instaham_ml_ffi/src/instaham_ml.map`
+
+Add **one new entrypoint** rather than changing the existing signature, keeping `ABI_VERSION` at 1
+per the header's own stated contract:
+
+```c
+/* Request-shaped variant of instaham_ml_run_pipeline_json. request_json:
+ *   {"image_path":<str>, "cm_per_px":<num|null>}
+ * Unknown keys are ignored, so later inputs (ROI, capture metadata) are additive. */
+INSTAHAM_ML_API InstahamMlStatus instaham_ml_run_pipeline_request_json(
+    InstahamMlContext* ctx, const char* request_json, char** out_json);
+```
+
+`instaham_ml_run_pipeline_json` stays, implemented as a thin call into the new one with
+`cm_per_px: null` — so every existing native test keeps compiling and passing unchanged. Export the
+new symbol in `instaham_ml.map`.
+
+The request-JSON shape is preferred over a bare `double` parameter because the next three things
+this pipeline will want to receive (a user-confirmed ROI, capture metadata, an EXIF assertion) are
+then additive rather than another entrypoint each.
+
+### W5 — Normalize in native (the core change)
+
+**Files:** `packages/instaham_ml_ffi/src/pipeline.cpp`,
+`packages/instaham_ml_ffi/src/stages/construction.{h,cpp}`,
+`packages/instaham_ml_ffi/src/stages/feature_calculation.{h,cpp}`,
+`packages/instaham_ml_ffi/src/manifest.{h,cpp}`
+
+1. `WeightCapability` gains `double cm_per_px_target`, `int training_frame_w`,
+   `int training_frame_h`, parsed in W1.
+2. New function in `construction` (it is stage 2's job — it already owns coordinate-space
+   transforms, and stage-order enforcement forbids a stage importing a later one):
+   ```cpp
+   // Resamples a pig mask from capture pixels into training pixels.
+   // k = cm_per_px_actual / cm_per_px_target. Returns an empty mask for a
+   // non-finite or non-positive k -- never silently falls back to k = 1.
+   PigMask scale_mask_to_training_space(const PigMask& mask, double k);
+   ```
+3. `extract_five_features` gains an optional explicit `RA` denominator
+   (`int ra_frame_w = 0, int ra_frame_h = 0`, 0 meaning "use the mask's own dimensions" so the
+   existing parity callers are untouched). `pipeline.cpp` passes the manifest's training frame.
+4. `pipeline.cpp`'s weight branch becomes:
+   - `cm_per_px` absent/invalid → `envelope["weight"] = {"status":"unavailable",
+     "reason":"scale_unavailable", "user_message_key":"weight_needs_reference_object"}`;
+     `features` reported as `provisional` with `"measured_on":"uncut_mask_unnormalized"` so the
+     numbers stay visible for debugging but can never be mistaken for model input.
+   - `cm_per_px` present → compute `k`, resample, run cutter, extract features with the training
+     frame denominator, predict.
+   - `k` outside a sanity band (proposed `[0.25, 4.0]`, i.e. roughly 0.47 m–7.5 m of camera
+     height) → `{"status":"unavailable","reason":"scale_out_of_range"}`. A pig photographed from
+     7 m is not a photo this model has any claim on.
+5. New envelope block, so the whole chain is auditable from the app:
+   ```json
+   "scale": { "status": "ok",
+              "cm_per_px_actual": 0.41, "cm_per_px_target": 0.26,
+              "k": 1.577, "training_frame_px": [720, 720],
+              "source": "user_confirmed_reference" }
+   ```
+   with `{"status":"unavailable","reason":...}` in the failure cases.
+
+**Health is untouched by all of this.** `AGENTS.md` rule 4: the branches are independent, and the
+health branch runs before the weight branch in `pipeline.cpp` already. A missing reference object
+must never degrade a health result.
+
+### W6 — Persist and surface
+
+**Files:** `run_and_persist_pipeline_use_case.dart`, the results screens
+
+- On a successful weight result, populate the three reference columns that already exist
+  (`referenceLengthCm`, `referencePixelLength`, `cmPerPixel`) alongside the features, so a stored
+  scan can be re-derived later.
+- On `scale_unavailable`, route to the existing `weight_blocked_screen.dart` /
+  `skip_weight_screen.dart` path with a message that names the actual cause ("mark a reference
+  object to estimate weight"), not the generic failure text.
+- Wire `WeightEligibilityChecker` — currently dead — into this path so checks 5–8 (reference
+  present, positive length, endpoints far enough apart, coplanar) run in one place instead of being
+  re-implemented ad hoc across the screen and the use case.
+- The features shown in the UI must be the **normalized** ones when a scale was applied, and must
+  be labelled as raw when one was not. Two different numbers under one label is how a debugging
+  session gets lost.
+
+---
+
+## 6. Rule compliance
+
+| `AGENTS.md` rule | How this plan satisfies it |
+|---|---|
+| 1 — no hardcoded model constants | `cm_per_px_target` and `training_frame_px` live in the manifest, parsed like every other capability field; a weight-available manifest missing them fails to load |
+| 2 — features exactly `RA, LC, BL, BW, E` | unchanged; only their values are normalized, and `manifest.cpp:200` already refuses any other order |
+| 3 — weight needs all eligibility checks | W6 wires `WeightEligibilityChecker` in; a missing scale is itself a failed check |
+| 4 — branches independent | health runs before, and regardless of, the whole scale path; `scale_unavailable` never touches `envelope["health"]` |
+| 5 — EXIF corrected before any model | already true — `ImageService.processRawBytes` bakes orientation (`image_service.dart:29`) and reports `widthPx`/`heightPx` from the *oriented* image, which is also the file the native side decodes |
+| 6 — no resize/rotate after marking without exact transform | the `k` resample happens on the **mask**, after construction has already returned to original coordinates, and the reference pins are never re-transformed |
+| 7 — cm/pixel only from the confirmed reference | W3 passes `cmPerPixel` only when `userConfirmed && sameFloorPlaneConfirmed` |
+| 8 — never force a prediction after a failed check | every failure path emits `unavailable` with a named reason; there is no `k = 1.0` fallback anywhere |
+| 9 — coordinates map to the displayed image rect | W0, the first task in the plan |
+
+---
+
+## 7. Validation
+
+Narrowest-useful checks, per `AGENTS.md`:
+
+1. `dart format` on every changed Dart file.
+2. `flutter analyze`.
+3. `flutter test test/features/weight_estimation/` — extended with W0's letterbox widget test and a
+   `ComputeScaleUseCase` round-trip.
+4. `flutter test test/features/inference_pipeline/` — a fake `IPipelineService` asserting that
+   `cmPerPixel` is forwarded when the annotation is confirmed and withheld when it is not.
+5. Native unit tests under `packages/instaham_ml_ffi/src/test/`:
+   - `scale_mask_to_training_space` with `k = 1.0` is the identity;
+   - `k = 2.0` doubles `BL`/`BW`/`LC` to within resampling tolerance and leaves `E` unchanged;
+   - `RA` with an explicit 720×720 denominator reproduces the CSV relationship
+     `RA == area_px / 518400` on a synthetic mask;
+   - a non-finite / zero / negative `k` returns an empty mask, and the envelope reports
+     `scale_unavailable`, never a number.
+6. A regression fixture asserting `instaham_ml_run_pipeline_json` (the old entrypoint) still
+   produces a byte-identical envelope for a no-scale run.
+7. No `dart run build_runner build` needed — §W2 explicitly avoids a schema change.
+
+**Every one of these must be reported with its actual command output.** In particular, the native
+tests need the Android build to succeed, and this environment cannot run the app on a device — the
+end-to-end confirmation is a sideloaded APK on the physical phone.
+
+---
+
+## 8. Risks
+
+| # | Risk | Likelihood | Impact | Mitigation |
+|---|---|---|---|---|
+| 1 | `cm_per_px_target` measured on this phone ≠ the research rig's, because the 720×720 training frame is a crop/resize of a non-square original | **high** | a systematic multiplicative bias in every kilogram shown | W1b's sweep absorbs it; the number stays behind the existing "provisional / uncut mask" labelling until it is validated against scale weights |
+| 2 | Users mark the reference on a surface that is not the pig's floor plane | medium | scale wrong by the plane offset, silently | `sameFloorPlaneConfirmed` is already collected and is now load-bearing rather than decorative (W3) |
+| 3 | The identity-stub cutter dominates the error budget | certain | `BL`/`LC` include the head; predictions overestimate | already labelled in three places in the envelope; this plan does not claim to fix it, and normalization is orthogonal to it |
+| 4 | Training weight range is 87–192 kg (median 108); smaller pigs are out of distribution | high in the field | confident extrapolation on young stock | out of scope here, but worth an explicit range check before the weight number is ever presented as calibrated |
+| 5 | Binary-mask resampling changes the contour enough to move features by >1 % | low | parity drift | resample happens after the parity-gated construction output, so gates A/B are unaffected; W5's test bounds the drift directly |
+| 6 | Two entrypoints (`..._json` and `..._request_json`) drift apart | low | inconsistent behaviour between debug and production paths | the old one is implemented as a call into the new one, not a copy; §7.6 pins that |
+
+---
+
+## 9. What this plan deliberately does not do
+
+- **Implement the Ji/Duan cutter.** Out of scope by standing instruction. Normalization is
+  independent of it and lands first; Option B in §3.3 is chosen specifically so the cutter is
+  correct-by-construction when it does land.
+- **Retrain the regressor to remove the fixed-height dependence.** That is the real fix for the
+  whole class of problem this plan works around, and it is not a code task.
+- **Automatic reference detection.** The screen already supports a `suggestion` path; this plan
+  only makes the manual, user-confirmed path load-bearing.
+- **Any schema change.** The three columns needed already exist and are unused.
+
+---
+
+## 10. Plan rating
+
+**8 / 10.**
+
+**Pros**
+
+- **It fixes a real, invisible correctness bug first.** D1 (pins normalized against the widget
+  rather than the `BoxFit.contain` rect) corrupts cm/px by the letterbox ratio in one axis, is a
+  direct violation of `AGENTS.md` rule 9, and would have quietly poisoned every downstream number
+  this plan wires up. Doing the scale work without fixing it would have produced a system that
+  looks calibrated and is not.
+- **It found the `RA` gap.** The instruction's single `k` is correct for `LC`/`BL`/`BW` and silently
+  wrong for `RA`, which is a ratio against the frame and therefore invariant to exactly the resize
+  meant to correct it. Two of the five features would have stayed uncorrected under a literal
+  reading, and the failure would have been a plausible-looking bias, not an error.
+- **One of the two new constants is measured, not assumed.** `training_frame_px = 720 × 720` is
+  recovered from the shipped model's own evaluation CSV and holds exactly across all 2014 rows —
+  no calibration session, no guesswork.
+- **It costs no migration.** `WeightResults` already carries the three reference columns unused, so
+  `schemaVersion` stays 3 and there is no Drift regeneration, no migration test, no schema risk.
+- **Every failure path is `unavailable` with a named reason.** There is no `k = 1.0` fallback
+  anywhere in it, which is the specific dishonest failure `AGENTS.md` rule 8 targets.
+- **The ABI change is additive.** `ABI_VERSION` stays 1, existing native tests keep passing
+  unchanged, and the request-JSON shape means the next input this pipeline needs is a field, not
+  another entrypoint.
+
+**Cons**
+
+- **The headline constant is the weakest link in the whole chain.** `cm_per_px_target` cannot be
+  recovered from anything in this repo, and the single-calibration-photo method measures *this
+  phone's* camera at 1.88 m, not the research rig's. The square 720×720 training frame is
+  circumstantial evidence of a crop the calibration cannot see through. W1b's sweep is the honest
+  fix and it depends on scale-weighed pigs that may not be at hand.
+- **It improves the input to a model whose output is still not trustworthy.** The cutter is an
+  identity stub, so `BL` and `LC` include the head and the predictions overestimate. Perfectly
+  normalized features into a mis-specified mask is a better wrong answer, not a right one.
+- **`RA` normalization assumes the capture and training framings are comparable in kind.** Pinning
+  the denominator to 720×720 is right for camera height; it does nothing about a different aspect
+  ratio or a different crop convention, and there is no artefact in the repo that says what the
+  training crop was.
+- **The sanity bands are engineering judgement, not measurements.** `k ∈ [0.25, 4.0]` and
+  `cm_per_px_target ∈ [0.15, 0.40]` are defensible and round; neither is derived from data, and
+  both will need revisiting once real captures exist.
+- **W0 is a UI change on a screen with no existing widget-test coverage**, so the letterbox test
+  has to be written from scratch against a screen that also depends on `DatabaseScope` and
+  `go_router` — the most fiddly task in the plan is the one that has to land first.
+- **Six work items across Dart, the C ABI, native stages, and the manifest exporter** is a wide
+  blast radius for what is conceptually one multiplication, and only W1 and W0 deliver anything
+  observable on their own.
+
+---
+
+## 11. Execution status (2026-09-02)
+
+W0 through W6 are implemented. What follows is what actually shipped, one deliberate deviation,
+one pre-existing bug found (not fixed — out of scope), and the exact validation run.
+
+### Shipped
+
+- **W0** — `reference_marking_screen.dart`: pin placement/drag now normalize against
+  `computeContainedImageRect()` (a new pure top-level function, extracted specifically so the
+  letterbox math is unit-testable), not the raw widget box. A tap outside that rect is ignored,
+  not clamped. Pin placement is refused (with an on-screen reason) when image dimensions are
+  unknown. The two inline `lengthCm / pixelLength` divisions are replaced by
+  `ComputeScaleUseCase`, which is no longer dead code.
+- **W1** — `WeightCapability` gained `cm_per_px_target`, `training_frame_w/h`.
+  `training_frame_px: [720, 720]` is the measured constant from §3.1. `cm_per_px_target` ships as
+  **0.26, explicitly labelled `UNCALIBRATED_seed_estimate_pending_1p88m_calibration_capture`** —
+  see Deviation below. `manifest.cpp`'s `load_weight()` now refuses to load a weight-available
+  manifest missing either field (`INSTAHAM_ML_ERR_CONTRACT`).
+- **W2** — `lib/core/database/reference_annotation_dao.dart` (`ReferenceAnnotationDao`) reads back
+  `ReferenceAnnotations` by `scanId`. Placed in `core/database/`, not
+  `weight_estimation/data/` as originally sketched — its caller is the `inference_pipeline`
+  feature, and AGENTS.md bars cross-feature imports. No schema change; `schemaVersion` is still 3.
+- **W3** — `IPipelineService.run()` / `MlRuntime.runPipeline()` gained an optional `cmPerPixel`.
+  `RunAndPersistPipelineUseCase.execute()` fetches the annotation and forwards it only when
+  `userConfirmed && sameFloorPlaneConfirmed && cmPerPixel > 0`.
+- **W4** — New additive entrypoint `instaham_ml_run_pipeline_request_json` (request JSON:
+  `{"image_path", "cm_per_px"}`). `instaham_ml_run_pipeline_json` is now a thin call into it with
+  `cm_per_px` omitted — same behaviour, same tests. `ABI_VERSION` unchanged;
+  `instaham_ml.map`'s `instaham_ml_*` wildcard needed no edit.
+- **W5** — `construction::scale_mask_to_training_space(mask, k)` (nearest-neighbour resample, empty
+  output for non-finite/non-positive `k` — never an implicit `k = 1.0`).
+  `extract_five_features()` gained an optional explicit `RA` denominator (0 = old behaviour,
+  every existing caller unaffected). `pipeline.cpp`'s weight branch now: resamples into training
+  space and predicts when a valid, in-range (`k ∈ [0.25, 4.0]`) scale exists; degrades to
+  `{"status":"unavailable","reason":"scale_unavailable"|"scale_out_of_range"|
+  "scale_resample_failed"}` otherwise. A new `"scale"` envelope block reports which. Health is
+  untouched by all of this.
+- **W6** — a successful weight result now also persists `referenceLengthCm`,
+  `referencePixelLength`, `cmPerPixel` (columns that existed, unused, since before this feature).
+  `_weightFailureMessage()` gained cases for the three new scale reasons; `results_screen.dart`
+  already renders `failureReason` dynamically, so no screen edit was needed for the messaging to
+  reach the user. **`WeightEligibilityChecker` was NOT wired in** — see Deferred below.
+
+### Deviation: `cm_per_px_target` ships unmeasured
+
+§4's W1 calibration capture requires a phone held at exactly 1.88 m — a physical measurement this
+environment cannot perform. Rather than block the rest of the plan on it, `cm_per_px_target` ships
+as the §3.2 seed estimate (0.26), with its provenance field spelling out in capital letters that it
+is not calibrated. **This must not be read as "done."** The weight branch will now run and produce
+numbers, but they carry whatever bias the seed estimate has, on top of the already-known cutter
+bias (Risk 3). Before this is trusted: capture 3–5 photos at exactly 1.88 m with a 1-meter stick per
+W1's procedure, read the resulting `cmPerPixel` values from `ReferenceAnnotations`, take the
+median, and replace `0.26` in both `assets/ml/manifest.json` and
+`ML/export/export_xgboost.py`.
+
+### Deferred: `WeightEligibilityChecker` wiring
+
+The plan's W6 asked for this fully tested but currently-dead 9-check class to be wired into
+`execute()`. It was not, on inspection: checks 1–4 and 9 duplicate logic the native `pipeline.cpp`
+envelope already enforces (pig count, mask boundary, segmentation confidence, posture, feature
+sanity) via its own `status`/`reason` fields, and running both independently risks the two
+disagreeing — a native `status: "ok"` next to a Dart-computed `ineligible` (or vice versa) with no
+single source of truth for which one wins. Checks 5–8 (the reference-object ones) are now enforced
+structurally instead: W3's confirmation gate (§ rule 7) plus the native `scale`/`weight` envelope
+reasons cover the same ground without a second, potentially-diverging implementation. Wiring the
+checker properly would mean first deciding whether it becomes the single source of truth (and
+deleting the native duplicate logic) or a pure-Dart pre-flight short-circuit before the native call
+— a design decision, not a mechanical wiring task, and out of this pass's scope.
+
+### Bug found, not fixed (pre-existing, out of scope)
+
+`RunAndPersistPipelineUseCase.execute()` calls `resolveViewGate(db, scanId, imagePath)` without
+forwarding `this.viewModelService` — the injected fake/alternate service is silently ignored
+whenever no `view` `PipelineEvent` already exists for the scan, and the real `ViewModelServiceImpl`
+(which touches native ORT) runs instead. This predates this change; it was worked around in the new
+W3 test by pre-seeding a `view` event via `recordViewGate()` rather than fixed, since fixing it is
+unrelated to reference-object scaling.
+
+### Validation run
+
+```
+dart format <every changed .dart file>          → 0 changes needed after first pass
+flutter analyze                                   → 1 pre-existing warning (unused_field,
+                                                     instaham_ml_bindings_generated.dart:59,
+                                                     confirmed present on unmodified tree too)
+flutter test                                       → 70 passed, 21 skipped (native/device/
+                                                     parity tests that were already skipped
+                                                     pre-existing), 0 failed
+flutter test test/features/weight_estimation/      → all pass, including the new
+                                                     computeContainedImageRect unit tests and
+                                                     the new pin-placement widget test
+flutter test test/features/inference_pipeline/     → all pass, including the new
+                                                     reference_scale_forwarding_test.dart
+                                                     (4 cases: confirmed, unconfirmed,
+                                                     non-coplanar, no-annotation)
+```
+
+**Not run — no C/C++ toolchain in this environment** (no `g++`/`cl`/`clang++`, no Android NDK):
+- `test_scale_normalization.cpp` (new, under `packages/instaham_ml_ffi/src/test/`, gated behind
+  `INSTAHAM_ML_WITH_OPENCV` in CMakeLists.txt) — written per §7.5 but unbuilt and unrun.
+- The Android native build itself (`instaham_ml.cpp`/`pipeline.cpp`/`manifest.cpp`/
+  `construction.cpp`/`feature_calculation.cpp`). Reviewed by hand (brace-balance checked file by
+  file; every new call site cross-checked against its declaration), but a hand review is not a
+  compiler. Per the existing project convention (see `~/.claude` android-testing-workflow memory),
+  the real check is a locally built APK sideloaded onto a physical phone — needed before this
+  merges, not optional.
+- `dart run build_runner build` — not needed; W2 confirmed no schema/generated-source change.

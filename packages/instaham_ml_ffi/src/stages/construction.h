@@ -30,6 +30,16 @@ struct PigMask {
 // this, not a cleaned mask). Returns an empty PigMask if `seg.has_detection` is false.
 PigMask construct_pig_mask(const SegmentationOutput& seg);
 
+// TASKS.md W5 (section 3.3, Option B): resamples `mask` by `k = cm_per_px_actual /
+// cm_per_px_target` into the pixel space the weight regressor's features were trained in,
+// so the cutter and feature_calculation stages run on training-normalized pixels rather
+// than whatever the live camera's distance-to-subject happened to produce. Nearest-
+// neighbour, matching construct_pig_mask's own unletterbox resize -- this stays a binary
+// mask throughout, never a soft/antialiased one. Returns an empty PigMask (never an
+// unscaled copy of `mask`) when `k` is not finite and strictly positive -- there is no
+// implicit k = 1.0 fallback (AGENTS.md rule 8).
+PigMask scale_mask_to_training_space(const PigMask& mask, double k);
+
 // clean_binary_mask() / largest_component_fill(): ports of
 // ML.pipeline.construction.clean_binary_mask / _largest_component_fill. Used by
 // stages::cutter (internally, on later work) and stages::feature_calculation, exactly as
