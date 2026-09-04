@@ -198,9 +198,13 @@ InstahamMlStatus instaham_ml_segment_json(InstahamMlContext* raw_ctx, const char
 
   instaham_ml::stages::SegmentationOutput seg;
   std::string error;
+  // ref_fix.md F18: this standalone entrypoint has no cm_per_px context of its own (it
+  // predates the reference-object scale plumbing run_pipeline() has), so it always uses
+  // the plain whole-frame letterbox -- 0.0/0.0 disables scale-aware canvas composition,
+  // exactly the pre-F18 behaviour.
   if (!instaham_ml::stages::run_segmentation(ctx->segmentation_runner.get(),
-                                              ctx->manifest.segmentation, image_path, &seg,
-                                              &error)) {
+                                              ctx->manifest.segmentation, image_path, 0.0, 0.0,
+                                              0.0f, &seg, &error)) {
     *out_json = dup_cstr(nlohmann::json{{"status", "error"}, {"message", error}}.dump());
     set_error(error);
     return INSTAHAM_ML_ERR_INFERENCE;
@@ -260,9 +264,11 @@ InstahamMlStatus instaham_ml_predict_weight_json(InstahamMlContext* raw_ctx,
 
   instaham_ml::stages::SegmentationOutput seg;
   std::string error;
+  // ref_fix.md F18: same as above -- this standalone entrypoint has no cm_per_px context,
+  // so it always uses the plain whole-frame letterbox (pre-F18 behaviour unchanged).
   if (!instaham_ml::stages::run_segmentation(ctx->segmentation_runner.get(),
-                                              ctx->manifest.segmentation, image_path, &seg,
-                                              &error) ||
+                                              ctx->manifest.segmentation, image_path, 0.0, 0.0,
+                                              0.0f, &seg, &error) ||
       !seg.has_detection) {
     *out_json = dup_cstr(unavailable_envelope("weight", "no_instance_above_conf"));
     set_error(error.empty() ? "no instance above conf" : error);
@@ -352,9 +358,11 @@ InstahamMlStatus instaham_ml_extract_features_provisional_json(InstahamMlContext
 
   instaham_ml::stages::SegmentationOutput seg;
   std::string error;
+  // ref_fix.md F18: same as above -- this standalone entrypoint has no cm_per_px context,
+  // so it always uses the plain whole-frame letterbox (pre-F18 behaviour unchanged).
   if (!instaham_ml::stages::run_segmentation(ctx->segmentation_runner.get(),
-                                              ctx->manifest.segmentation, image_path, &seg,
-                                              &error) ||
+                                              ctx->manifest.segmentation, image_path, 0.0, 0.0,
+                                              0.0f, &seg, &error) ||
       !seg.has_detection) {
     *out_json = dup_cstr(unavailable_envelope("weight_provisional", "no_instance_above_conf"));
     set_error(error.empty() ? "no instance above conf" : error);

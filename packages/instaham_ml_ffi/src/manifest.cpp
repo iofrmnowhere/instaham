@@ -1,5 +1,6 @@
 #include "manifest.h"
 
+#include <algorithm>
 #include <fstream>
 #include <sstream>
 
@@ -159,6 +160,23 @@ bool load_segmentation(const json& j, const std::string& base_dir, SegmentationC
     if (color.is_array() && !color.empty()) out->letterbox_color = uint8_t(color[0].get<int>());
   }
 
+  // ref_fix.md F18/F19: absent on an older manifest fragment -- keeps input_cm_per_px at
+  // 0.0 (disabled) and the ladder at its single-rung default, so a pre-F18 manifest
+  // segments exactly as it always has (a plain whole-frame letterbox, one attempt).
+  if (cap.contains("input_scale")) {
+    const json& input_scale = cap["input_scale"];
+    out->input_cm_per_px = input_scale.value("cm_per_px", 0.0);
+    if (input_scale.contains("ladder_multipliers") &&
+        input_scale["ladder_multipliers"].is_array() &&
+        !input_scale["ladder_multipliers"].empty()) {
+      out->scale_ladder_multipliers.clear();
+      for (const auto& m : input_scale["ladder_multipliers"]) {
+        out->scale_ladder_multipliers.push_back(m.get<double>());
+      }
+    }
+    out->retry_conf_threshold = input_scale.value("retry_conf_threshold", 0.0f);
+  }
+
   if (!verify_hash(out->model_path, out->model_sha256, error)) {
     *error_code_out = INSTAHAM_ML_ERR_HASH_MISMATCH;
     return false;
@@ -190,6 +208,12 @@ bool load_weight(const json& j, const std::string& base_dir, WeightCapability* o
   out->model_path = join_path(base_dir, regressor.value("path", ""));
   out->model_sha256 = regressor.value("sha256", "");
 
+  // ref_fix.md F16: absent on an older manifest fragment -- keeps the 0.15 default set on
+  // the struct (manifest.h), so a pre-F16 manifest gates exactly as it always has apart
+  // from gaining the new mask-plausibility check with a sane default threshold.
+  out->min_mask_diagonal_fraction =
+      cap.value("min_mask_diagonal_fraction", out->min_mask_diagonal_fraction);
+
   if (cap.contains("feature_extractor") && cap["feature_extractor"].contains("names")) {
     for (const auto& name : cap["feature_extractor"]["names"]) {
       out->feature_order.push_back(name.get<std::string>());
@@ -209,6 +233,11 @@ bool load_weight(const json& j, const std::string& base_dir, WeightCapability* o
     out->camera_height_is_xgboost_feature =
         contract.value("camera_height_is_xgboost_feature", false);
     out->cm_per_px_target = contract.value("cm_per_px_target", 0.0);
+    // ref_fix.md F9: clamp up to 1.0 -- this field may only ever widen a feature_domain
+    // bound at the pipeline.cpp gate, never tighten one (AGENTS.md rule 8), so a manifest
+    // that (erroneously) declared a value below 1.0 cannot narrow the gate.
+    out->cm_per_px_target_uncertainty =
+        std::max(1.0, contract.value("cm_per_px_target_uncertainty", 1.0));
     if (contract.contains("training_frame_px")) {
       const json& frame = contract["training_frame_px"];
       if (frame.is_array() && frame.size() == 2) {
@@ -240,6 +269,9 @@ bool load_weight(const json& j, const std::string& base_dir, WeightCapability* o
       out_domain->min = d.value("min", 0.0);
       out_domain->max = d.value("max", 0.0);
       out_domain->upper_multiplier = d.value("upper_multiplier", 1.0);
+      // ref_fix.md F8: absent on an older manifest fragment -- defaults to 1.0, i.e. the
+      // min is not widened, exactly matching pre-F8 behaviour.
+      out_domain->lower_multiplier = d.value("lower_multiplier", 1.0);
     };
     load_domain("RA", &out->domain_ra);
     load_domain("LC", &out->domain_lc);

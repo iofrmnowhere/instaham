@@ -107,6 +107,11 @@
     "mask_protocol": "original_coordinate_polygon_v1",
     "single_largest_instance": true
    },
+   "input_scale": {
+    "cm_per_px": 1.10,
+    "ladder_multipliers": [1.0, 1.32, 1.68, 0.77],
+    "retry_conf_threshold": 0.10
+   },
    "protocol_version": "yolo11s_ldconv_acmix_fixed_seed42",
    "source_run": {
     "checkpoint_sha256": "ce8e9070cb56a6bab66661652bd00a1dd93afa9871499d5eaeacc7733fccbf4d"
@@ -160,6 +165,7 @@
   },
   "weight": {
    "available": true,
+   "min_mask_diagonal_fraction": 0.35,
    "body_mask": {
     "ported_functions": [
      "clean_binary_mask",
@@ -172,8 +178,9 @@
    },
    "capture_contract": {
     "camera_height_is_xgboost_feature": false,
-    "cm_per_px_target": 0.26,
-    "cm_per_px_target_source": "UNCALIBRATED_seed_estimate_pending_1p88m_calibration_capture",
+    "cm_per_px_target": 0.35,
+    "cm_per_px_target_source": "three_sample_field_estimate_pending_1p88m_calibration_capture",
+    "cm_per_px_target_uncertainty": 1.30,
     "feature_space": "fixed_camera_pixels",
     "training_camera_height_m": 1.88,
     "training_frame_px": [
@@ -185,27 +192,32 @@
     "BL": {
      "max": 638.017,
      "min": 312.4134,
-     "upper_multiplier": 1.5
+     "upper_multiplier": 1.35,
+     "lower_multiplier": 1.0
     },
     "BW": {
      "max": 207.9156,
      "min": 118.4502,
-     "upper_multiplier": 1.2
+     "upper_multiplier": 1.10,
+     "lower_multiplier": 1.0
     },
     "E": {
      "max": 0.9773,
      "min": 0.8888,
-     "upper_multiplier": 1.05
+     "upper_multiplier": 1.05,
+     "lower_multiplier": 0.97
     },
     "LC": {
      "max": 1540.2884,
      "min": 811.5605,
-     "upper_multiplier": 1.5
+     "upper_multiplier": 1.35,
+     "lower_multiplier": 1.0
     },
     "RA": {
-     "max": 0.1865,
-     "min": 0.0635,
-     "upper_multiplier": 1.5
+     "max": 0.2042,
+     "min": 0.076,
+     "upper_multiplier": 1.0,
+     "lower_multiplier": 1.0
     }
    },
    "feature_extractor": {

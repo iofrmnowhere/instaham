@@ -38,6 +38,27 @@ struct SegmentationCapability {
   float conf_threshold = 0.25f;
   float iou_threshold = 0.7f;
   std::string protocol_version;
+
+  // ref_fix.md F18: centimetres one 640x640-canvas pixel should span, measured against the
+  // three ground-truth photos in .pig_pictures/ (section 2, F18) -- the segmenter does not
+  // reliably detect a pig at the apparent size a plain whole-frame letterbox produces for a
+  // typical 2250x3000 phone capture (roughly 220x400px, well below what the model responds
+  // to; section 1.3/1.4). 0.0 (the default, and what an older manifest fragment carries)
+  // disables scale-aware composition and falls back to the plain fit-to-canvas letterbox
+  // this always used -- the only behaviour available when no cm_per_px_actual exists yet
+  // (health_only route, or no reference marked: AGENTS.md rule 7 forbids inventing one).
+  double input_cm_per_px = 0.0;
+
+  // ref_fix.md F19: multipliers of input_cm_per_px tried in order (by pipeline.cpp, not
+  // this file) until a mask meeting manifest.weight.min_mask_diagonal_fraction is found --
+  // the segmenter is measurably brittle at any single scale (section 1.4's 118kg row), so
+  // one constant is not enough. {1.0} (the default) means "no ladder, one attempt".
+  std::vector<double> scale_ladder_multipliers = {1.0};
+
+  // ref_fix.md F19: once every ladder rung has been tried at conf_threshold with no
+  // plausible mask, retry the same ladder at this lower confidence. 0.0 (default) disables
+  // the retry pass entirely rather than silently lowering the bar.
+  float retry_conf_threshold = 0.0f;
 };
 
 // ML_implementation_plan.md revision 7, section 8: XGBoost weight regressor, exported to
@@ -61,19 +82,41 @@ struct WeightCapability {
   int training_frame_w = 0;
   int training_frame_h = 0;
 
-  // ref_fix.md F3: the [min, max] each of RA/LC/BL/BW/E actually took across the
+  // ref_fix.md F16: the minimum fraction (of the image's own diagonal) the constructed
+  // mask's bounding-box diagonal must reach before the cutter/feature/domain stages even
+  // run on it. A mask this small isn't a pig -- it's what F12's mask-selection bug
+  // produced (observed as low as ~1.5% and ~8% of frame against a real 55%-of-frame
+  // photo) -- and E (eccentricity) alone cannot catch it, since a thin sliver scores HIGH
+  // on eccentricity rather than low. Tunable from the manifest rather than a compiled-in
+  // constant per ref_fix.md section 3; defaults to 0.15 when the manifest doesn't declare
+  // it (an older fragment), which is permissive enough not to newly reject a manifest that
+  // predates this field.
+  double min_mask_diagonal_fraction = 0.15;
+
+  // ref_fix.md F9: how far cm_per_px_target itself might be off (>= 1.0; 1.0 means "exact,
+  // no widening"). Set by ML/export/export_xgboost.py from an allometric sanity check
+  // while cm_per_px_target_source stays "UNCALIBRATED_..." -- see ref_fix.md section 1.5.
+  // Widens (never tightens) the SIZE feature_domain bounds at the pipeline.cpp gate so a
+  // correctly-marked reference isn't rejected purely because the manifest's own scale seed
+  // carries unquantified error. Clamped to >= 1.0 by load_weight() below so a malformed or
+  // missing value can only ever widen, never tighten, a bound (AGENTS.md rule 8).
+  double cm_per_px_target_uncertainty = 1.0;
+
+  // ref_fix.md F3/F8: the [min, max] each of RA/LC/BL/BW/E actually took across the
   // regressor's own training/eval set (ML/weight_prediction/fixed_test_predictions_POSTHOC.csv,
   // 2014 rows) -- the real question a scale sanity check should ask ("would this feature
   // vector even make sense to this model?") rather than the proxy question k's range asks.
-  // `upper_multiplier` widens only the max, to allow for the identity-stub cutter leaving
-  // the head/neck in the mask (so BL/LC/RA legitimately run above their trained range until
-  // the real cutter lands) -- the min is never widened, since a smaller-than-trained value
-  // has no such excuse. Empty (all-default) FeatureDomain entries mean "no manifest data
-  // yet"; the gate at pipeline.cpp only applies to a feature whose domain has max > 0.
+  // `upper_multiplier` widens the max and `lower_multiplier` widens the min, both to allow
+  // for the identity-stub cutter leaving the head/neck in the mask -- see
+  // ML/export/export_xgboost.py for how each per-feature multiplier is derived from the
+  // CSV's own whole_mask_area_px/body_mask_area_px ratio rather than guessed. Empty
+  // (all-default) FeatureDomain entries mean "no manifest data yet"; the gate at
+  // pipeline.cpp only applies to a feature whose domain has max > 0.
   struct FeatureDomain {
     double min = 0.0;
     double max = 0.0;
     double upper_multiplier = 1.0;
+    double lower_multiplier = 1.0;
   };
   FeatureDomain domain_ra;
   FeatureDomain domain_lc;

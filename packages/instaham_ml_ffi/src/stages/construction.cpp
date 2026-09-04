@@ -6,6 +6,8 @@
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
 
+#include "stages/mask_geometry.h"
+
 namespace instaham_ml {
 namespace stages {
 namespace {
@@ -37,17 +39,19 @@ PigMask construct_pig_mask(const SegmentationOutput& seg) {
   }
 
   // Downsample the model-space (imgsz x imgsz) box into proto space and zero everything
-  // outside it -- crop_mask(), applied before the upsample.
-  const float proto_scale_x = float(seg.proto_w) / float(seg.model_imgsz);
-  const float proto_scale_y = float(seg.proto_h) / float(seg.model_imgsz);
-  const float bx0 = (seg.box.cx - seg.box.w / 2.f) * proto_scale_x;
-  const float by0 = (seg.box.cy - seg.box.h / 2.f) * proto_scale_y;
-  const float bx1 = (seg.box.cx + seg.box.w / 2.f) * proto_scale_x;
-  const float by1 = (seg.box.cy + seg.box.h / 2.f) * proto_scale_y;
+  // outside it -- crop_mask(), applied before the upsample. ref_fix.md F12: shared with
+  // segmentation.cpp's candidate-selection scoring via mask_geometry.h, so the box a
+  // candidate is picked for and the box its mask is actually cropped to can never diverge
+  // again.
+  const ProtoBoxBounds bounds =
+      proto_box_bounds(seg.box, seg.proto_w, seg.proto_h, seg.model_imgsz);
   for (int y = 0; y < seg.proto_h; ++y) {
     float* row = proto_mask.ptr<float>(y);
     for (int x = 0; x < seg.proto_w; ++x) {
-      if (float(x) < bx0 || float(x) >= bx1 || float(y) < by0 || float(y) >= by1) row[x] = 0.f;
+      if (float(x) < bounds.x0 || float(x) >= bounds.x1 || float(y) < bounds.y0 ||
+          float(y) >= bounds.y1) {
+        row[x] = 0.f;
+      }
     }
   }
 
@@ -65,17 +69,22 @@ PigMask construct_pig_mask(const SegmentationOutput& seg) {
   }
 
   // ---- unletterbox: remove the pad, resize (nearest) to the original image dimensions --
-  // Mirrors ML.pipeline.construction._unletterbox_native_mask exactly, including its
-  // asymmetric-rounding convention for a one-pixel odd padding amount.
+  // Mirrors ML.pipeline.construction._unletterbox_native_mask. ref_fix.md F14: `left`/`top`
+  // are the pad letterbox() actually applied, carried through on `seg` (segmentation.h's
+  // own contract: "the letterbox parameters are carried through verbatim rather than
+  // recomputed", AGENTS.md rule 9) -- not re-derived here, which used to duplicate
+  // letterbox()'s `round(dim * scale)` and `(dst - new) / 2` and could silently drift from
+  // it by a pixel if the two computations were ever edited out of step. `new_w`/`new_h`
+  // reproduce letterbox()'s own rounding EXACTLY (same formula, same carried `scale`), so
+  // `right`/`bottom` -- which letterbox() doesn't return directly -- are derived from them
+  // with no independent rounding of their own.
   const int native_w = seg.model_imgsz, native_h = seg.model_imgsz;
-  const float scaled_w = seg.orig_w * seg.letterbox_scale;
-  const float scaled_h = seg.orig_h * seg.letterbox_scale;
-  const float pad_w = std::max(0.f, (native_w - scaled_w) / 2.f);
-  const float pad_h = std::max(0.f, (native_h - scaled_h) / 2.f);
-  const int left = int(std::round(pad_w - 0.1f));
-  const int right = int(std::round(pad_w + 0.1f));
-  const int top = int(std::round(pad_h - 0.1f));
-  const int bottom = int(std::round(pad_h + 0.1f));
+  const int new_w = std::max(1, int(std::round(seg.orig_w * seg.letterbox_scale)));
+  const int new_h = std::max(1, int(std::round(seg.orig_h * seg.letterbox_scale)));
+  const int left = seg.letterbox_pad_left;
+  const int top = seg.letterbox_pad_top;
+  const int right = native_w - new_w - left;
+  const int bottom = native_h - new_h - top;
 
   const int x0 = std::max(0, left);
   const int y0 = std::max(0, top);

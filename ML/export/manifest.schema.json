@@ -107,7 +107,9 @@
           }
         },
         "body_mask": { "type": "object" },
-        "capture_contract": { "type": "object" }
+        "capture_contract": { "type": "object" },
+        "feature_domain": { "type": "object" },
+        "min_mask_diagonal_fraction": { "type": "number" }
       }
     },
     "segmentationCapability": {

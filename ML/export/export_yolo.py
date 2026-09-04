@@ -111,6 +111,27 @@ def export(*, checkpoint: Path, out: Path, imgsz: int = 640, opset: int = 17) ->
                 "single_largest_instance": True,
                 "mask_protocol": "original_coordinate_polygon_v1",
             },
+            # ref_fix.md F18/F19 (round 4): the exported model does not reliably detect a
+            # pig at the apparent size a plain whole-frame letterbox produces for a typical
+            # phone photo (measured: every detection above ~100x100px in a 640x640
+            # letterboxed 2250x3000 capture scored 0.000 confidence across all three
+            # ground-truth photos in .pig_pictures/ -- see ref_fix.md section 1.3/1.4).
+            # `cm_per_px` is centimetres one 640-canvas pixel should span when a
+            # user-confirmed reference object is available; pipeline.cpp composes the
+            # canvas at content_scale = cm_per_px_actual / cm_per_px instead of fitting the
+            # whole frame, so the pig's apparent size reflects its real-world size. 1.10 is
+            # the value measured to recover a clean whole-pig mask on 2 of 3 photos at
+            # every rung tested (0.90-2.40); `ladder_multipliers` (of this value) and
+            # `retry_conf_threshold` are ref_fix.md F19's retry ladder for the third,
+            # measurably more brittle photo. This is a property of what THIS checkpoint was
+            # trained on, not a per-photo tuning knob -- retune only if the segmenter is
+            # retrained with scale jitter (ref_fix.md section 5) or re-exported at a
+            # different imgsz.
+            "input_scale": {
+                "cm_per_px": 1.10,
+                "ladder_multipliers": [1.0, 1.32, 1.68, 0.77],
+                "retry_conf_threshold": 0.10,
+            },
             "export_mode": "onnx_native",
             "protocol_version": "yolo11s_ldconv_acmix_fixed_seed42",
             "source_run": {"checkpoint_sha256": sha256_file(checkpoint)},

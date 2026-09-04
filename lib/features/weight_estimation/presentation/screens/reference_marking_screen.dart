@@ -51,6 +51,35 @@ Rect? computeContainedImageRect({
   return Rect.fromLTWH(left, top, displayWidth, displayHeight);
 }
 
+/// ref_fix.md F11: the axis angle (radians, `atan2` convention) of the line between two
+/// reference endpoints, computed in DISPLAY (widget-local) space. Callers must pass
+/// `toWidgetSpace`-mapped points, never the raw fraction-space pins -- the image rect is
+/// not generally square, so an angle computed from fractions is sheared relative to what
+/// the user actually sees on screen, and the jaw would visibly not line up with the
+/// reference object on a non-square photo. Returns 0.0 (pointing along +x, i.e. left when
+/// used as the "extend away" direction below) when the two points are closer than 1
+/// logical pixel apart, since the direction is then undefined -- this matches
+/// `_confirm()`'s own 0.03 (fraction-space) closeness rejection, which fires first in
+/// practice, so this fallback exists only for the placement in progress, not a saved scan.
+double referenceMarkerAngle(Offset start, Offset end) {
+  final delta = end - start;
+  if (delta.distance < 1.0) return 0.0;
+  return atan2(delta.dy, delta.dx);
+}
+
+/// ref_fix.md F11: the centroid of the caliper-jaw rectangle for an endpoint at `markPoint`
+/// whose measuring (inner) edge sits exactly on `markPoint` and which extends `jawLength`
+/// logical pixels along `direction` (radians) away from the mark. The touch target is
+/// centered on this point, not on `markPoint` itself, so a dragging finger rests on the
+/// jaw body instead of covering the exact mark it is aligning.
+Offset referenceJawCentroid(
+  Offset markPoint,
+  double direction,
+  double jawLength,
+) {
+  return markPoint + Offset(cos(direction), sin(direction)) * (jawLength / 2);
+}
+
 class ReferenceMarkingScreen extends StatefulWidget {
   final ScanFlowArgs args;
 
@@ -417,65 +446,163 @@ class _ReferenceMarkingScreenState extends State<ReferenceMarkingScreen> {
                                 end: toWidgetSpace(_pins[1]),
                               ),
                             ),
-                          ..._pins.asMap().entries.map((entry) {
-                            final point = toWidgetSpace(entry.value);
-                            return Positioned(
-                              left: point.dx - 22,
-                              top: point.dy - 22,
-                              child: GestureDetector(
-                                onPanUpdate: (details) =>
-                                    _movePin(entry.key, details, size),
-                                // ref_fix.md F5: the touch target stays 44x44 (AGENTS.md's
-                                // minimum), but what's PAINTED shrank from an opaque disc to
-                                // a small crosshair -- the old disc hid the exact point it
-                                // was marking, which made fine placement on a stick's
-                                // endpoint harder than it needed to be. The number badge
-                                // moves to a corner so it never covers the mark either.
-                                child: SizedBox(
-                                  width: 44,
-                                  height: 44,
-                                  child: Stack(
-                                    clipBehavior: Clip.none,
-                                    children: [
-                                      const Positioned.fill(
-                                        child: CustomPaint(
-                                          painter: _CrosshairPainter(),
-                                        ),
+                          // ref_fix.md F11: the axis both jaws share, computed once in
+                          // display space from the two mapped endpoints -- the same value
+                          // decides both markers' orientation, so moving one pin always
+                          // rotates both jaws together, never just one.
+                          if (_pins.length == 2)
+                            ..._pins.asMap().entries.map((entry) {
+                              final markPoint = toWidgetSpace(entry.value);
+                              final otherPoint = toWidgetSpace(
+                                _pins[1 - entry.key],
+                              );
+                              final axisAngle = referenceMarkerAngle(
+                                otherPoint,
+                                markPoint,
+                              );
+                              // Both jaws extend AWAY from the other endpoint: pin 0's
+                              // axis (computed other->mark) already points away from pin
+                              // 1, so it is used as-is; pin 1's is the same axis, which
+                              // by symmetry (other->mark, this time pin0->pin1) also
+                              // points away from pin 0. No +pi flip is needed because
+                              // `otherPoint` is always "the other pin", not a fixed pin 0.
+                              const jawLength = 34.0;
+                              const jawWidth = 26.0;
+                              const boxSize = 56.0;
+                              final centroid = referenceJawCentroid(
+                                markPoint,
+                                axisAngle,
+                                jawLength,
+                              );
+                              final localMark =
+                                  markPoint -
+                                  centroid +
+                                  const Offset(boxSize / 2, boxSize / 2);
+                              return Positioned(
+                                left: centroid.dx - boxSize / 2,
+                                top: centroid.dy - boxSize / 2,
+                                child: GestureDetector(
+                                  onPanUpdate: (details) =>
+                                      _movePin(entry.key, details, size),
+                                  // ref_fix.md F11: a caliper-jaw rectangle replaces F5's
+                                  // crosshair. Its inner (measuring) edge sits exactly on
+                                  // the recorded endpoint and the jaw extends away from
+                                  // the other pin, auto-oriented to the reference
+                                  // object's own axis -- so the user butts the flat edge
+                                  // against the stick's end for micro-adjustment instead
+                                  // of aligning to the centre of a mark. The touch target
+                                  // stays >= 44x44 (AGENTS.md) but is centred on the jaw
+                                  // body (56x56), not on the mark, so a dragging finger no
+                                  // longer covers the exact point being aligned.
+                                  child: Semantics(
+                                    label:
+                                        'Reference endpoint ${entry.key + 1}, drag to adjust',
+                                    button: true,
+                                    child: SizedBox(
+                                      width: boxSize,
+                                      height: boxSize,
+                                      child: Stack(
+                                        clipBehavior: Clip.none,
+                                        children: [
+                                          Positioned.fill(
+                                            child: CustomPaint(
+                                              painter: _ReferenceJawPainter(
+                                                markPoint: localMark,
+                                                direction: axisAngle,
+                                                jawLength: jawLength,
+                                                jawWidth: jawWidth,
+                                              ),
+                                            ),
+                                          ),
+                                          Positioned(
+                                            left:
+                                                localMark.dx +
+                                                cos(axisAngle) * jawLength -
+                                                10,
+                                            top:
+                                                localMark.dy +
+                                                sin(axisAngle) * jawLength -
+                                                9,
+                                            child: Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 5,
+                                                    vertical: 1,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                color: AppColors.signalPink,
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                                border: Border.all(
+                                                  color: Colors.white,
+                                                  width: 1.5,
+                                                ),
+                                              ),
+                                              child: Text(
+                                                '${entry.key + 1}',
+                                                style: AppTextStyles.label
+                                                    .copyWith(
+                                                      color: Colors.white,
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                      fontSize: 11,
+                                                    ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
-                                      Positioned(
-                                        right: 0,
-                                        top: 0,
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 5,
-                                            vertical: 1,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: AppColors.signalPink,
-                                            borderRadius: BorderRadius.circular(
-                                              8,
-                                            ),
-                                            border: Border.all(
-                                              color: Colors.white,
-                                              width: 1.5,
-                                            ),
-                                          ),
-                                          child: Text(
-                                            '${entry.key + 1}',
-                                            style: AppTextStyles.label.copyWith(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 11,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
+                                    ),
                                   ),
                                 ),
-                              ),
-                            );
-                          }),
+                              );
+                            })
+                          else
+                            ..._pins.asMap().entries.map((entry) {
+                              // Only one pin placed so far -- no axis to orient a jaw to
+                              // yet; fall back to a centred, unrotated jaw pointing left
+                              // (referenceMarkerAngle's own degenerate default) so the
+                              // in-progress mark is still visible and draggable.
+                              final markPoint = toWidgetSpace(entry.value);
+                              const jawLength = 34.0;
+                              const jawWidth = 26.0;
+                              const boxSize = 56.0;
+                              const axisAngle = 0.0;
+                              final centroid = referenceJawCentroid(
+                                markPoint,
+                                axisAngle,
+                                jawLength,
+                              );
+                              final localMark =
+                                  markPoint -
+                                  centroid +
+                                  const Offset(boxSize / 2, boxSize / 2);
+                              return Positioned(
+                                left: centroid.dx - boxSize / 2,
+                                top: centroid.dy - boxSize / 2,
+                                child: GestureDetector(
+                                  onPanUpdate: (details) =>
+                                      _movePin(entry.key, details, size),
+                                  child: Semantics(
+                                    label:
+                                        'Reference endpoint ${entry.key + 1}, drag to adjust',
+                                    button: true,
+                                    child: SizedBox(
+                                      width: boxSize,
+                                      height: boxSize,
+                                      child: CustomPaint(
+                                        painter: _ReferenceJawPainter(
+                                          markPoint: localMark,
+                                          direction: axisAngle,
+                                          jawLength: jawLength,
+                                          jawWidth: jawWidth,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }),
                         ],
                       ),
                     ),
@@ -630,61 +757,81 @@ class _ReferencePhoto extends StatelessWidget {
   }
 }
 
-/// ref_fix.md F5: a small ring-and-cross marking the exact recorded point, rather than the
-/// opaque 44x44 disc that previously covered it -- painted twice, a wide white halo then a
-/// narrower pink mark, so it reads against any photo background.
-class _CrosshairPainter extends CustomPainter {
-  const _CrosshairPainter();
+/// ref_fix.md F11: a caliper-jaw rectangle marking the exact recorded point at its inner
+/// (measuring) short edge, replacing F5's crosshair. `markPoint` is in the painter's own
+/// local (box) coordinates, and `direction` (radians, `atan2` convention) is the axis the
+/// jaw extends along, away from the mark -- so the rectangle spans from `markPoint` to
+/// `markPoint + Offset(cos(direction), sin(direction)) * jawLength`, centred `jawWidth`
+/// across that axis. Painted twice, a wide white halo then a narrower pink mark, so it
+/// reads against any photo background (same treatment F5 used).
+class _ReferenceJawPainter extends CustomPainter {
+  final Offset markPoint;
+  final double direction;
+  final double jawLength;
+  final double jawWidth;
 
-  static const double _ringRadius = 7;
-  static const double _armLength = 5;
+  const _ReferenceJawPainter({
+    required this.markPoint,
+    required this.direction,
+    required this.jawLength,
+    required this.jawWidth,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = size.center(Offset.zero);
+    canvas.save();
+    canvas.translate(markPoint.dx, markPoint.dy);
+    canvas.rotate(direction);
 
-    void drawCrosshair(Paint paint) {
-      canvas.drawCircle(center, _ringRadius, paint);
-      canvas.drawLine(
-        center + const Offset(-_ringRadius - _armLength, 0),
-        center + const Offset(-_ringRadius, 0),
-        paint,
-      );
-      canvas.drawLine(
-        center + const Offset(_ringRadius, 0),
-        center + const Offset(_ringRadius + _armLength, 0),
-        paint,
-      );
-      canvas.drawLine(
-        center + const Offset(0, -_ringRadius - _armLength),
-        center + const Offset(0, -_ringRadius),
-        paint,
-      );
-      canvas.drawLine(
-        center + const Offset(0, _ringRadius),
-        center + const Offset(0, _ringRadius + _armLength),
-        paint,
-      );
-    }
+    final outline = Rect.fromLTWH(0, -jawWidth / 2, jawLength, jawWidth);
+    final measuringEdgeTop = Offset(0, -jawWidth / 2);
+    final measuringEdgeBottom = Offset(0, jawWidth / 2);
 
-    drawCrosshair(
+    void drawOutline(Paint paint) => canvas.drawRect(outline, paint);
+    void drawMeasuringEdge(Paint paint) =>
+        canvas.drawLine(measuringEdgeTop, measuringEdgeBottom, paint);
+
+    // Halo pass: wide white stroke so the jaw reads against any photo background.
+    drawOutline(
       Paint()
         ..color = Colors.white
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 3.5
+        ..strokeWidth = 3.5,
+    );
+    drawMeasuringEdge(
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4.5
         ..strokeCap = StrokeCap.round,
     );
-    drawCrosshair(
+    // Colour pass: the outline is a thin pink rectangle; the measuring edge (the side that
+    // sits exactly on the endpoint) is drawn heavier so it is visually unambiguous which
+    // of the four sides is the actual mark.
+    drawOutline(
       Paint()
         ..color = AppColors.signalPink
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 2
+        ..strokeWidth = 2,
+    );
+    drawMeasuringEdge(
+      Paint()
+        ..color = AppColors.signalPink
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
         ..strokeCap = StrokeCap.round,
     );
+
+    canvas.restore();
   }
 
   @override
-  bool shouldRepaint(covariant _CrosshairPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _ReferenceJawPainter oldDelegate) {
+    return oldDelegate.markPoint != markPoint ||
+        oldDelegate.direction != direction ||
+        oldDelegate.jawLength != jawLength ||
+        oldDelegate.jawWidth != jawWidth;
+  }
 }
 
 class _ReferenceLinePainter extends CustomPainter {

@@ -31,6 +31,16 @@ RgbImage resize_exact(const RgbImage& src, int dst_w, int dst_h);
 RgbImage letterbox(const RgbImage& src, int dst_w, int dst_h, uint8_t pad_color, float* scale_out,
                     int* pad_left_out, int* pad_top_out);
 
+// ref_fix.md F18: like letterbox(), but `scale` is supplied by the caller instead of being
+// computed to fit -- used when stages::run_segmentation composes the 640x640 canvas at a
+// scale derived from the user-confirmed reference object's cm/pixel, rather than from the
+// image's own dimensions (a whole-frame fit is what made the segmenter see a pig at an
+// apparent size it does not reliably detect at -- see ref_fix.md section 1). The caller
+// MUST ensure round(src.width*scale) <= dst_w and round(src.height*scale) <= dst_h first
+// (falling back to letterbox() otherwise) -- this does not clamp or crop, it pads.
+RgbImage place_at_scale(const RgbImage& src, int dst_w, int dst_h, uint8_t pad_color, float scale,
+                         int* pad_left_out, int* pad_top_out);
+
 }  // namespace instaham_ml
 
 #endif  // INSTAHAM_ML_UTIL_IMAGE_IO_H

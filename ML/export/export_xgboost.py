@@ -101,6 +101,20 @@ def export(
     fragment = {
         "weight": {
             **weight_block,
+            # ref_fix.md F16/F23: minimum fraction (of the image's own diagonal) the
+            # constructed mask's bounding-box diagonal must reach before the
+            # cutter/feature/domain gate stages even run on it -- a mask smaller than
+            # this isn't a pig. Raised from 0.15 to 0.35 in F23: measured against the
+            # three ground-truth photos in .pig_pictures/, every CORRECT whole-pig mask
+            # (once F18 fixes detection) came in at 0.62-0.74, and every WRONG mask (an
+            # ear, a foot, a snippet of another pig through a grate) came in at 0.06-0.15
+            # -- the old 0.15 threshold sat exactly on the wrong edge of that gap and let
+            # a 0.149 junk mask (the 118kg photo, pre-F18) through. Also the threshold
+            # pipeline.cpp's F19 retry ladder tests each rung against, so raising it here
+            # makes the ladder retry rather than settle for the first junk mask. Tunable
+            # here rather than a compiled-in native constant; a manifest that predates
+            # this field falls back to manifest.h's own 0.15 default.
+            "min_mask_diagonal_fraction": 0.35,
             "regressor": {
                 "format": "onnx",
                 "path": "weight/xgboost.onnx",
@@ -141,31 +155,68 @@ def export(
                 # before trusting a predicted weight. packages/instaham_ml_ffi's
                 # load_manifest() refuses to load a weight-available manifest missing
                 # either field, so this contract must travel with every export.
-                "cm_per_px_target": 0.26,
+                # ref_fix.md F21 (round 4): replaces the round-1 0.26 seed above. Derived
+                # two independent ways against the three ground-truth photos in
+                # .pig_pictures/ (ref_fix.md section 3, F21):
+                #   1. BW (the minAreaRect minor axis, the feature the identity-stub cutter
+                #      perturbs least) measured on the uncut mask, divided by the trained
+                #      BW median for each photo's true-weight bin in
+                #      fixed_test_predictions_POSTHOC.csv, implies 0.347-0.368.
+                #   2. Sweeping cm_per_px_target and reading the regressor's own output
+                #      lands all three photos within +/-15% of true weight in the
+                #      0.32-0.36 band, independently of (1).
+                # Both land in the same place. 0.35 is a three-sample field estimate, NOT
+                # the 1.88m calibration capture TASKS.md W1 still asks for -- retune
+                # (downward) the moment the real cutter lands, since this value currently
+                # absorbs some of the cutter's head/neck inflation as well as the scale
+                # error, and three photos cannot separate the two.
+                "cm_per_px_target": 0.35,
                 "cm_per_px_target_source": (
-                    "UNCALIBRATED_seed_estimate_pending_1p88m_calibration_capture"
+                    "three_sample_field_estimate_pending_1p88m_calibration_capture"
                 ),
+                # ref_fix.md F9/F21: how far cm_per_px_target above might be off, expressed
+                # as a multiplicative bound (>= 1.0). Widens (pipeline.cpp's
+                # feature_in_domain), never tightens, the SIZE feature_domain bounds below,
+                # so the eligibility gate is never stricter than the calibration it rests on
+                # (ref_fix.md section 1.5). Set to 1.0 the moment a real 1.88m calibration
+                # capture replaces the field estimate above -- this is the MANIFEST's
+                # uncertainty about itself, not a per-photo tolerance. Raised from 1.15 to
+                # 1.30 alongside F21's retune: a three-sample field estimate carries more
+                # uncertainty than the allometric guess it replaced.
+                "cm_per_px_target_uncertainty": 1.30,
                 "training_frame_px": [720, 720],
             },
-            # ref_fix.md F3: the [min, max] each feature actually took across the
+            # ref_fix.md F3/F8: the [min, max] each feature actually took across the
             # regressor's own eval set (ML/weight_prediction/fixed_test_predictions_POSTHOC.csv,
             # 2014 rows) -- a normalized feature vector outside this range is rejected by
             # the native pipeline rather than fed to the regressor (AGENTS.md rule 8),
             # replacing a resolution-blind k-range check with a check on the thing that
             # actually determines whether the model has ever seen anything like this input.
-            # `upper_multiplier` widens only the max: RA/LC/BL legitimately run high while
-            # the cutter is the identity stub (head/neck left in the mask), so the max is
-            # given headroom; the min is never widened, since nothing here can make a
-            # feature come out SMALLER than a correctly head-removed mask would give.
-            # Retune (tighten toward 1.0) once the real cutter lands -- section 3.2's
-            # ~0.892 median body/whole area ratio is the source of the 1.5x figure below,
-            # applied uniformly rather than per-feature for lack of a per-feature number.
+            #
+            # `upper_multiplier` / `lower_multiplier` widen the max / min respectively, to
+            # allow for the identity-stub cutter leaving the head/neck in the mask. Unlike
+            # the flat 1.5x this replaced, each multiplier here is measured, not guessed:
+            # the same CSV also carries `whole_mask_area_px` (uncut, i.e. exactly what the
+            # identity-stub cutter produces) alongside `body_mask_area_px` (head-removed).
+            # Their ratio across all 2014 rows is min=1.0148, p50=1.1210, p99=1.3400,
+            # max=1.4121 -- so:
+            #   - RA is an AREA ratio and whole_mask_area_px/720^2 is directly the uncut
+            #     domain (min=0.0760, max=0.2042); no multiplier is needed at all.
+            #   - LC/BL are LENGTHS: an area inflation of up to 1.34 (p99) bounds their
+            #     linear inflation from above; 1.35 is used, deliberately conservative since
+            #     the head mostly adds length, not width.
+            #   - BW is the MINOR axis of minAreaRect, which the head barely perturbs; 1.10
+            #     reflects that rather than reusing the LC/BL figure.
+            #   - E (eccentricity) is a shape ratio the cutter can move in EITHER direction,
+            #     so unlike the others it also gets a lower_multiplier (0.97) -- the only
+            #     feature where "smaller than trained" has no such excuse does not apply.
+            # Retune (tighten toward 1.0) once the real cutter lands.
             "feature_domain": {
-                "RA": {"min": 0.0635, "max": 0.1865, "upper_multiplier": 1.5},
-                "LC": {"min": 811.5605, "max": 1540.2884, "upper_multiplier": 1.5},
-                "BL": {"min": 312.4134, "max": 638.0170, "upper_multiplier": 1.5},
-                "BW": {"min": 118.4502, "max": 207.9156, "upper_multiplier": 1.2},
-                "E": {"min": 0.8888, "max": 0.9773, "upper_multiplier": 1.05},
+                "RA": {"min": 0.0760, "max": 0.2042, "upper_multiplier": 1.0, "lower_multiplier": 1.0},
+                "LC": {"min": 811.5605, "max": 1540.2884, "upper_multiplier": 1.35, "lower_multiplier": 1.0},
+                "BL": {"min": 312.4134, "max": 638.0170, "upper_multiplier": 1.35, "lower_multiplier": 1.0},
+                "BW": {"min": 118.4502, "max": 207.9156, "upper_multiplier": 1.10, "lower_multiplier": 1.0},
+                "E": {"min": 0.8888, "max": 0.9773, "upper_multiplier": 1.05, "lower_multiplier": 0.97},
             },
         }
     }

@@ -44,9 +44,8 @@ RgbImage resize_exact(const RgbImage& src, int dst_w, int dst_h) {
   return dst;
 }
 
-RgbImage letterbox(const RgbImage& src, int dst_w, int dst_h, uint8_t pad_color, float* scale_out,
-                    int* pad_left_out, int* pad_top_out) {
-  float scale = std::min(float(dst_w) / float(src.width), float(dst_h) / float(src.height));
+RgbImage place_at_scale(const RgbImage& src, int dst_w, int dst_h, uint8_t pad_color, float scale,
+                         int* pad_left_out, int* pad_top_out) {
   int new_w = std::max(1, int(std::round(src.width * scale)));
   int new_h = std::max(1, int(std::round(src.height * scale)));
 
@@ -70,9 +69,16 @@ RgbImage letterbox(const RgbImage& src, int dst_w, int dst_h, uint8_t pad_color,
     std::memcpy(dst_row, src_row, size_t(new_w) * 3);
   }
 
-  if (scale_out) *scale_out = scale;
   if (pad_left_out) *pad_left_out = pad_left;
   if (pad_top_out) *pad_top_out = pad_top;
+  return dst;
+}
+
+RgbImage letterbox(const RgbImage& src, int dst_w, int dst_h, uint8_t pad_color, float* scale_out,
+                    int* pad_left_out, int* pad_top_out) {
+  float scale = std::min(float(dst_w) / float(src.width), float(dst_h) / float(src.height));
+  RgbImage dst = place_at_scale(src, dst_w, dst_h, pad_color, scale, pad_left_out, pad_top_out);
+  if (scale_out) *scale_out = scale;
   return dst;
 }
 

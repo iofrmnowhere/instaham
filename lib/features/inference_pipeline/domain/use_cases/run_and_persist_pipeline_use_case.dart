@@ -157,10 +157,15 @@ class RunAndPersistPipelineUseCase {
         );
       }
 
+      // ref_fix.md F20: persist the WHOLE segmentation block (and construction's), not just
+      // pig_count/confidence -- F15/F18/F19 put candidates_kept, ladder_rung, rungs_tried,
+      // content_scale and mask_diagonal_fraction into the envelope specifically so a scan
+      // could be diagnosed from a log read instead of a code read; throwing all of it away
+      // except two fields is why round 3's fix had to be judged from three sentences of
+      // user-visible text (ref_fix.md section 1.2/3, F20).
       final segmentationJson =
           envelope['segmentation'] as Map<String, dynamic>? ?? const {};
-      if (segmentationJson['status'] == 'ok' ||
-          segmentationJson['status'] == 'error') {
+      if (segmentationJson.isNotEmpty) {
         final pigCount = segmentationJson['status'] == 'ok'
             ? ((segmentationJson['instances_found'] as num?)?.toInt() ?? 0)
             : 0;
@@ -168,19 +173,60 @@ class RunAndPersistPipelineUseCase {
           scanId,
           'segmentation',
           pigCount > 0 ? 'completed' : 'no_detection',
-          message:
-              'pig_count=$pigCount confidence=${segmentationJson['confidence'] ?? 0.0}',
+          message: jsonEncode(segmentationJson),
+        );
+      }
+      final constructionJson =
+          envelope['construction'] as Map<String, dynamic>? ?? const {};
+      if (constructionJson.isNotEmpty) {
+        await db.addPipelineEvent(
+          scanId,
+          'construction',
+          constructionJson['status'] as String? ?? 'unknown',
+          message: jsonEncode(constructionJson),
         );
       }
 
       final weightJson =
           envelope['weight'] as Map<String, dynamic>? ?? const {};
       final weightEligible = weightJson['status'] == 'ok';
+
+      // ref_fix.md F6: the feature vector is recorded on EVERY run, success or failure --
+      // previously a rejected scan left no 'features' pipeline event and null
+      // ra/lc/bl/bw/e columns, which is why a `features_out_of_training_domain` rejection
+      // was undiagnosable without a code read.
+      final featuresJson =
+          envelope['features'] as Map<String, dynamic>? ?? const {};
+      if (featuresJson.isNotEmpty) {
+        await db.addPipelineEvent(
+          scanId,
+          'features',
+          featuresJson['status'] as String? ?? 'unknown',
+          message: jsonEncode(featuresJson),
+        );
+      }
+      final features = featuresJson['values'] as Map<String, dynamic>?;
+
       if (weightEligible) {
-        final features =
-            (envelope['features'] as Map<String, dynamic>?)?['values']
-                as Map<String, dynamic>?;
-        final note = weightJson['note'] as String?;
+        // ref_fix.md F22: the regressor is a gradient-boosted tree ensemble, so a feature
+        // vector past its trained max/min is answered from the edge leaf -- a real,
+        // pinned ceiling (measured empirically at ~182kg, floor ~83.5kg, ref_fix.md
+        // section 1.6), not a genuine interpolated estimate. No Drift schema change for
+        // this (ref_fix.md section 4): fold it into the same free-text note column the
+        // TEST OVERRIDE caveat already uses, rather than adding a column for a temporary
+        // caveat tied to the still-missing cutter.
+        final extrapolated = weightJson['extrapolated'] == true;
+        final extrapolatedFeatures =
+            (weightJson['extrapolated_features'] as List?)
+                ?.map((f) => f.toString())
+                .join(',') ??
+            '';
+        final note = [
+          weightJson['note'] as String?,
+          if (extrapolated)
+            'EXTRAPOLATED: feature(s) $extrapolatedFeatures past the trained range -- '
+                'this value is a model ceiling/floor, not an interpolated estimate.',
+        ].whereType<String>().join(' ');
         // TASKS.md W6: a successful weight result also stores the reference values that
         // produced it, so a stored scan can be re-derived later -- these three columns
         // existed unused since before this feature (app_database.dart's WeightResults).
@@ -196,15 +242,41 @@ class RunAndPersistPipelineUseCase {
           bl: (features?['BL'] as num?)?.toDouble(),
           bw: (features?['BW'] as num?)?.toDouble(),
           e: (features?['E'] as num?)?.toDouble(),
-          modelVersion: note == null
+          modelVersion: note.isEmpty
               ? kWeightModelVersion
               : '$kWeightModelVersion ($note)',
         );
       } else {
+        // ref_fix.md F6: a rejected weight branch still stores whatever feature vector was
+        // actually measured (null when the failure happened before feature extraction, e.g.
+        // no reference marked) -- so a stored-but-ineligible scan can be re-derived and
+        // audited exactly like a successful one.
+        await db.addPipelineEvent(
+          scanId,
+          'weight',
+          'unavailable',
+          message: jsonEncode(weightJson),
+        );
         await db.saveWeightResult(
           scanId: scanId,
           eligible: false,
-          failureReason: _weightFailureMessage(weightJson['reason'] as String?),
+          referenceLengthCm: annotation?.lengthCm,
+          referencePixelLength: annotation?.pixelLength,
+          cmPerPixel: cmPerPixel,
+          ra: (features?['RA'] as num?)?.toDouble(),
+          lc: (features?['LC'] as num?)?.toDouble(),
+          bl: (features?['BL'] as num?)?.toDouble(),
+          bw: (features?['BW'] as num?)?.toDouble(),
+          e: (features?['E'] as num?)?.toDouble(),
+          failureReason: _weightFailureMessage(
+            weightJson['reason'] as String?,
+            weightJson['reason'] == 'mask_implausibly_small'
+                ? _maskFractionDetail(weightJson)
+                : _domainFeatureDetail(
+                    features,
+                    weightJson['violations'] as List?,
+                  ),
+          ),
           modelVersion: kWeightModelVersion,
         );
       }
@@ -290,35 +362,120 @@ String _confidenceText(double confidence) =>
 
 /// Maps pipeline.cpp's `weight.reason` machine strings (pipeline.cpp's `unavailable()` /
 /// `skipped()` helpers) to the human-readable sentences the weight card has always shown.
-String _weightFailureMessage(String? reason) => switch (reason) {
-  'view_not_dorsal' =>
-    'Weight branch skipped: photo was not classified as a dorsal view.',
-  'view_unresolved' =>
-    'Weight branch unavailable: view classification did not resolve.',
-  'segmentation_failed' ||
-  'no_instance_above_conf' ||
-  'no_mask' ||
-  'empty_mask' =>
-    'Weight branch unavailable, and no pig was detected in this photo.',
-  'cutter_identity_stub' =>
-    'Weight branch unavailable in this build (cutter is the identity stub).',
-  'contour_too_small' || 'cutter_failed' =>
-    'Weight branch unavailable: feature extraction failed on this photo.',
-  // TASKS.md W5/W6: the reference-object scale is a §7 eligibility check, not just a
-  // display value -- these three reasons name why it failed rather than the generic
-  // cutter-stub message, which would be misleading here.
-  'scale_unavailable' || 'reference_object_not_confirmed' =>
-    'Mark a reference object to estimate weight.',
-  'scale_out_of_range' =>
-    'The reference object suggests a camera distance too far outside training range for a reliable estimate.',
-  'scale_resample_failed' =>
-    'Weight branch unavailable: could not normalize the mask using the reference object.',
-  // ref_fix.md F3: the normalized feature vector fell outside the range the regressor
-  // was actually trained on -- a mis-marked reference, a wrong cm_per_px_target, or a
-  // genuinely out-of-distribution animal will all land here rather than as a silent,
-  // extrapolated number.
-  'features_out_of_training_domain' =>
-    'Weight branch unavailable: the measurements from this photo and reference object are '
-        'outside the range this model was trained on. Re-check the reference object placement.',
-  _ => 'Weight branch unavailable in this build (cutter is the identity stub).',
-};
+/// `detail` (ref_fix.md F6) is pipeline.cpp's `domain_violations_detail` -- the raw
+/// "NAME=value " list of whichever RA/LC/BL/BW/E features fell outside the trained
+/// domain -- appended to the three domain-gate reasons so the message names exactly what
+/// was measured, not just that something was out of range.
+String _weightFailureMessage(String? reason, [String? detail]) {
+  // ref_fix.md F7: these three reasons are pipeline.cpp's classify_domain_violation()
+  // result -- which feature(s) actually violated the trained domain decides which message
+  // the user sees, since "re-check the reference object" is only correct advice for one of
+  // the three ways this gate can fire (ref_fix.md section 1.3).
+  const domainReasons = {
+    'mask_shape_out_of_domain',
+    'subject_smaller_than_trained',
+    'features_out_of_training_domain',
+    'mask_implausibly_small',
+  };
+  final base = switch (reason) {
+    'view_not_dorsal' =>
+      'Weight branch skipped: photo was not classified as a dorsal view.',
+    'view_unresolved' =>
+      'Weight branch unavailable: view classification did not resolve.',
+    'segmentation_failed' ||
+    'no_instance_above_conf' ||
+    'no_mask' ||
+    'empty_mask' =>
+      'Weight branch unavailable, and no pig was detected in this photo.',
+    'cutter_identity_stub' =>
+      'Weight branch unavailable in this build (cutter is the identity stub).',
+    'contour_too_small' || 'cutter_failed' =>
+      'Weight branch unavailable: feature extraction failed on this photo.',
+    // TASKS.md W5/W6: the reference-object scale is a §7 eligibility check, not just a
+    // display value -- these three reasons name why it failed rather than the generic
+    // cutter-stub message, which would be misleading here.
+    'scale_unavailable' || 'reference_object_not_confirmed' =>
+      'Mark a reference object to estimate weight.',
+    'scale_out_of_range' =>
+      'The reference object suggests a camera distance too far outside training range for a reliable estimate.',
+    'scale_resample_failed' =>
+      'Weight branch unavailable: could not normalize the mask using the reference object.',
+    // ref_fix.md F16: the constructed mask's bounding box is an implausibly small
+    // fraction of the photo -- not a scale or reference-object problem, the detected
+    // outline itself isn't big enough to be a pig (this is what F12's mask-selection bug
+    // produced before that fix: a real pig's mask reduced to a few dozen pixels).
+    'mask_implausibly_small' =>
+      'Weight branch unavailable: the pig outline could not be detected properly in this '
+          'photo -- only a small fragment was found. Retake the photo with the whole pig in frame.',
+    // ref_fix.md F7: only an E (shape) violation, with no size feature involved -- the
+    // mask itself is the wrong shape, not the reference object.
+    'mask_shape_out_of_domain' =>
+      "Weight branch unavailable: the detected outline doesn't look like a usable dorsal "
+          'pig mask. Retake the photo with the pig standing straight and fully in frame.',
+    // ref_fix.md F7: only size features violated, all below the trained minimum -- the
+    // regressor's eval set was 87-192kg pigs only, so a smaller subject is a genuine
+    // extrapolation, not a mis-marked reference.
+    'subject_smaller_than_trained' =>
+      'Weight branch unavailable: this pig measures smaller than any animal this model was '
+          'trained on (87-192kg). A weight estimate would be an extrapolation, so none is shown.',
+    // ref_fix.md F3: the normalized feature vector fell outside the range the regressor
+    // was actually trained on -- a mis-marked reference, a wrong cm_per_px_target, or a
+    // genuinely out-of-distribution animal will all land here rather than as a silent,
+    // extrapolated number.
+    'features_out_of_training_domain' =>
+      'Weight branch unavailable: the measurements from this photo and reference object are '
+          'outside the range this model was trained on. Re-check the reference object placement.',
+    // ref_fix.md F6: an unmapped reason is surfaced verbatim rather than disguised as the
+    // cutter-stub message, so a future reason pipeline.cpp adds shows up as "unhandled"
+    // instead of silently misattributed to a stub that isn't what actually happened.
+    _ => 'Weight branch unavailable (${reason ?? "unknown reason"}).',
+  };
+  if (domainReasons.contains(reason) &&
+      detail != null &&
+      detail.trim().isNotEmpty) {
+    return '$base (${detail.trim()})';
+  }
+  return base;
+}
+
+/// ref_fix.md F17: renders ALL FIVE of RA/LC/BL/BW/E, marking the ones pipeline.cpp's
+/// `violations` array named -- round 2 only listed the violating features, which is why an
+/// earlier report showed no `BW` and a later one showed no `E`: a value's ABSENCE from the
+/// message was silently indistinguishable from "this feature wasn't out of range" and "this
+/// feature wasn't measured at all", and it hid the single most diagnostic fact in one of
+/// ref_log.md's three samples -- a 14x3px sliver mask PASSED the `E` (eccentricity) check
+/// (a thin sliver scores HIGH on eccentricity, not low), so the omitted `E` value looked
+/// like confirmation nothing was wrong with the mask's shape rather than a check that
+/// simply can't catch a degenerate mask on its own (see F16, which catches it instead).
+/// `values` is `envelope['features']['values']` (null when the failure happened before
+/// feature extraction, e.g. no reference marked -- callers only invoke this for the
+/// domain-gate reasons, where it is always present). `violations` is
+/// `envelope['weight']['violations']`, pipeline.cpp's structured
+/// feature/value/allowed_min/allowed_max/direction list.
+String _domainFeatureDetail(
+  Map<String, dynamic>? values,
+  List<dynamic>? violations,
+) {
+  if (values == null || values.isEmpty) return '';
+  final violatingFeatures = <String>{
+    for (final v in violations ?? const [])
+      if (v is Map && v['feature'] is String) v['feature'] as String,
+  };
+  const order = ['RA', 'LC', 'BL', 'BW', 'E'];
+  final parts = order.map((name) {
+    final raw = values[name];
+    final text = raw is num ? raw.toStringAsFixed(4) : '?';
+    return violatingFeatures.contains(name) ? '$name=$text*' : '$name=$text';
+  });
+  return parts.join(' ');
+}
+
+/// ref_fix.md F16: renders the measured/required mask-diagonal fraction for a
+/// `mask_implausibly_small` rejection, e.g. "8% of frame diagonal, 15% required".
+String _maskFractionDetail(Map<String, dynamic> weightJson) {
+  final measured = (weightJson['mask_diagonal_fraction'] as num?)?.toDouble();
+  final required = (weightJson['min_required_fraction'] as num?)?.toDouble();
+  if (measured == null || required == null) return '';
+  return '${(measured * 100).toStringAsFixed(1)}% of frame diagonal, '
+      '${(required * 100).toStringAsFixed(0)}% required';
+}
