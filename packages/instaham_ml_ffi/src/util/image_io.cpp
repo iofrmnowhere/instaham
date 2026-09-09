@@ -10,6 +10,7 @@
 #include "third_party/stb/stb_image_resize2.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace instaham_ml {

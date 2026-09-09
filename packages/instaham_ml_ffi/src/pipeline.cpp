@@ -1,12 +1,17 @@
 #include "pipeline.h"
 
+#include <algorithm>
 #include <cmath>
+#include <map>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include "health_input.h"
 #include "stages/construction.h"
 #include "stages/cutter.h"
 #include "stages/feature_calculation.h"
+#include "stages/quality_gates.h"
 #include "stages/segmentation.h"
 #include "stages/weight_prediction.h"
 #include "third_party/nlohmann_json/single_include/nlohmann/json.hpp"
@@ -43,6 +48,18 @@ json skipped(const std::string& reason) { return json{{"status", "skipped"}, {"r
 constexpr double kMinValidHeightRatio = 0.25;
 constexpr double kMaxValidHeightRatio = 4.0;
 
+// docs/fix-phase-2/1-cutter-freeze.md F43: when scale_ok is false, mask_for_cutter falls
+// back to the raw captured-pixel mask (full capture resolution, e.g. 3000x4000) rather than
+// the training-normalized one. The scaled path above is bounded -- a resized mask's
+// geometric mean is height_ratio * training_scale, and with training_scale = sqrt(720*720)
+// = 720 and kMaxValidHeightRatio = 4.0, it cannot exceed about 2880x2880. This constant
+// applies that same bound to the unscaled fallback, so the vendor cutter (shrinking-ball,
+// Selle filter, terminal-trunk) never sees more pixels than it already handles on the
+// scaled path, without removing the provisional-debugging visibility the fallback exists
+// for (pipeline.cpp's cutter/features telemetry stays populated even with no reference
+// marked).
+constexpr int kUnscaledCutterMaxDimPx = 2880;
+
 // ref_fix.md F1: every scale-branch rejection carries its own reason so
 // envelope["weight"]["reason"] can name it exactly -- previously every rejection
 // collapsed to the single hardcoded "scale_unavailable", which told a user with a
@@ -57,19 +74,22 @@ std::string scale_user_message_key(const std::string& reason) {
   return "weight_needs_reference_object";
 }
 
-// ref_fix.md F8/F9: is `value` inside [domain.min * domain.lower_multiplier / uncertainty_pow,
-// domain.max * domain.upper_multiplier * uncertainty_pow]? domain.max <= 0.0 means the
-// manifest carried no data for this feature (an older export fragment) -- the gate is
-// disabled for that one feature rather than rejecting every prediction outright, since a
-// partial manifest is still better checked than not at all. `uncertainty_pow` folds in
+// ref_fix.md F8/F9, generalized by docs/plan-phase/3-manifest-pipeline.md: is `value`
+// inside [domain.min * domain.lower_multiplier / uncertainty_pow, domain.max *
+// domain.upper_multiplier * uncertainty_pow]? domain.max <= 0.0 means the manifest carried
+// no data for this feature (an older export fragment) -- the gate is disabled for that one
+// feature rather than rejecting every prediction outright, since a partial manifest is
+// still better checked than not at all. `uncertainty_pow` folds in
 // manifest.weight.cm_per_px_target_uncertainty raised to the power appropriate for this
-// feature's dimensionality (F9) -- 1.0 when the manifest declares no uncertainty, so an
-// older manifest behaves exactly as before. On failure, appends a structured entry to
-// *violations (feature/value/allowed_min/allowed_max/direction) and "<name>=<value> " to
-// *violations_detail, so both a machine-readable and a human-readable trail exist for
-// which feature(s) put the vector outside the trained domain (ref_fix.md F6).
+// feature's `dimension` (F9) -- 1.0 when the manifest declares no uncertainty, so an older
+// manifest behaves exactly as before. On failure, appends a structured entry to
+// *violations (feature/value/allowed_min/allowed_max/direction/dimension) and
+// "<name>=<value> " to *violations_detail, so both a machine-readable and a human-readable
+// trail exist for which feature(s) put the vector outside the trained domain (ref_fix.md
+// F6). `dimension` rides along on the violation entry so classify_domain_violation() below
+// can tell a shape violation from a size one without hardcoding a feature name.
 bool feature_in_domain(double value, const WeightCapability::FeatureDomain& domain,
-                        double uncertainty_pow, const char* name, json* violations,
+                        double uncertainty_pow, const std::string& name, json* violations,
                         std::string* violations_detail) {
   if (domain.max <= 0.0) return true;
   const double lower = domain.min * domain.lower_multiplier / uncertainty_pow;
@@ -82,35 +102,48 @@ bool feature_in_domain(double value, const WeightCapability::FeatureDomain& doma
         {"allowed_min", lower},
         {"allowed_max", upper},
         {"direction", direction},
+        {"dimension", domain.dimension},
     });
-    *violations_detail += std::string(name) + "=" + std::to_string(value) + " ";
+    *violations_detail += name + "=" + std::to_string(value) + " ";
     return false;
   }
   return true;
 }
 
-// ref_fix.md F7/F17: names WHY the vector fell outside the trained domain, so the message
-// the user sees matches the actual failure instead of always pointing at the reference
-// object. `E` is the one scale-invariant shape feature (eccentricity) -- a violation on it
-// means the mask itself is the wrong shape (curled pig, merged pen-mate, bad segmentation),
-// unrelated to the reference object.
+// docs/plan-phase/3-manifest-pipeline.md: the calibration-uncertainty widening exponent for
+// a feature's dimension -- area scales with k^2, a linear length with k^1, a dimensionless
+// ratio/angle/moment not at all. `dimension` is data from the manifest (ML/export/
+// export_xgboost.py's per-family feature-meta tables), not a compiled-in table.
+double uncertainty_exponent(const std::string& dimension) {
+  if (dimension == "area") return 2.0;
+  if (dimension == "linear") return 1.0;
+  return 0.0;  // "dimensionless"
+}
+
+// ref_fix.md F7/F17, generalized by docs/plan-phase/3-manifest-pipeline.md: names WHY the
+// vector fell outside the trained domain, so the message the user sees matches the actual
+// failure instead of always pointing at the reference object. A `dimensionless` feature
+// (baseline5's `E`/eccentricity; chen16_noheight gates none, since "Do not gate on all
+// sixteen" keeps every dimensionless chen16 feature diagnostic-only) is scale-invariant, so
+// a violation on it means the mask itself is the wrong shape (curled pig, merged pen-mate,
+// bad segmentation), unrelated to the reference object.
 //
-// ref_fix.md F17 (round 3): ANY `E` violation now routes to `mask_shape_out_of_domain`,
-// full stop, even when size features also violated -- round 2 required E to violate ALONE,
-// which routed a real 118kg sample (E passing alongside failing RA/LC/BL) to the
-// reference-object message. A broken mask drags the size features off as a SIDE EFFECT of
-// being the wrong shape; the shape violation is the cause, not a co-symptom to be
-// outvoted. A violation on only the SIZE features (RA/LC/BL/BW), all on the low side and
-// with E intact, means the subject is smaller than anything the regressor's 87-192kg eval
-// set contained. Anything else (E intact, a size feature running high) keeps the original
-// reason, since a high size violation is the one case a mis-marked or mis-scaled reference
-// object plausibly explains.
+// ref_fix.md F17 (round 3): ANY dimensionless-feature violation now routes to
+// `mask_shape_out_of_domain`, full stop, even when size features also violated -- round 2
+// required it to violate ALONE, which routed a real 118kg sample (E passing alongside
+// failing RA/LC/BL) to the reference-object message. A broken mask drags the size features
+// off as a SIDE EFFECT of being the wrong shape; the shape violation is the cause, not a
+// co-symptom to be outvoted. A violation on only the size features (area/linear), all on
+// the low side and with every dimensionless feature intact, means the subject is smaller
+// than anything the regressor's eval set contained. Anything else (shape features intact, a
+// size feature running high) keeps the original reason, since a high size violation is the
+// one case a mis-marked or mis-scaled reference object plausibly explains.
 std::string classify_domain_violation(const json& violations) {
   bool any_shape = false;
   bool any_size = false;
   bool all_size_low = true;
   for (const auto& v : violations) {
-    if (v.value("feature", "") == "E") {
+    if (v.value("dimension", "") == "dimensionless") {
       any_shape = true;
     } else {
       any_size = true;
@@ -150,6 +183,75 @@ double mask_diagonal_fraction(const stages::PigMask& mask) {
 bool feature_extrapolated(double value, const WeightCapability::FeatureDomain& domain) {
   if (domain.max <= 0.0) return false;
   return !std::isfinite(value) || value < domain.min || value > domain.max;
+}
+
+// docs/plan-phase/3-manifest-pipeline.md: the five/sixteen-wide feature vector as an
+// ordered name->value map, so the eligibility gate and the envelope can both walk
+// `manifest.weight.feature_order` generically instead of five hardcoded field accesses.
+std::map<std::string, double> baseline5_values(const stages::FiveFeatures& f) {
+  return {{"RA", f.ra}, {"LC", f.lc}, {"BL", f.bl}, {"BW", f.bw}, {"E", f.e}};
+}
+
+std::map<std::string, double> chen16_values(const std::vector<std::string>& order,
+                                             const stages::Chen16Features& f) {
+  std::map<std::string, double> out;
+  for (size_t i = 0; i < order.size() && i < f.values.size(); ++i) {
+    out[order[i]] = f.values[i];
+  }
+  return out;
+}
+
+// `feature_order`-ordered vector<float>, exactly what predict_weight's ONNX graph expects
+// (shape {1, N}). Missing entries (should not happen once feature_order and the values map
+// agree) become 0.0f rather than throwing, since a malformed manifest is caught earlier at
+// load_manifest() -- this is not the place to newly introduce a crash.
+std::vector<float> ordered_feature_vector(const std::vector<std::string>& order,
+                                           const std::map<std::string, double>& values) {
+  std::vector<float> out;
+  out.reserve(order.size());
+  for (const auto& name : order) {
+    auto it = values.find(name);
+    out.push_back(static_cast<float>(it != values.end() ? it->second : 0.0));
+  }
+  return out;
+}
+
+// docs/plan-phase/3-manifest-pipeline.md, "The domain gate becomes a loop": runs
+// feature_in_domain() for every GATED feature in `feature_order` (docs' "Do not gate on all
+// sixteen" -- a feature whose manifest entry declares `gate: false` is diagnostic-only and
+// never enforced here), widening each by `uncertainty` raised to its own dimension's
+// exponent. Every feature is checked and every violation recorded -- ok is computed before
+// being folded into the running result, so nothing here short-circuits past a later
+// violation the way `&&` on the whole expression would.
+bool run_feature_domain_gate(const std::vector<std::string>& feature_order,
+                              const std::map<std::string, WeightCapability::FeatureDomain>& domains,
+                              const std::map<std::string, double>& values, double uncertainty,
+                              json* violations, std::string* violations_detail) {
+  bool in_domain = true;
+  for (const auto& name : feature_order) {
+    auto domain_it = domains.find(name);
+    if (domain_it == domains.end() || !domain_it->second.gate) continue;
+    const double uncertainty_pow = std::pow(uncertainty, uncertainty_exponent(domain_it->second.dimension));
+    const bool ok = feature_in_domain(values.at(name), domain_it->second, uncertainty_pow, name,
+                                       violations, violations_detail);
+    in_domain = in_domain && ok;
+  }
+  return in_domain;
+}
+
+// ref_fix.md F22, generalized: which GATED features (the ones a regressor could plausibly
+// have "pinned" at an edge leaf, matching run_feature_domain_gate's own eligibility set)
+// fell outside the regressor's raw trained [min, max], unwidened by any multiplier.
+json extrapolated_feature_names(const std::vector<std::string>& feature_order,
+                                 const std::map<std::string, WeightCapability::FeatureDomain>& domains,
+                                 const std::map<std::string, double>& values) {
+  json out = json::array();
+  for (const auto& name : feature_order) {
+    auto domain_it = domains.find(name);
+    if (domain_it == domains.end() || !domain_it->second.gate) continue;
+    if (feature_extrapolated(values.at(name), domain_it->second)) out.push_back(name);
+  }
+  return out;
 }
 
 }  // namespace
@@ -444,7 +546,7 @@ bool run_pipeline(const PipelineRunners& runners, const Manifest& manifest,
     envelope["scale"] = skipped(scale_failure_reason);
   }
 
-  // ---- stage 3 + 4: cutter (identity dummy, section 3.4), feature calculation ----
+  // ---- stage 3 + 4: cutter (real V176/V144 port, phase 2), feature calculation ----
   // Weight predicts only when BOTH the manifest opts in (test override) AND a valid scale
   // was established above -- AGENTS.md rule 3/8: every eligibility check must pass, and a
   // missing/invalid reference degrades this branch, it never falls back to unscaled pixels.
@@ -452,25 +554,32 @@ bool run_pipeline(const PipelineRunners& runners, const Manifest& manifest,
     // Test override (ML/export/export_xgboost.py --enable-for-testing): only reachable
     // when the manifest deliberately sets weight.available true. AGENTS.md rule 8 stays
     // satisfied -- this is a real prediction from the runner, labelled with the same
-    // uncut-mask caveat instaham_ml_predict_weight_json carries, never a fabricated value.
+    // provisional-calibration caveat instaham_ml_predict_weight_json carries, never a
+    // fabricated value.
     const bool weight_override = manifest.weight.available && runners.weight;
+    const std::string& feature_family = manifest.weight.feature_family;
+    // docs/plan-phase/3-manifest-pipeline.md open question 1: weight.available stays
+    // gated -- not on the cutter (real since phase 2) but on phase 5's field
+    // re-derivation of cm_per_px_target from post-cut masks. "cutter_identity_stub" would
+    // now be a false statement; this reason names what is actually still pending.
     json weight_unavailable_json = json{
         {"status", "unavailable"},
-        {"reason", "cutter_identity_stub"},
-        {"user_message_key", "weight_unavailable_cutter_not_implemented"},
+        {"reason", "weight_pending_field_validation"},
+        {"user_message_key", "weight_unavailable_pending_field_validation"},
         {"capture_contract",
          {{"feature_space", "fixed_camera_pixels"},
-          {"training_camera_height_m", 1.88},
-          {"camera_height_is_xgboost_feature", false}}},
+          {"training_camera_height_m", manifest.weight.training_camera_height_m},
+          {"camera_height_is_xgboost_feature", manifest.weight.camera_height_is_xgboost_feature}}},
     };
 
     // ref_fix.md F16: refuse a mask whose bounding-box diagonal is an implausibly small
     // fraction of the image's own diagonal BEFORE running the cutter/feature/domain
     // stages on it at all -- a mask this small isn't a pig (F12's bug produced 64x39 and
-    // 14x3 px masks against a 2250x3000 frame), and the F3 domain gate's `E` check alone
-    // does not catch it: a thin sliver scores HIGH on eccentricity, not low (ref_fix.md
-    // section 3, F17). Measured on the RAW captured mask, before scale normalization --
-    // resampling by k changes absolute size, not the mask's proportion of its own frame.
+    // 14x3 px masks against a 2250x3000 frame), and a dimensionless shape feature's domain
+    // check alone does not catch it: a thin sliver scores as an extreme shape, not
+    // necessarily an out-of-domain one (ref_fix.md section 3, F17). Measured on the RAW
+    // captured mask, before scale normalization -- resampling by k changes absolute size,
+    // not the mask's proportion of its own frame.
     const double mask_diag_fraction = mask_diagonal_fraction(pig_mask);
 
     if (mask_diag_fraction < manifest.weight.min_mask_diagonal_fraction) {
@@ -489,11 +598,72 @@ bool run_pipeline(const PipelineRunners& runners, const Manifest& manifest,
       return true;
     }
 
+    // docs/plan-phase/3-manifest-pipeline.md, "The quality gates get a manifest switch":
+    // both ported (phase 2) gates run on the WHOLE mask in original capture coordinates,
+    // before Ji/Duan and before any scale-to-training-space resampling
+    // (README_AI_INTEGRATION.md's coordinate constraint) -- ship dark (both manifest flags
+    // default false in the shipped manifest) until phase 5 measures their real on-device
+    // rejection rate. Truncation is checked first and names the rejection reason when both
+    // gates reject, simply because it runs first here -- no other precedence is implied.
+    {
+      const stages::MaskView whole_mask_view{pig_mask.pixels.data(), pig_mask.width,
+                                              pig_mask.height};
+      json quality_gates_json = json::object();
+      bool quality_gate_rejected = false;
+      std::string quality_gate_reason;
+
+      if (manifest.weight.quality_gate_truncation) {
+        stages::TruncationGateResult trunc = stages::run_truncation_gate(whole_mask_view);
+        quality_gates_json["truncation"] = json{
+            {"status", trunc.valid ? "ok" : "analysis_failed"},
+            {"reject", trunc.reject},
+            {"candidate_strength", trunc.candidate_strength},
+        };
+        if (trunc.reject) {
+          quality_gate_rejected = true;
+          quality_gate_reason = "truncation_gate_rejected";
+        }
+      }
+      if (manifest.weight.quality_gate_posture) {
+        stages::PostureGateResult posture = stages::run_posture_gate(
+            whole_mask_view, manifest.weight.quality_gate_posture_max_bend_deg);
+        quality_gates_json["posture"] = json{
+            {"status", posture.valid ? "ok" : "analysis_failed"},
+            {"reject", posture.reject},
+            {"body_curve_deg", posture.body_curve_deg},
+            {"bend_deg", posture.bend_deg},
+            {"max_bend_deg", manifest.weight.quality_gate_posture_max_bend_deg},
+        };
+        if (posture.reject && !quality_gate_rejected) {
+          quality_gate_rejected = true;
+          quality_gate_reason = "posture_gate_rejected";
+        }
+      }
+      if (!quality_gates_json.empty()) envelope["quality_gates"] = quality_gates_json;
+
+      if (quality_gate_rejected) {
+        envelope["cutter"] = skipped(quality_gate_reason);
+        envelope["features"] = skipped(quality_gate_reason);
+        json quality_gate_rejected_json = json{
+            {"status", "unavailable"},
+            {"reason", quality_gate_reason},
+            {"user_message_key", quality_gate_reason == "truncation_gate_rejected"
+                                      ? "weight_truncation_gate_rejected"
+                                      : "weight_posture_gate_rejected"},
+        };
+        envelope["weight"] =
+            weight_override ? quality_gate_rejected_json : weight_unavailable_json;
+        envelope["status"] = "ok";
+        *out_json = envelope.dump();
+        return true;
+      }
+    }
+
     // Cut and measure on the training-normalized mask when a scale is available, so the
-    // cutter's (currently dummy, eventually real) pixel-space thresholds and the RA
-    // denominator both operate on the space the regressor was trained in (TASKS.md
-    // section 3.3, Option B). Falls back to the raw captured-pixel mask, unscaled, only to
-    // keep provisional debugging features visible when no reference was marked.
+    // cutter's pixel-space thresholds and the RA denominator both operate on the space the
+    // regressor was trained in (TASKS.md section 3.3, Option B). Falls back to the raw
+    // captured-pixel mask, unscaled, only to keep provisional debugging features visible
+    // when no reference was marked.
     stages::PigMask scaled_mask;
     const stages::PigMask* mask_for_cutter = &pig_mask;
     if (scale_ok) {
@@ -506,17 +676,48 @@ bool run_pipeline(const PipelineRunners& runners, const Manifest& manifest,
         envelope["scale"] = json{{"status", "unavailable"}, {"reason", scale_failure_reason}};
       }
     }
+    if (!scale_ok) {
+      // F43: bound the unscaled fallback to the same pixel budget the scaled path already
+      // guarantees, so a full-capture-resolution mask never reaches the cutter.
+      const int longest_dim = std::max(mask_for_cutter->width, mask_for_cutter->height);
+      if (longest_dim > kUnscaledCutterMaxDimPx) {
+        const double cap_k = double(kUnscaledCutterMaxDimPx) / double(longest_dim);
+        stages::PigMask capped = stages::scale_mask_to_training_space(pig_mask, cap_k);
+        if (!capped.empty()) {
+          scaled_mask = std::move(capped);
+          mask_for_cutter = &scaled_mask;
+        }
+        // If capping itself fails, mask_for_cutter stays on the uncapped pig_mask -- the
+        // cutter's own try/catch guards (and F44's, now) still bound the failure to a
+        // decline rather than a crash, so this is a size-reduction best-effort, not a
+        // second eligibility gate.
+      }
+    }
 
     stages::MaskView mask_view{mask_for_cutter->pixels.data(), mask_for_cutter->width,
                                 mask_for_cutter->height};
     stages::CutterResult cutter_result = stages::cut_body_mask(mask_view);
 
+    // docs/plan-phase/3-manifest-pipeline.md, "kept_fraction is ours, not the vendor's":
+    // pre_cut_area/post_cut_area computed here in the app's own adapter, telemetry only,
+    // never a gate -- VALIDATION.md states the V144 cutter itself does not compute or
+    // return a kept-area fraction, and that omission is deliberate and kept. `mask_for_
+    // cutter->area_px` is the pixel count of the SAME mask handed to the cutter (whichever
+    // of pig_mask/scaled_mask that was), so this is comparable across a scaled or unscaled
+    // run.
+    const long long post_cut_area = std::count(cutter_result.mask.begin(),
+                                                cutter_result.mask.end(), uint8_t(1));
+    const double kept_fraction = mask_for_cutter->area_px > 0
+                                      ? double(post_cut_area) / double(mask_for_cutter->area_px)
+                                      : 0.0;
     envelope["cutter"] = json{
         {"status", cutter_result.status},
         {"head_removal_applied", cutter_result.head_removal_applied},
-        {"pair_valid", false},
-        {"protocol_version", "ji_duan_residual_06q_v9_headfit_exact_twotangent_v26"},
-        {"protocol_implemented", false},
+        {"protocol_version",
+         "v176_strict_nonprimary_break1_region_meet_v144_fixed_center_bilateral_circle_v1"},
+        {"protocol_implemented", true},
+        {"kept_fraction", kept_fraction},
+        {"removed_fraction", 1.0 - kept_fraction},
     };
 
     // ref_fix.md F1: the reason here is the SAME one already recorded on envelope["scale"]
@@ -532,52 +733,83 @@ bool run_pipeline(const PipelineRunners& runners, const Manifest& manifest,
     };
 
     if (cutter_result.ok()) {
-      // scale_ok -> the mask cut above is already in training pixels, so linear_scale
-      // stays 1.0 and RA's denominator is the manifest's training frame. Without a scale,
-      // this reproduces the pre-W5 provisional-debug values exactly (mask's own w/h, no
-      // frame override) -- never mistakeable for weight input given the label below.
-      auto feats = stages::extract_five_features(
-          cutter_result.mask, cutter_result.width, cutter_result.height, 1.0,
-          /*preserve_processed_mask=*/true,
-          scale_ok ? manifest.weight.training_frame_w : 0,
-          scale_ok ? manifest.weight.training_frame_h : 0);
-      if (feats) {
+      // docs/plan-phase/3-manifest-pipeline.md, "Select extract_five_features vs
+      // extract_chen16_features on feature_family" -- chen16_noheight measures raw pixel
+      // counts on the final cut mask (no ra_frame_w/h-style normalization: see
+      // feature_calculation.h), while baseline5 keeps the training-frame normalization
+      // scale_ok enables. scale_ok -> the mask cut above is already in training pixels, so
+      // linear_scale stays 1.0 and RA's denominator is the manifest's training frame.
+      // Without a scale, baseline5 reproduces the pre-W5 provisional-debug values exactly
+      // (mask's own w/h, no frame override) -- never mistakeable for weight input given the
+      // label below.
+      std::map<std::string, double> feature_values;
+      bool features_ok = false;
+      std::string features_error;
+      if (feature_family == "chen16_noheight") {
+        auto feats = stages::extract_chen16_features(cutter_result.mask, cutter_result.width,
+                                                       cutter_result.height);
+        if (feats && feats->valid) {
+          feature_values = chen16_values(manifest.weight.feature_order, *feats);
+          features_ok = true;
+        } else {
+          features_error = "contour_too_small";
+        }
+      } else {
+        auto feats = stages::extract_five_features(
+            cutter_result.mask, cutter_result.width, cutter_result.height, 1.0,
+            /*preserve_processed_mask=*/true,
+            scale_ok ? manifest.weight.training_frame_w : 0,
+            scale_ok ? manifest.weight.training_frame_h : 0);
+        if (feats) {
+          feature_values = baseline5_values(*feats);
+          features_ok = true;
+        } else {
+          features_error = "contour_too_small";
+        }
+      }
+
+      if (features_ok) {
+        json values_json = json::object();
+        for (const auto& name : manifest.weight.feature_order) {
+          values_json[name] = feature_values.at(name);
+        }
+        // docs/plan-phase/4-dart-persistence-ui.md: the Dart rejection renderer shows the
+        // GATED features only ("Do not gate on all sixteen") and must be driven by the
+        // envelope, not a second hardcoded feature list. A feature is gated exactly when
+        // pipeline.cpp's own domain gate would check it: FeatureDomain.gate && max > 0.
+        json gated_json = json::array();
+        for (const auto& name : manifest.weight.feature_order) {
+          auto it = manifest.weight.feature_domain.find(name);
+          if (it != manifest.weight.feature_domain.end() && it->second.gate &&
+              it->second.max > 0.0) {
+            gated_json.push_back(name);
+          }
+        }
         envelope["features"] = json{
             {"status", "provisional"},
-            {"family", "baseline5"},
-            {"order", {"RA", "LC", "BL", "BW", "E"}},
-            {"values",
-             {{"RA", feats->ra}, {"LC", feats->lc}, {"BL", feats->bl}, {"BW", feats->bw},
-              {"E", feats->e}}},
+            {"family", feature_family},
+            {"order", manifest.weight.feature_order},
+            {"gated", gated_json},
+            {"values", values_json},
             {"measured_on", scale_ok ? "training_normalized_mask" : "uncut_mask_unnormalized"},
         };
         if (weight_override && scale_ok) {
-          // ref_fix.md F3/F9: gate on whether the trained regressor has ever seen anything
-          // like this normalized feature vector -- the principled check the resolution-
-          // blind k-range bound (fixed in F2) was only ever a proxy for. Runs AFTER
-          // normalization, so it is checking the same space the manifest's feature_domain
-          // values were measured in. `uncertainty` widens the SIZE features' bounds by the
-          // manifest's own declared cm_per_px_target calibration uncertainty (clamped >=
-          // 1.0 at load time) so the gate is never stricter than the calibration it rests
-          // on: RA is an area ratio so it widens by uncertainty^2, LC/BL/BW are lengths so
-          // they widen by uncertainty^1, and E (scale-invariant) is untouched.
+          // ref_fix.md F3/F9, generalized: gate on whether the trained regressor has ever
+          // seen anything like this normalized feature vector -- the principled check the
+          // resolution-blind k-range bound (fixed in F2) was only ever a proxy for. Runs
+          // AFTER normalization, so it is checking the same space the manifest's
+          // feature_domain values were measured in. `uncertainty` widens each GATED
+          // feature's bounds by the manifest's own declared cm_per_px_target calibration
+          // uncertainty (clamped >= 1.0 at load time), raised to that feature's own
+          // dimension exponent, so the gate is never stricter than the calibration it rests
+          // on. Only gated features (area/linear -- "Do not gate on all sixteen") are
+          // checked; every dimensionless feature is diagnostic-only.
           const double uncertainty = manifest.weight.cm_per_px_target_uncertainty;
           json domain_violations = json::array();
           std::string domain_violations_detail;
-          // Bitwise `&`, deliberately, not `&&` -- every feature is checked and every
-          // violation appended to domain_violations, rather than short-circuiting after
-          // the first one and hiding whether other features were also out of range.
-          const bool in_domain =
-              feature_in_domain(feats->ra, manifest.weight.domain_ra, uncertainty * uncertainty,
-                                 "RA", &domain_violations, &domain_violations_detail) &
-              feature_in_domain(feats->lc, manifest.weight.domain_lc, uncertainty, "LC",
-                                 &domain_violations, &domain_violations_detail) &
-              feature_in_domain(feats->bl, manifest.weight.domain_bl, uncertainty, "BL",
-                                 &domain_violations, &domain_violations_detail) &
-              feature_in_domain(feats->bw, manifest.weight.domain_bw, uncertainty, "BW",
-                                 &domain_violations, &domain_violations_detail) &
-              feature_in_domain(feats->e, manifest.weight.domain_e, 1.0, "E", &domain_violations,
-                                 &domain_violations_detail);
+          const bool in_domain = run_feature_domain_gate(
+              manifest.weight.feature_order, manifest.weight.feature_domain, feature_values,
+              uncertainty, &domain_violations, &domain_violations_detail);
           if (!in_domain) {
             // ref_fix.md F7: name WHY, not just THAT, the vector fell outside the domain.
             const std::string reason = classify_domain_violation(domain_violations);
@@ -589,37 +821,30 @@ bool run_pipeline(const PipelineRunners& runners, const Manifest& manifest,
                 {"violations", domain_violations},
             };
           } else {
-            auto weight = stages::predict_weight(runners.weight, *feats);
+            const std::vector<float> feature_vector =
+                ordered_feature_vector(manifest.weight.feature_order, feature_values);
+            auto weight = stages::predict_weight(runners.weight, feature_vector);
             if (weight.ok) {
-              // ref_fix.md F22: check the UNWIDENED trained [min, max] -- the domain gate
-              // above already passed the widened bounds (needed to admit an uncut mask at
-              // all), but a gradient-boosted regressor cannot extrapolate past what it was
-              // actually trained on: a vector past the raw max is answered from the edge
-              // leaf, a real, silent ceiling measured at ref_fix.md section 1.6. Surface
-              // it rather than presenting a saturated value with the same confidence as an
-              // interpolated one.
-              json extrapolated_features = json::array();
-              if (feature_extrapolated(feats->ra, manifest.weight.domain_ra)) {
-                extrapolated_features.push_back("RA");
-              }
-              if (feature_extrapolated(feats->lc, manifest.weight.domain_lc)) {
-                extrapolated_features.push_back("LC");
-              }
-              if (feature_extrapolated(feats->bl, manifest.weight.domain_bl)) {
-                extrapolated_features.push_back("BL");
-              }
-              if (feature_extrapolated(feats->bw, manifest.weight.domain_bw)) {
-                extrapolated_features.push_back("BW");
-              }
+              // ref_fix.md F22, generalized: check the UNWIDENED trained [min, max] on
+              // every GATED feature -- the domain gate above already passed the widened
+              // bounds, but a gradient-boosted regressor cannot extrapolate past what it
+              // was actually trained on: a vector past the raw max is answered from the
+              // edge leaf, a real, silent ceiling measured at ref_fix.md section 1.6.
+              // Surface it rather than presenting a saturated value with the same
+              // confidence as an interpolated one.
+              json extrapolated_features = extrapolated_feature_names(
+                  manifest.weight.feature_order, manifest.weight.feature_domain,
+                  feature_values);
               envelope["weight"] = json{
                   {"status", "ok"},
                   {"estimated_kg", weight.weight_kg},
-                  {"protocol_implemented", false},
+                  {"protocol_implemented", true},
                   {"extrapolated", !extrapolated_features.empty()},
                   {"extrapolated_features", extrapolated_features},
                   {"note",
-                   "TEST OVERRIDE: cutter is the identity stub (head/neck not removed); "
-                   "estimated_kg overestimates the research protocol's number."},
+                   "TEST OVERRIDE: weight.available is a manual flag for on-device "
+                   "verification -- cm_per_px_target and its calibration uncertainty are "
+                   "not yet field-validated (phase 5); treat estimated_kg as provisional."},
                   {"capture_contract",
                    {{"feature_space", "fixed_camera_pixels"},
                     {"training_camera_height_m", manifest.weight.training_camera_height_m},
@@ -636,9 +861,9 @@ bool run_pipeline(const PipelineRunners& runners, const Manifest& manifest,
           envelope["weight"] = weight_unavailable_json;
         }
       } else {
-        envelope["features"] = json{{"status", "error"}, {"reason", "contour_too_small"}};
+        envelope["features"] = json{{"status", "error"}, {"reason", features_error}};
         envelope["weight"] = weight_override
-                                  ? json{{"status", "error"}, {"reason", "contour_too_small"}}
+                                  ? json{{"status", "error"}, {"reason", features_error}}
                                   : weight_unavailable_json;
       }
     } else {

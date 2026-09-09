@@ -1,6 +1,7 @@
 # ADR-001: The cutter stays a C++ identity stub
 
-Status: Accepted
+Status: Superseded by [009](009-cutter-ported-after-all.md) — the cutter was ported to C++ and
+now runs on every dorsal scan. The Chaquopy rejection below still stands.
 
 Context: The research weight protocol removes the head and neck from the segmentation mask
 before measuring features (`ML/pipeline/cutter.py`, `isolate_body_only_mask`). That code is

@@ -1,4 +1,5 @@
-// Service for loading and running the view-suitability GhostNetV3 1.0x model.
+// Service for loading and running the view-suitability MobileNetV4-Conv-Small model
+// (docs/plan.md, 2026-09; replaced GhostNetV3 1.0x).
 // Classes are loaded from classes.json — never hardcoded (AGENTS.md rule 1).
 // Input: 224x224 center-crop, ImageNet normalized. See ML_implementation_plan.md section 2.1.
 import 'ml_runtime.dart';

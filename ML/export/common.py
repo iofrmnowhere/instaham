@@ -17,6 +17,20 @@ MANIFEST_SCHEMA_VERSION = 1
 # The one true weight feature order (AGENTS.md rule 2). Never reorder.
 BASELINE5 = ["RA", "LC", "BL", "BW", "E"]
 
+# The chen16_noheight feature order — the shipped weight regressor as of the Chen16 swap.
+# This is now the canonical order AGENTS.md rule 2 refers to; BASELINE5 is kept only for
+# the rollback export path. Never reorder either list.
+CHEN16_NOHEIGHT = [
+    "mask_area", "convex_hull_area", "difference", "dif_mask", "body_curve", "perimeter",
+    "outline_curve", "longest", "shortest",
+    "Hu_1", "Hu_2", "Hu_3", "Hu_4", "Hu_5", "Hu_6", "Hu_7",
+]
+
+FEATURE_FAMILIES = {
+    "baseline5": BASELINE5,
+    "chen16_noheight": CHEN16_NOHEIGHT,
+}
+
 
 def sha256_file(path: str | Path) -> str:
     h = hashlib.sha256()

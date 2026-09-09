@@ -42,6 +42,53 @@ bool verify_hash(const std::string& abs_path, const std::string& expected, std::
   return true;
 }
 
+// docs/plan-phase/3-manifest-pipeline.md: the canonical feature order per family, kept in
+// C++ (not just trusted from the manifest) because the manifest is an asset that can be
+// swapped without a rebuild -- the native side must still refuse a vector whose order does
+// not match the graph it is about to run. Mirrors ML/export/common.py's FEATURE_FAMILIES.
+const std::vector<std::string>& baseline5_order() {
+  static const std::vector<std::string> kOrder = {"RA", "LC", "BL", "BW", "E"};
+  return kOrder;
+}
+const std::vector<std::string>& chen16_noheight_order() {
+  static const std::vector<std::string> kOrder = {
+      "mask_area", "convex_hull_area", "difference", "dif_mask",   "body_curve",
+      "perimeter", "outline_curve",    "longest",    "shortest",   "Hu_1",
+      "Hu_2",      "Hu_3",             "Hu_4",       "Hu_5",       "Hu_6",
+      "Hu_7"};
+  return kOrder;
+}
+// Returns nullptr for an unrecognised family -- load_weight() turns that into a load failure
+// rather than silently accepting an arbitrary order.
+const std::vector<std::string>* canonical_order_for_family(const std::string& family) {
+  if (family == "baseline5") return &baseline5_order();
+  if (family == "chen16_noheight") return &chen16_noheight_order();
+  return nullptr;
+}
+
+// Fallback `dimension` for a manifest fragment predating this field entirely (no
+// "dimension" key anywhere under feature_domain). Every manifest ML/export/export_xgboost.py
+// writes from here on emits `dimension` explicitly per entry (it is data, not a compiled-in
+// table -- docs/plan-phase/3-manifest-pipeline.md), so this only exists to make a
+// pre-phase-3 baseline5 fragment gate exactly as it always did: RA as an area, LC/BL/BW as
+// lengths, E (eccentricity, scale-invariant) as dimensionless -- mirroring
+// ML/export/export_xgboost.py's _BASELINE5_FEATURE_META/_CHEN16_FEATURE_META tables.
+std::string default_dimension_for(const std::string& family, const std::string& name) {
+  if (family == "baseline5") {
+    if (name == "RA") return "area";
+    if (name == "E") return "dimensionless";
+    return "linear";  // LC, BL, BW
+  }
+  if (family == "chen16_noheight") {
+    if (name == "mask_area" || name == "convex_hull_area" || name == "difference") {
+      return "area";
+    }
+    if (name == "perimeter" || name == "longest" || name == "shortest") return "linear";
+    return "dimensionless";  // dif_mask, body_curve, outline_curve, Hu_1..Hu_7
+  }
+  return "linear";
+}
+
 bool load_class_names(const std::string& path, std::vector<std::string>* out, std::string* error) {
   std::ifstream f(path);
   if (!f) {
@@ -214,15 +261,28 @@ bool load_weight(const json& j, const std::string& base_dir, WeightCapability* o
   out->min_mask_diagonal_fraction =
       cap.value("min_mask_diagonal_fraction", out->min_mask_diagonal_fraction);
 
+  // docs/plan-phase/3-manifest-pipeline.md: absent on an older manifest fragment -- defaults
+  // to "baseline5", the only family that ever shipped before this field existed, so a
+  // pre-phase-3 manifest fragment validates exactly as it always did.
+  out->feature_family = cap.value("feature_family", std::string("baseline5"));
+  const std::vector<std::string>* canonical = canonical_order_for_family(out->feature_family);
+  if (!canonical) {
+    *error = "weight: unknown feature_family '" + out->feature_family + "'";
+    *error_code_out = INSTAHAM_ML_ERR_CONTRACT;
+    return false;
+  }
+
   if (cap.contains("feature_extractor") && cap["feature_extractor"].contains("names")) {
     for (const auto& name : cap["feature_extractor"]["names"]) {
       out->feature_order.push_back(name.get<std::string>());
     }
   }
-  // AGENTS.md rule 2: the order the regressor was trained/exported on is non-negotiable.
-  static const std::vector<std::string> kExpectedOrder = {"RA", "LC", "BL", "BW", "E"};
-  if (out->feature_order != kExpectedOrder) {
-    *error = "weight: feature_extractor.names must be exactly [RA,LC,BL,BW,E]";
+  // AGENTS.md rule 2: the order the regressor was trained/exported on is non-negotiable --
+  // now validated structurally (family known, order equals that family's canonical list)
+  // rather than against a single hardcoded name list, since feature_order is arbitrary width.
+  if (out->feature_order != *canonical) {
+    *error = "weight: feature_extractor.names must be exactly the " + out->feature_family +
+             " order";
     *error_code_out = INSTAHAM_ML_ERR_CONTRACT;
     return false;
   }
@@ -258,26 +318,44 @@ bool load_weight(const json& j, const std::string& base_dir, WeightCapability* o
     return false;
   }
 
-  // ref_fix.md F3: feature_domain is optional (a manifest without it simply skips the
-  // gate at pipeline.cpp -- FeatureDomain's all-default max == 0.0 disables it per
-  // manifest.h's comment), so no load_manifest failure here even when absent.
+  // ref_fix.md F3, generalized by docs/plan-phase/3-manifest-pipeline.md: feature_domain is
+  // optional (a manifest without it simply skips the gate at pipeline.cpp -- FeatureDomain's
+  // all-default max == 0.0 disables it per manifest.h's comment), so no load_manifest
+  // failure here even when absent. Keyed by feature name now that feature_order is
+  // arbitrary width, rather than five named struct members.
   if (cap.contains("feature_domain")) {
-    const json& domains = cap["feature_domain"];
-    auto load_domain = [&domains](const char* key, WeightCapability::FeatureDomain* out_domain) {
-      if (!domains.contains(key)) return;
-      const json& d = domains[key];
-      out_domain->min = d.value("min", 0.0);
-      out_domain->max = d.value("max", 0.0);
-      out_domain->upper_multiplier = d.value("upper_multiplier", 1.0);
+    for (const auto& [name, d] : cap["feature_domain"].items()) {
+      WeightCapability::FeatureDomain domain;
+      domain.min = d.value("min", 0.0);
+      domain.max = d.value("max", 0.0);
+      domain.upper_multiplier = d.value("upper_multiplier", 1.0);
       // ref_fix.md F8: absent on an older manifest fragment -- defaults to 1.0, i.e. the
       // min is not widened, exactly matching pre-F8 behaviour.
-      out_domain->lower_multiplier = d.value("lower_multiplier", 1.0);
-    };
-    load_domain("RA", &out->domain_ra);
-    load_domain("LC", &out->domain_lc);
-    load_domain("BL", &out->domain_bl);
-    load_domain("BW", &out->domain_bw);
-    load_domain("E", &out->domain_e);
+      domain.lower_multiplier = d.value("lower_multiplier", 1.0);
+      // docs/plan-phase/3-manifest-pipeline.md: absent on a pre-phase-3 manifest fragment
+      // -- falls back to the per-name default so an old baseline5 fragment gates exactly
+      // as it always did (RA area, LC/BL/BW linear, E dimensionless).
+      domain.dimension = d.value("dimension", default_dimension_for(out->feature_family, name));
+      domain.gate = d.value("gate", true);
+      if (domain.dimension == "dimensionless" &&
+          (domain.upper_multiplier != 1.0 || domain.lower_multiplier != 1.0)) {
+        *error = "weight: feature_domain." + name +
+                 " is dimensionless but declares a multiplier other than 1.0 (there is "
+                 "nothing for a scale-uncertainty widening to mean on a feature that does "
+                 "not scale with k)";
+        *error_code_out = INSTAHAM_ML_ERR_CONTRACT;
+        return false;
+      }
+      out->feature_domain[name] = domain;
+    }
+  }
+
+  if (cap.contains("quality_gates")) {
+    const json& qg = cap["quality_gates"];
+    out->quality_gate_truncation = qg.value("truncation", false);
+    out->quality_gate_posture = qg.value("posture", false);
+    out->quality_gate_posture_max_bend_deg =
+        qg.value("posture_max_bend_deg", out->quality_gate_posture_max_bend_deg);
   }
 
   if (!verify_hash(out->model_path, out->model_sha256, error)) {

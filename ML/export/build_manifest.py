@@ -8,7 +8,7 @@
         --segmentation build/ml_export/segmentation \
         --assets assets/ml
 
-    # CI determinism gate (re-run export, diff sha256s)
+    # CI staleness gate (re-hash model/regressor/class_map files against the manifest)
     python -m ML.export.build_manifest --check --assets assets/ml
 """
 from __future__ import annotations
@@ -52,7 +52,56 @@ def _validate(manifest: dict) -> None:
     jsonschema.validate(manifest, schema)
 
 
-def build(*, fragments: dict[str, Path], assets: Path, platform: str | None = None) -> Path:
+def _key_paths(node: object, prefix: str = "") -> set[str]:
+    """Dotted paths to every key reachable by walking nested dicts.
+
+    Lists are treated as leaves (not recursed into) since their positional
+    keys carry no stable identity to diff against.
+    """
+    if not isinstance(node, dict):
+        return set()
+    paths: set[str] = set()
+    for key, value in node.items():
+        path = f"{prefix}.{key}" if prefix else key
+        paths.add(path)
+        paths |= _key_paths(value, path)
+    return paths
+
+
+def _check_no_key_loss(assets: Path, new_manifest: dict, *, allow_key_removal: bool) -> None:
+    """Fail if the new manifest silently drops a key the previous one had.
+
+    A stale `build/ml_export/<cap>/manifest_fragment.json` left over from before its
+    exporter grew a new block (e.g. F51/F50: `segmentation.input_scale`) changes no file
+    hash, so `check()` cannot catch it — this catches it before the manifest is written.
+    Changed values pass untouched; only disappearance trips the guard.
+    """
+    existing_path = assets / "manifest.json"
+    if not existing_path.exists():
+        return
+    old_paths = _key_paths(read_json(existing_path))
+    new_paths = _key_paths(new_manifest)
+    missing = sorted(old_paths - new_paths)
+    if not missing:
+        return
+    if allow_key_removal:
+        print(f"allowing removal of {len(missing)} key(s): {', '.join(missing)}")
+        return
+    raise SystemExit(
+        f"build_manifest: {len(missing)} key(s) present in the existing manifest.json "
+        f"would be dropped by this rebuild: {', '.join(missing)}. This is the F50-class "
+        "regression: a stale fragment reverting a capability that wasn't touched. Pass "
+        "--allow-key-removal if the drop is deliberate."
+    )
+
+
+def build(
+    *,
+    fragments: dict[str, Path],
+    assets: Path,
+    platform: str | None = None,
+    allow_key_removal: bool = False,
+) -> Path:
     assets.mkdir(parents=True, exist_ok=True)
     capabilities: dict[str, dict] = {}
     for cap, frag_dir in fragments.items():
@@ -75,6 +124,7 @@ def build(*, fragments: dict[str, Path], assets: Path, platform: str | None = No
     if platform is not None:
         manifest["platform"] = platform
     _validate(manifest)
+    _check_no_key_loss(assets, manifest, allow_key_removal=allow_key_removal)
     return write_json(assets / "manifest.json", manifest)
 
 
@@ -107,6 +157,12 @@ def main() -> None:
     ap.add_argument("--segmentation", type=Path)
     ap.add_argument("--check", action="store_true")
     ap.add_argument(
+        "--allow-key-removal",
+        action="store_true",
+        help="Permit the rebuild to drop a key present in the existing manifest.json "
+        "(F51 guard). Omit unless the removal is deliberate.",
+    )
+    ap.add_argument(
         "--platform",
         choices=["android", "ios"],
         default=None,
@@ -125,7 +181,9 @@ def main() -> None:
     }
     if not fragments:
         raise SystemExit("nothing to build: pass at least one of --view/--health/--weight/--segmentation")
-    print(f"wrote {build(fragments=fragments, assets=a.assets, platform=a.platform)}")
+    print(
+        f"wrote {build(fragments=fragments, assets=a.assets, platform=a.platform, allow_key_removal=a.allow_key_removal)}"
+    )
 
 
 if __name__ == "__main__":

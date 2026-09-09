@@ -1,40 +1,76 @@
 # Weight Prediction
 
-Stages 3–5 of the `dorsal_valid` route: cutter (`src/stages/cutter.cpp`), feature calculation
-(`src/stages/feature_calculation.cpp`), weight prediction (`src/stages/weight_prediction.cpp`),
-with the scale and gating logic in `src/pipeline.cpp`.
+Stages 4–5 of the `dorsal_valid` route: feature calculation
+(`src/stages/feature_calculation.cpp`) and weight prediction
+(`src/stages/weight_prediction.cpp`), with the scale and gating logic in `src/pipeline.cpp`.
+Stage 3, the cutter, has its own file — [cutter.md](cutter.md). Everything here is downstream
+of a constructed mask ([segmentation.md](segmentation.md)) and independent of health: it may
+fail at any of the nine checks below without affecting `envelope["health"]`.
 
-Everything here is downstream of a constructed mask — see [segmentation.md](segmentation.md).
-This branch is independent of health: it may fail at any of the six checks below without
-affecting `envelope["health"]`.
+Since plan phase 3 the branch is family-generic: the manifest declares
+`weight.feature_family` (`baseline5` | `chen16_noheight`) and a `feature_order` of arbitrary
+width, and every stage from feature extraction to the domain gate to the ONNX packing walks
+that list instead of five hardcoded names. The shipped manifest declares `chen16_noheight`,
+16 features wide, measured on the real V176/V144 cut mask ([cutter.md](cutter.md)).
+
+`weight.available` is **now `true`**, set deliberately by re-exporting with
+`--enable-for-testing` (`docs/fix-2.md` F42) so the branch can be exercised on a device.
+Estimates therefore ship, and each is real inference carrying the envelope's provisional
+`note` — but the calibration behind them is still unvalidated. `cm_per_px_target` reads
+**0.35**, restored from the 0.3289 experiment after the host sweep measured both against the
+shipped models and the real cutter (`../scale-constant-sweep-results.md`). It is an empirical
+fit, not a derived constant, and phase 5 still owes a re-derivation from post-cut field masks.
+Treat a returned number as provisional — and below roughly 85 kg as systematically high, per
+[ADR-010](../adr/010-regressor-training-domain-floor.md). ADR-005's +16.6% mean bias is
+superseded: it was measured by feature substitution before the cutter was ported.
 
 ## Order of checks
 
 Each check either passes or writes `envelope["weight"]` and stops. None is skippable.
 
-1. **Mask plausibility.** `mask_diagonal_fraction` — mask bbox diagonal over image diagonal —
+1. **Weight capability available.** Manifest `weight.available` plus a loaded regressor.
+   Failure → `weight_capability_unavailable`.
+2. **Reference confirmed.** `cm_per_px` present, finite, positive. There is no implicit
+   `k = 1.0`. Failure → `reference_object_not_confirmed`.
+3. **Camera height in range** (below). Failure → `scale_out_of_range`.
+4. **Mask plausibility.** `mask_diagonal_fraction` — mask bbox diagonal over image diagonal —
    must reach `weight.min_mask_diagonal_fraction` (0.35). Measured on the raw captured mask
    before normalization, since resampling changes absolute size, not a mask's proportion of
    its own frame. Runs *before* the cutter so a sliver mask never reaches the feature stages.
-   Eccentricity alone cannot catch it: a thin sliver scores **high** on E, not low.
-   Failure → `reason: mask_implausibly_small`.
-2. **Weight capability available.** Manifest `weight.available` plus a loaded regressor.
-   Failure → `weight_capability_unavailable`.
-3. **Reference confirmed.** `cm_per_px` present, finite, positive. There is no implicit
-   `k = 1.0`. Failure → `reference_object_not_confirmed`.
-4. **Camera height in range** (below). Failure → `scale_out_of_range`.
-5. **Resample succeeded.** Failure → `scale_resample_failed`.
-6. **Feature domain** (below). Failure → `mask_shape_out_of_domain`,
+   A dimensionless shape feature alone cannot catch it: a thin sliver scores **high** on
+   eccentricity, not low. Failure → `mask_implausibly_small`.
+5. **Quality gates** — truncation, then posture, on the whole mask in capture coordinates.
+   Both ship switched off; see [cutter-2.md](cutter-2.md). Failure →
+   `truncation_gate_rejected` or `posture_gate_rejected`.
+6. **Resample succeeded.** Failure → `scale_resample_failed`.
+7. **Cutter succeeded.** Failure → `cutter_failed` (the specific decline is in
+   `envelope["cutter"]["status"]`).
+8. **Feature extraction succeeded.** Failure → `contour_too_small`.
+9. **Feature domain** (below). Failure → `mask_shape_out_of_domain`,
    `subject_smaller_than_trained`, or `features_out_of_training_domain`.
 
-Every rejection carries its own `reason` plus a `user_message_key`, and
-`envelope["scale"]["reason"]` and `envelope["weight"]["reason"]` read the same variable, so
-they cannot disagree. Collapsing these into one generic message once told a user with a
-correctly-marked reference to go mark a reference object.
+Checks 1–3 run in the scale block, before the weight branch; 4–9 run inside it. Every
+rejection carries its own `reason` plus a `user_message_key`, and `envelope["scale"]["reason"]`
+and `envelope["weight"]["reason"]` read the same variable, so they cannot disagree. Collapsing
+these into one generic message once told a user with a correctly-marked reference to go mark a
+reference object.
+
+**With `weight.available` false, checks 4 through 9 still run and still populate
+`envelope["cutter"]`, `["quality_gates"]` and `["features"]`, but `envelope["weight"]` reports
+`weight_pending_field_validation` regardless of which one declined.** Read the per-stage
+blocks, not `weight.reason`, when diagnosing such a build.
+
+That is not the current configuration. With the `--enable-for-testing` override active,
+`weight_pending_field_validation` is **unreachable** — it lives only in `pipeline.cpp`'s
+`weight_unavailable_json`, which every branch assigns on the `weight_override == false` side
+of its ternary — so `weight.reason` names the real decline and can be read directly. Anything
+keyed to the pending reason is correspondingly dead while the override is on, including the
+cutter-decline message in `run_and_persist_pipeline_use_case.dart:411`.
 
 ## Scale normalization
 
-`k = cm_per_px_actual / weight.cm_per_px_target` (target 0.35 cm/px). The mask is resampled by
+`k = cm_per_px_actual / weight.cm_per_px_target` (target read from the manifest, currently
+0.35 cm/px — see the calibration note above). The mask is resampled by
 `k` with `scale_mask_to_training_space()` into the pixel space the regressor's features were
 measured in, so the cutter's thresholds and RA's denominator both operate in the training
 space. Nearest-neighbour, matching construction's own unletterbox resize — the mask stays
@@ -55,84 +91,57 @@ perfectly framed 3000 px photo taken at exactly 1.88 m purely for its pixel coun
 `envelope["scale"]` reports `cm_per_px_actual`, `cm_per_px_target`, `k`, `height_ratio`,
 `implied_camera_height_m`, `training_frame_px`, and `source: user_confirmed_reference`.
 
-## Cutter — a permanent identity stub
+`k` is the highest-gain constant in the pipeline: area scales with `k²` and the regressor is
+effectively univariate in its area term (`RA` on baseline5, `mask_area` on chen16 — the same
+quantity un-normalized), so a 1% scale error becomes a 2.8–4.0% weight error. The value
+itself measures within ~3% of correct — see [prediction-2.md](prediction-2.md) and
+[ADR-005](../adr/005-identity-cutter-is-the-dominant-error.md).
 
-`cut_body_mask()` returns the mask unchanged, with `head_removal_applied = false` and
-`status = "identity_stub"`. Settled, not pending: see
-[../adr/001-cutter-identity-stub.md](../adr/001-cutter-identity-stub.md).
+## Feature calculation — selected by `feature_family`
 
-The consequence propagates. A weight computed from an uncut mask includes the head and neck
-and is therefore **not** a valid estimate under the research protocol. `envelope["cutter"]`
-always reports `protocol_implemented: false` alongside the protocol version, and any
-`estimated_kg` downstream carries an explicit `note` saying it overestimates.
+`pipeline.cpp` branches on `manifest.weight.feature_family`; each extractor returns a
+`map<name, double>` that is then serialized in the manifest's own `feature_order`. Both return
+`std::nullopt` (→ `contour_too_small`) when the largest external contour has fewer than 5
+points — `fitEllipse` needs 5, and the Python reference returns `None` at the same boundary.
 
-## Feature calculation — baseline5
+**`chen16_noheight` (shipped).** `extract_chen16_features()` measures the **final cut mask** in
+raw pixel counts — there is no RA-style frame denominator and no `linear_scale` factor, because
+the mask handed to it is already in training pixel space:
 
-`extract_five_features()` cleans the mask (`largest_component_fill` when the cutter already
-cleaned it, else `clean_binary_mask`), takes the largest external contour, and returns
-`std::nullopt` when that contour has fewer than 5 points — `fitEllipse` needs 5, and the
-Python reference returns `None` at the same boundary.
-
-| Feature | Definition | Scale behaviour |
+| Group | Features | Gated? |
 |---|---|---|
-| `RA` | `area_pixels / (frame_w * frame_h)` | Ratio; invariant to a uniform resize of mask **and** frame together, so it does not correct for camera height on its own |
-| `LC` | contour arc length × `linear_scale` | Length |
-| `BL` | longer side of `minAreaRect` × `linear_scale` | Length |
-| `BW` | shorter side of `minAreaRect` × `linear_scale` | Length |
-| `E` | `sqrt(1 - (minor/major)^2)` of `fitEllipse` | Scale-invariant shape |
+| Area | `mask_area`, `convex_hull_area`, `difference` | yes |
+| Linear | `perimeter`, `longest`, `shortest` | yes |
+| Dimensionless | `dif_mask`, `body_curve`, `outline_curve`, `Hu_1`–`Hu_7` | no |
 
-With a scale established the mask is already in training pixels, so `linear_scale` stays 1.0
-and RA's denominator is the manifest's 720×720 training frame. Without a scale the denominator
-falls back to the mask's own dimensions, reproducing the pre-normalization provisional values.
-`envelope["features"]["measured_on"]` says which (`training_normalized_mask` or
-`uncut_mask_unnormalized`), and the block is labelled `status: provisional` either way.
+Verified against the Python function that produced the training features
+(`ML/pipeline/feature_calculation.py`, protocol `chen16_noheight_centerchord_v2`) over 20
+`MASK_3394` ground-truth masks by `ML/parity/chen16_feature_port_gate.py`: **20/20 masks, 0
+mismatches**. The last holdout was `body_curve`, whose C++ skeletonizer used the textbook
+Zhang-Suen algebraic conditions while `skimage.morphology.skeletonize(method='zhang')` is a
+compiled 256-entry neighbourhood LUT that does not reduce to them; a vendor LUT patch to
+`BodyCurve.cpp` closed it.
 
-Only `baseline5` is implemented. `chen16` stays reference-only in Python — it needs
-`skimage.morphology.skeletonize`, which this build does not carry.
+**`baseline5` (rollback path).** `extract_five_features()` returns `RA` (`area_pixels /
+(frame_w * frame_h)`), `LC` (contour arc length), `BL`/`BW` (longer/shorter side of
+`minAreaRect`), `E` (`sqrt(1 - (minor/major)^2)` of `fitEllipse`), the three lengths scaled by
+`linear_scale`. With a scale established `linear_scale` is 1.0 and RA's denominator is the
+manifest's 720×720 training frame; without one the denominator falls back to the mask's own
+dimensions, reproducing the pre-normalization provisional values.
 
-## Domain gate
+`envelope["features"]` either way:
 
-The real question a sanity check should ask is whether the trained regressor has ever seen a
-vector like this one. `weight.feature_domain` records the `[min, max]` each feature actually
-took across the regressor's own 2014-row training/eval set, plus per-feature
-`upper_multiplier` / `lower_multiplier` that widen the bounds enough to admit an uncut mask.
+```json
+{"status": "provisional", "family": "chen16_noheight",
+ "order": ["mask_area", …], "gated": ["mask_area", "convex_hull_area", "difference",
+ "perimeter", "longest", "shortest"], "values": {"mask_area": 61234.0, …},
+ "measured_on": "training_normalized_mask"}
+```
 
-Bounds widen further by `cm_per_px_target_uncertainty` (1.30, clamped to ≥ 1.0 at load so a
-malformed value can only widen), raised to each feature's dimensionality: squared for the area
-ratio RA, first power for the lengths LC/BL/BW, untouched for the scale-invariant E. The gate
-is never stricter than the calibration it rests on. A feature whose manifest `max` is ≤ 0 has
-no data and is skipped rather than rejecting everything.
+`gated` names the subset whose domain is an eligibility check rather than a diagnostic bound.
+It exists so the Dart rejection renderer shows six labelled measurements instead of sixteen
+raw ones, without keeping a second hardcoded feature list of its own.
 
-All five are checked with bitwise `&`, deliberately not `&&`, so every violation is recorded
-instead of short-circuiting after the first. `classify_domain_violation()` names the cause:
-
-- **Any `E` violation → `mask_shape_out_of_domain`**, even when size features also violated.
-  A broken mask drags the size features off as a side effect of being the wrong shape; the
-  shape violation is the cause, not a co-symptom to be outvoted.
-- **Size features only, all low → `subject_smaller_than_trained`.** Smaller than anything in
-  the regressor's 87–192 kg eval set.
-- **Anything else → `features_out_of_training_domain`.** A high size violation is the one case
-  a mis-marked or mis-scaled reference plausibly explains.
-
-`envelope["weight"]["violations"]` carries the machine-readable list (`feature`, `value`,
-`allowed_min`, `allowed_max`, `direction`); `detail` carries the readable one.
-
-## Regression
-
-`predict_weight()` is nothing more than "run that ONNX graph": input shape `[1,5]`, features in
-exactly `RA, LC, BL, BW, E`. That order is asserted three times — at export against
-`BASELINE5`, at manifest load against `feature_order.json`, and here in the packing — and a
-manifest whose order disagrees fails to load with `INSTAHAM_ML_ERR_CONTRACT`.
-
-After a successful run each size feature is re-checked against its **unwidened** trained
-`[min, max]`. The widened bounds exist to admit an uncut mask, but a gradient-boosted
-regressor cannot extrapolate: a vector past the raw max is answered from an edge leaf, a real
-and silent ceiling. Those features are listed in `extrapolated_features` with
-`extrapolated: true`, rather than presenting a saturated value with the same confidence as an
-interpolated one.
-
-`envelope["weight"]` on success: `estimated_kg`, `protocol_implemented: false`, `extrapolated`,
-`extrapolated_features`, the uncut-mask `note`, and `capture_contract` (`feature_space:
-fixed_camera_pixels`, `training_camera_height_m: 1.88`,
-`camera_height_is_xgboost_feature: false` — camera height is a capture constraint, not a model
-input).
+> Continued in [prediction-3.md](prediction-3.md) — the domain gate, the regression call,
+> and what Dart persists; then [prediction-2.md](prediction-2.md) for measured sensitivity
+> and the `cm_per_px_target` calibration problem.

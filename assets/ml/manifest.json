@@ -1,255 +1,388 @@
 {
- "bundle_id": "instaham-ml-9781c14",
- "capabilities": {
-  "health": {
-   "available": true,
-   "class_map": {
-    "path": "health/classes.json",
-    "sha256": "b514707c89260b69b8ee77175e3ce2866cf57a6a360f46ee9cad2f27f5c6a6a0"
-   },
-   "input": {
-    "background_fill": "imagenet_mean",
-    "bbox_padding_ratio": 0.06,
-    "evidence": "not probed: images_root not provided or missing",
-    "on_segmentation_failure": "full_frame",
-    "probe_detail": {
-     "checked_protocols": [],
-     "images_root": null,
-     "reason": "images_root not provided or does not exist",
-     "recorded_test_rows": 2812,
-     "resolved": 0
+  "bundle_id": "instaham-ml-e13b1f4",
+  "capabilities": {
+    "health": {
+      "available": true,
+      "class_map": {
+        "path": "health/classes.json",
+        "sha256": "b514707c89260b69b8ee77175e3ce2866cf57a6a360f46ee9cad2f27f5c6a6a0"
+      },
+      "input": {
+        "background_fill": "imagenet_mean",
+        "bbox_padding_ratio": 0.06,
+        "evidence": "not probed: images_root not provided or missing",
+        "on_segmentation_failure": "full_frame",
+        "probe_detail": {
+          "checked_protocols": [],
+          "images_root": null,
+          "reason": "images_root not provided or does not exist",
+          "recorded_test_rows": 2812,
+          "resolved": 0
+        },
+        "probe_status": "not_run",
+        "protocol": "full_frame",
+        "supported": [
+          "full_frame",
+          "segmentation_crop",
+          "segmentation_masked"
+        ]
+      },
+      "model": {
+        "arch_source": "timm==1.0.29",
+        "architecture": "ghostnetv3_100",
+        "fusion_max_abs_diff": 4.231929779052734e-06,
+        "input": {
+          "channels": "rgb",
+          "layout": "NCHW",
+          "name": "input",
+          "size": [
+            224,
+            224
+          ]
+        },
+        "onnx_max_abs_diff": 3.337860107421875e-06,
+        "opset": 17,
+        "path": "health/model.onnx",
+        "sha256": "a58704484622f6c3d40756b4e1dcd823284f52d822bdef27190b2e7f1b430a07"
+      },
+      "preprocessing": {
+        "center_crop": 224,
+        "exif": "expect_normalized",
+        "interpolation": "bilinear",
+        "mean": [
+          0.485,
+          0.456,
+          0.406
+        ],
+        "resize_shorter_side": 255,
+        "scale": 0.00392156862745098,
+        "std": [
+          0.229,
+          0.224,
+          0.225
+        ]
+      },
+      "protocol_version": "health_v1",
+      "source_run": {
+        "checkpoint_sha256": "642fa6a163ceee0ec7d4ac4969a0e25a61a924f33008b414826cca423eceb830"
+      }
     },
-    "probe_status": "not_run",
-    "protocol": "full_frame",
-    "supported": [
-     "full_frame",
-     "segmentation_crop",
-     "segmentation_masked"
-    ]
-   },
-   "model": {
-    "arch_source": "timm==1.0.29",
-    "architecture": "ghostnetv3_100",
-    "fusion_max_abs_diff": 4.231929779052734e-06,
-    "input": {
-     "channels": "rgb",
-     "layout": "NCHW",
-     "name": "input",
-     "size": [
-      224,
-      224
-     ]
+    "segmentation": {
+      "available": true,
+      "export_mode": "onnx_native",
+      "gate_b_note": "no fixture corpus in repo yet (section 11.3.1, slice -1); available=true rests on the onnx_native self-check below, not gate B",
+      "gate_b_status": "not_run",
+      "input_scale": {
+        "cm_per_px": 1.1,
+        "ladder_multipliers": [
+          1.0,
+          1.32,
+          1.68,
+          0.77
+        ],
+        "retry_conf_threshold": 0.1
+      },
+      "model": {
+        "architecture": "yolo11s-seg-ldconv-acmix",
+        "input": {
+          "channels": "rgb",
+          "layout": "NCHW",
+          "name": "images",
+          "size": [
+            640,
+            640
+          ]
+        },
+        "letterbox": {
+          "color": [
+            114,
+            114,
+            114
+          ],
+          "scaleup": false,
+          "stride": 32
+        },
+        "onnx_self_check": {
+          "box_mask_max_abs_diff": 0.001434326171875,
+          "note": "torch-vs-ORT graph transparency on random input, not real-photo accuracy",
+          "proto_max_abs_diff": 8.821487426757812e-06
+        },
+        "opset": 17,
+        "path": "segmentation/yolo.onnx",
+        "sha256": "a6467c75de32cddbfeedcb941659f0aa31d71d9d7b75ddf33ae01723fc0e508a"
+      },
+      "postprocess": {
+        "conf": 0.25,
+        "iou": 0.7,
+        "mask_protocol": "original_coordinate_polygon_v1",
+        "single_largest_instance": true
+      },
+      "protocol_version": "yolo11s_ldconv_acmix_fixed_seed42",
+      "source_run": {
+        "checkpoint_sha256": "ce8e9070cb56a6bab66661652bd00a1dd93afa9871499d5eaeacc7733fccbf4d"
+      }
     },
-    "onnx_max_abs_diff": 3.337860107421875e-06,
-    "opset": 17,
-    "path": "health/model.onnx",
-    "sha256": "a58704484622f6c3d40756b4e1dcd823284f52d822bdef27190b2e7f1b430a07"
-   },
-   "preprocessing": {
-    "center_crop": 224,
-    "exif": "expect_normalized",
-    "interpolation": "bilinear",
-    "mean": [
-     0.485,
-     0.456,
-     0.406
-    ],
-    "resize_shorter_side": 255,
-    "scale": 0.00392156862745098,
-    "std": [
-     0.229,
-     0.224,
-     0.225
-    ]
-   },
-   "protocol_version": "health_v1",
-   "source_run": {
-    "checkpoint_sha256": "642fa6a163ceee0ec7d4ac4969a0e25a61a924f33008b414826cca423eceb830"
-   }
-  },
-  "segmentation": {
-   "available": true,
-   "export_mode": "onnx_native",
-   "gate_b_note": "no fixture corpus in repo yet (section 11.3.1, slice -1); available=true rests on the onnx_native self-check below, not gate B",
-   "gate_b_status": "not_run",
-   "model": {
-    "architecture": "yolo11s-seg-ldconv-acmix",
-    "input": {
-     "channels": "rgb",
-     "layout": "NCHW",
-     "name": "images",
-     "size": [
-      640,
-      640
-     ]
+    "view": {
+      "available": true,
+      "class_map": {
+        "path": "view/classes.json",
+        "sha256": "fe2f46bcc1d54e8e1b9a4362d8e39ebd1c3c0ec9ff3d0c0bf3806718313e17d1"
+      },
+      "model": {
+        "arch_source": "timm==1.0.29",
+        "architecture": "mobilenetv4_conv_small",
+        "input": {
+          "channels": "rgb",
+          "layout": "NCHW",
+          "name": "input",
+          "size": [
+            224,
+            224
+          ]
+        },
+        "onnx_max_abs_diff": 5.7220458984375e-06,
+        "opset": 17,
+        "path": "view/model.onnx",
+        "sha256": "703dab2849dc8c8dc1d71fd3bde302d4af28dc620fd09a4c3bb5c6769305356b"
+      },
+      "preprocessing": {
+        "center_crop": 224,
+        "exif": "expect_normalized",
+        "interpolation": "bilinear",
+        "mean": [
+          0.485,
+          0.456,
+          0.406
+        ],
+        "resize_shorter_side": 255,
+        "scale": 0.00392156862745098,
+        "std": [
+          0.229,
+          0.224,
+          0.225
+        ]
+      },
+      "protocol_version": "view_v2",
+      "source_run": {
+        "checkpoint_sha256": "aa856134c21d99058e8e3a184cb290888aeba4911c750260247cdb389f72cdcc"
+      }
     },
-    "letterbox": {
-     "color": [
-      114,
-      114,
-      114
-     ],
-     "scaleup": false,
-     "stride": 32
-    },
-    "onnx_self_check": {
-     "box_mask_max_abs_diff": 0.001434326171875,
-     "note": "torch-vs-ORT graph transparency on random input, not real-photo accuracy",
-     "proto_max_abs_diff": 8.821487426757812e-06
-    },
-    "opset": 17,
-    "path": "segmentation/yolo.onnx",
-    "sha256": "a6467c75de32cddbfeedcb941659f0aa31d71d9d7b75ddf33ae01723fc0e508a"
-   },
-   "postprocess": {
-    "conf": 0.25,
-    "iou": 0.7,
-    "mask_protocol": "original_coordinate_polygon_v1",
-    "single_largest_instance": true
-   },
-   "input_scale": {
-    "cm_per_px": 1.10,
-    "ladder_multipliers": [1.0, 1.32, 1.68, 0.77],
-    "retry_conf_threshold": 0.10
-   },
-   "protocol_version": "yolo11s_ldconv_acmix_fixed_seed42",
-   "source_run": {
-    "checkpoint_sha256": "ce8e9070cb56a6bab66661652bd00a1dd93afa9871499d5eaeacc7733fccbf4d"
-   }
-  },
-  "view": {
-   "available": true,
-   "class_map": {
-    "path": "view/classes.json",
-    "sha256": "fe2f46bcc1d54e8e1b9a4362d8e39ebd1c3c0ec9ff3d0c0bf3806718313e17d1"
-   },
-   "model": {
-    "arch_source": "timm==1.0.29",
-    "architecture": "ghostnetv3_100",
-    "fusion_max_abs_diff": 1.430511474609375e-06,
-    "input": {
-     "channels": "rgb",
-     "layout": "NCHW",
-     "name": "input",
-     "size": [
-      224,
-      224
-     ]
-    },
-    "onnx_max_abs_diff": 1.9073486328125e-06,
-    "opset": 17,
-    "path": "view/model.onnx",
-    "sha256": "14ae0c53bfe9afacea334b62a8c386221c4c93f10c65289941ee6a1586df068b"
-   },
-   "preprocessing": {
-    "center_crop": 224,
-    "exif": "expect_normalized",
-    "interpolation": "bilinear",
-    "mean": [
-     0.485,
-     0.456,
-     0.406
-    ],
-    "resize_shorter_side": 255,
-    "scale": 0.00392156862745098,
-    "std": [
-     0.229,
-     0.224,
-     0.225
-    ]
-   },
-   "protocol_version": "view_v1",
-   "source_run": {
-    "checkpoint_sha256": "94be976320e4f00de331254ad3b14b2f59981e06819c4fe87b12e819ffa3c1e9"
-   }
-  },
-  "weight": {
-   "available": true,
-   "min_mask_diagonal_fraction": 0.35,
-   "body_mask": {
-    "ported_functions": [
-     "clean_binary_mask",
-     "isolate_dorsal_core_ji_duan",
-     "extract_five_features",
-     "unletterbox_native_mask"
-    ],
-    "protocol_version": "ji_duan_residual_06q_v9_headfit_exact_twotangent_v26",
-    "stage": "provisional"
-   },
-   "capture_contract": {
-    "camera_height_is_xgboost_feature": false,
-    "cm_per_px_target": 0.35,
-    "cm_per_px_target_source": "three_sample_field_estimate_pending_1p88m_calibration_capture",
-    "cm_per_px_target_uncertainty": 1.30,
-    "feature_space": "fixed_camera_pixels",
-    "training_camera_height_m": 1.88,
-    "training_frame_px": [
-     720,
-     720
-    ]
-   },
-   "feature_domain": {
-    "BL": {
-     "max": 638.017,
-     "min": 312.4134,
-     "upper_multiplier": 1.35,
-     "lower_multiplier": 1.0
-    },
-    "BW": {
-     "max": 207.9156,
-     "min": 118.4502,
-     "upper_multiplier": 1.10,
-     "lower_multiplier": 1.0
-    },
-    "E": {
-     "max": 0.9773,
-     "min": 0.8888,
-     "upper_multiplier": 1.05,
-     "lower_multiplier": 0.97
-    },
-    "LC": {
-     "max": 1540.2884,
-     "min": 811.5605,
-     "upper_multiplier": 1.35,
-     "lower_multiplier": 1.0
-    },
-    "RA": {
-     "max": 0.2042,
-     "min": 0.076,
-     "upper_multiplier": 1.0,
-     "lower_multiplier": 1.0
+    "weight": {
+      "available": true,
+      "body_mask": {
+        "cut_protocol_version": "v176_strict_nonprimary_break1_region_meet_v144_fixed_center_bilateral_circle_v1",
+        "cut_required": true,
+        "stage": "provisional"
+      },
+      "capture_contract": {
+        "camera_height_is_xgboost_feature": false,
+        "cm_per_px_target": 0.35,
+        "cm_per_px_target_source": "host_scale_sweep_round6_f49_empirical_fit_not_derived",
+        "cm_per_px_target_uncertainty": 1.3,
+        "feature_space": "fixed_camera_pixels",
+        "training_camera_height_m": 1.88,
+        "training_frame_px": [
+          720,
+          720
+        ]
+      },
+      "feature_domain": {
+        "Hu_1": {
+          "dimension": "dimensionless",
+          "gate": false,
+          "lower_multiplier": 1.0,
+          "max": 0.3365266459778732,
+          "min": 0.2257714801728249,
+          "upper_multiplier": 1.0
+        },
+        "Hu_2": {
+          "dimension": "dimensionless",
+          "gate": false,
+          "lower_multiplier": 1.0,
+          "max": 0.0864436377683102,
+          "min": 0.0246639178076278,
+          "upper_multiplier": 1.0
+        },
+        "Hu_3": {
+          "dimension": "dimensionless",
+          "gate": false,
+          "lower_multiplier": 1.0,
+          "max": 0.0023578021385148,
+          "min": 2.9054127038743367e-08,
+          "upper_multiplier": 1.0
+        },
+        "Hu_4": {
+          "dimension": "dimensionless",
+          "gate": false,
+          "lower_multiplier": 1.0,
+          "max": 0.0002715735431382,
+          "min": 9.565047857554208e-09,
+          "upper_multiplier": 1.0
+        },
+        "Hu_5": {
+          "dimension": "dimensionless",
+          "gate": false,
+          "lower_multiplier": 1.0,
+          "max": 8.7546847411037e-08,
+          "min": -1.7457597757482936e-07,
+          "upper_multiplier": 1.0
+        },
+        "Hu_6": {
+          "dimension": "dimensionless",
+          "gate": false,
+          "lower_multiplier": 1.0,
+          "max": 6.684311619019384e-05,
+          "min": -4.881584772034544e-05,
+          "upper_multiplier": 1.0
+        },
+        "Hu_7": {
+          "dimension": "dimensionless",
+          "gate": false,
+          "lower_multiplier": 1.0,
+          "max": 9.94685085825775e-08,
+          "min": -1.9157872429350285e-07,
+          "upper_multiplier": 1.0
+        },
+        "body_curve": {
+          "dimension": "dimensionless",
+          "gate": false,
+          "lower_multiplier": 1.0,
+          "max": 179.9954091941613,
+          "min": 144.13844627189138,
+          "upper_multiplier": 1.0
+        },
+        "convex_hull_area": {
+          "dimension": "area",
+          "gate": true,
+          "lower_multiplier": 1.0,
+          "max": 102853.0,
+          "min": 39991.0,
+          "upper_multiplier": 1.0
+        },
+        "dif_mask": {
+          "dimension": "dimensionless",
+          "gate": false,
+          "lower_multiplier": 1.0,
+          "max": 0.1864917598689941,
+          "min": 0.0198216508146744,
+          "upper_multiplier": 1.0
+        },
+        "difference": {
+          "dimension": "area",
+          "gate": true,
+          "lower_multiplier": 1.0,
+          "max": 10938.0,
+          "min": 1273.0,
+          "upper_multiplier": 1.0
+        },
+        "longest": {
+          "dimension": "linear",
+          "gate": true,
+          "lower_multiplier": 1.0,
+          "max": 598.3645074906954,
+          "min": 332.2332713586253,
+          "upper_multiplier": 1.0
+        },
+        "mask_area": {
+          "dimension": "area",
+          "gate": true,
+          "lower_multiplier": 1.0,
+          "max": 95247.0,
+          "min": 36647.0,
+          "upper_multiplier": 1.0
+        },
+        "outline_curve": {
+          "dimension": "dimensionless",
+          "gate": false,
+          "lower_multiplier": 1.0,
+          "max": 0.0888232538943701,
+          "min": 0.0175394310907338,
+          "upper_multiplier": 1.0
+        },
+        "perimeter": {
+          "dimension": "linear",
+          "gate": true,
+          "lower_multiplier": 1.0,
+          "max": 1446.5655771493912,
+          "min": 861.2274836301804,
+          "upper_multiplier": 1.0
+        },
+        "shortest": {
+          "dimension": "linear",
+          "gate": true,
+          "lower_multiplier": 1.0,
+          "max": 190.25364884052453,
+          "min": 103.27144283037627,
+          "upper_multiplier": 1.0
+        }
+      },
+      "feature_extractor": {
+        "linear_scale": 1.0,
+        "names": [
+          "mask_area",
+          "convex_hull_area",
+          "difference",
+          "dif_mask",
+          "body_curve",
+          "perimeter",
+          "outline_curve",
+          "longest",
+          "shortest",
+          "Hu_1",
+          "Hu_2",
+          "Hu_3",
+          "Hu_4",
+          "Hu_5",
+          "Hu_6",
+          "Hu_7"
+        ],
+        "protocol_version": "chen16_noheight_centerchord_v2"
+      },
+      "feature_family": "chen16_noheight",
+      "feature_order": [
+        "mask_area",
+        "convex_hull_area",
+        "difference",
+        "dif_mask",
+        "body_curve",
+        "perimeter",
+        "outline_curve",
+        "longest",
+        "shortest",
+        "Hu_1",
+        "Hu_2",
+        "Hu_3",
+        "Hu_4",
+        "Hu_5",
+        "Hu_6",
+        "Hu_7"
+      ],
+      "min_mask_diagonal_fraction": 0.35,
+      "note": "TEST OVERRIDE: cm_per_px_target is an empirical fit awaiting phase 5's field re-derivation, and the regressor cannot predict below ~73 kg (ADR-010), so a pig under ~85 kg reads high; estimated_kg is not trustworthy.",
+      "quality_gates": {
+        "posture": false,
+        "posture_max_bend_deg": 40.0,
+        "truncation": false
+      },
+      "regressor": {
+        "base_score": 121.669174,
+        "feature_family": "chen16_noheight",
+        "feature_order_path": "weight/feature_order.json",
+        "feature_order_sha256": "488887f6eb123f44221a42945d6a3f90192eab2bc02d240357e31675d4373b5e",
+        "format": "onnx",
+        "meta_path": "weight/xgboost.meta.json",
+        "meta_sha256": "baaf4e0d6986d56e8e13a38843af09e3af906cb4d429933d9a50e8954fccf8bf",
+        "objective": "reg:squarederror",
+        "path": "weight/xgboost.onnx",
+        "sha256": "79ac216ceee553761cf43125cf1185fbf1b5dde9f9f14f882e7caff49edab543"
+      },
+      "stability": "temporary"
     }
-   },
-   "feature_extractor": {
-    "linear_scale": 1.0,
-    "names": [
-     "RA",
-     "LC",
-     "BL",
-     "BW",
-     "E"
-    ],
-    "protocol_version": "baseline5_v1"
-   },
-   "note": "TEST OVERRIDE: cutter is the identity stub (head/neck not removed). estimated_kg overestimates the research protocol's number.",
-   "regressor": {
-    "feature_family": "baseline5",
-    "feature_order_path": "weight/feature_order.json",
-    "feature_order_sha256": "09a9a2165a9869238c6bcb18ffb8e789f410a9d302a92db5a89b0043bf0f9cd5",
-    "format": "onnx",
-    "meta_path": "weight/xgboost.meta.json",
-    "meta_sha256": "324d217131f363c049fd49a6e2898e89746cf33112602875246b334639a1298c",
-    "objective": "reg:squarederror",
-    "path": "weight/xgboost.onnx",
-    "sha256": "0d720b2b3283f4443b52a580f6ecfbc7896f9c3d7f02247b23c05bb67edddf6d"
-   },
-   "stability": "temporary"
-  }
- },
- "reference_commit": "9781c14",
- "runtime": {
-  "engine": "onnxruntime",
-  "min_abi_version": 1
- },
- "schema_version": 1
+  },
+  "reference_commit": "e13b1f4",
+  "runtime": {
+    "engine": "onnxruntime",
+    "min_abi_version": 1
+  },
+  "schema_version": 1
 }

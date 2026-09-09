@@ -4,7 +4,14 @@
 // each of pipeline.cpp's classify_domain_violation() reasons maps to its own,
 // correctly-targeted user-facing message, and the rendered detail always shows all five
 // RA/LC/BL/BW/E values (marking which violated) rather than only the violating ones.
-import 'package:drift/drift.dart';
+//
+// docs/plan-phase/4-dart-persistence-ui.md: the rendered detail now shows the GATED
+// features only, by plain-language label ("relative area", "body outline shape", ...),
+// driven by the envelope's own `features.gated` list; the measured vector is persisted as
+// a family-tagged JSON blob in `feature_vector`, not the five deprecated columns.
+import 'dart:convert';
+
+import 'package:drift/drift.dart' hide isNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:instaham/core/database/app_database.dart';
@@ -51,6 +58,7 @@ Map<String, dynamic> _envelopeWithWeightReason(
   Map<String, dynamic>? features,
   List<Map<String, dynamic>>? violations,
   Map<String, dynamic>? extraWeightFields,
+  List<String> gated = const ['RA', 'LC', 'BL', 'BW', 'E'],
 }) {
   final weight = <String, dynamic>{'status': 'unavailable', 'reason': reason};
   if (violations != null) weight['violations'] = violations;
@@ -62,6 +70,7 @@ Map<String, dynamic> _envelopeWithWeightReason(
       'status': 'provisional',
       'family': 'baseline5',
       'order': ['RA', 'LC', 'BL', 'BW', 'E'],
+      'gated': gated,
       'values':
           features ??
           {'RA': 0.03, 'LC': 500.0, 'BL': 200.0, 'BW': 90.0, 'E': 0.7},
@@ -120,11 +129,15 @@ void main() {
       )..where((row) => row.scanId.equals(scanId))).getSingle();
 
       expect(row.eligible, isFalse);
-      expect(row.featureRa, 0.03);
-      expect(row.featureLc, 500.0);
-      expect(row.featureBl, 200.0);
-      expect(row.featureBw, 90.0);
-      expect(row.featureE, 0.7);
+      // docs/plan-phase/4: the measured vector now lands in the family-tagged blob, not
+      // the five deprecated columns.
+      expect(row.featureRa, isNull);
+      final vector = jsonDecode(row.featureVector!) as Map<String, dynamic>;
+      expect(vector['family'], 'baseline5');
+      expect((vector['values'] as Map)['RA'], 0.03);
+      expect((vector['values'] as Map)['LC'], 500.0);
+      expect((vector['values'] as Map)['E'], 0.7);
+      expect(row.featureFamily, 'baseline5');
     },
   );
 
@@ -175,11 +188,11 @@ void main() {
 
       expect(row.failureReason, contains('Retake the photo'));
       expect(row.failureReason, isNot(contains('reference object')));
-      // ref_fix.md F17: only the violating feature (E, the default features map's 0.7)
-      // carries the '*' marker.
-      expect(row.failureReason, contains('E=0.7000*'));
-      expect(row.failureReason, contains('RA=0.0300'));
-      expect(row.failureReason, isNot(contains('RA=0.0300*')));
+      // ref_fix.md F17 + docs/plan-phase/4: only the violating feature carries the '*'
+      // marker, and features are labelled in plain language.
+      expect(row.failureReason, contains('body outline shape=0.7000*'));
+      expect(row.failureReason, contains('relative area=0.0300'));
+      expect(row.failureReason, isNot(contains('relative area=0.0300*')));
     },
   );
 
@@ -229,14 +242,14 @@ void main() {
       contains('Re-check the reference object placement'),
     );
     // ref_fix.md F17: the violating feature is marked...
-    expect(row.failureReason, contains('RA=0.0300*'));
-    // ...but every other feature still appears, unmarked -- round 2 omitted them
+    expect(row.failureReason, contains('relative area=0.0300*'));
+    // ...but every other GATED feature still appears, unmarked -- round 2 omitted them
     // entirely, which hid whether a feature was in-range or simply never reported.
-    expect(row.failureReason, contains('LC=500.0000'));
-    expect(row.failureReason, contains('BL=200.0000'));
-    expect(row.failureReason, contains('BW=90.0000'));
-    expect(row.failureReason, contains('E=0.7000'));
-    expect(row.failureReason, isNot(contains('E=0.7000*')));
+    expect(row.failureReason, contains('outline length=500.0000'));
+    expect(row.failureReason, contains('body length=200.0000'));
+    expect(row.failureReason, contains('body width=90.0000'));
+    expect(row.failureReason, contains('body outline shape=0.7000'));
+    expect(row.failureReason, isNot(contains('body outline shape=0.7000*')));
   });
 
   test(

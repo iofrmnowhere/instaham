@@ -21,22 +21,19 @@ abstract interface class IWeightModelService {
 class WeightPredictionResult {
   final bool eligible;
   final double? valueKg;
-  final double? ra;
-  final double? lc;
-  final double? bl;
-  final double? bw;
-  final double? e;
+
+  /// The envelope's `features.values` block, passed through untouched -- the service does
+  /// not know feature names (docs/plan-phase/4-dart-persistence-ui.md).
+  final Map<String, double>? features;
+  final String? featureFamily;
   final String? failureReason;
   final String? note;
 
   const WeightPredictionResult({
     required this.eligible,
     this.valueKg,
-    this.ra,
-    this.lc,
-    this.bl,
-    this.bw,
-    this.e,
+    this.features,
+    this.featureFamily,
     this.failureReason,
     this.note,
   });
@@ -61,15 +58,24 @@ class WeightModelServiceImpl implements IWeightModelService {
         failureReason: reason ?? 'Weight branch unavailable in this build.',
       );
     }
-    final features = json['features'] as Map<String, dynamic>?;
+    // The standalone predict payload carries `features` as a flat {name: value} map and
+    // `feature_family` at the top level; the pipeline envelope nests the same values under
+    // `features.values` with `features.family`. Accept either without knowing any names.
+    final featuresBlock = json['features'] as Map<String, dynamic>?;
+    final values =
+        (featuresBlock?['values'] as Map<String, dynamic>?) ?? featuresBlock;
     return WeightPredictionResult(
       eligible: true,
       valueKg: (json['estimated_kg'] as num?)?.toDouble(),
-      ra: (features?['RA'] as num?)?.toDouble(),
-      lc: (features?['LC'] as num?)?.toDouble(),
-      bl: (features?['BL'] as num?)?.toDouble(),
-      bw: (features?['BW'] as num?)?.toDouble(),
-      e: (features?['E'] as num?)?.toDouble(),
+      features: values == null
+          ? null
+          : {
+              for (final entry in values.entries)
+                if (entry.value is num)
+                  entry.key: (entry.value as num).toDouble(),
+            },
+      featureFamily:
+          (json['feature_family'] ?? featuresBlock?['family']) as String?,
       note: json['note'] as String?,
     );
   }

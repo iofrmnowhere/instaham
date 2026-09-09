@@ -1,0 +1,14 @@
+#include "instaham/cutter/Break1Fit.hpp"
+#include <opencv2/core.hpp>
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <vector>
+namespace instaham { namespace {
+struct Sums{std::vector<double>s1,sx,sxx,sy,sxy;};
+struct Fit{bool ok=false;double rss=1e300,b1=0,b2=0;cv::Vec4d beta{};};
+Sums suffix(const std::vector<double>&y){int n=y.size();Sums s;for(auto*p:{&s.s1,&s.sx,&s.sxx,&s.sy,&s.sxy})p->assign(n+1,0);for(int i=n-1;i>=0;i--){double x=i;s.s1[i]=s.s1[i+1]+1;s.sx[i]=s.sx[i+1]+x;s.sxx[i]=s.sxx[i+1]+x*x;s.sy[i]=s.sy[i+1]+y[i];s.sxy[i]=s.sxy[i+1]+x*y[i];}return s;}
+Fit at(double f1,double f2,const Sums&s,double syy,int n){int k1=(int)ceil(f1),k2=(int)ceil(f2);if(k1<0||k2>n||k1>=k2)return{};double a1=s.s1[k1],b1=s.sx[k1],c1=s.sxx[k1],d1=s.sy[k1],e1=s.sxy[k1];double a2=s.s1[k2],b2=s.sx[k2],c2=s.sxx[k2],d2=s.sy[k2],e2=s.sxy[k2];double m02=b1-f1*a1,m12=c1-f1*b1,m22=c1-2*f1*b1+f1*f1*a1,v2=e1-f1*d1;double m03=b2-f2*a2,m13=c2-f2*b2,m23=c2-(f1+f2)*b2+f1*f2*a2,m33=c2-2*f2*b2+f2*f2*a2,v3=e2-f2*d2;cv::Matx44d A(n,s.sx[0],m02,m03, s.sx[0],s.sxx[0],m12,m13, m02,m12,m22,m23, m03,m13,m23,m33);cv::Vec4d v(s.sy[0],s.sxy[0],v2,v3),beta;if(!cv::solve(A,v,beta,cv::DECOMP_LU))return{};for(double z:beta.val)if(!std::isfinite(z))return{};double rss=syy-beta.dot(v);if(!std::isfinite(rss))return{};Fit f;f.ok=true;f.rss=rss;f.b1=f1;f.b2=f2;f.beta=beta;return f;}
+}
+Break1Result fitBreak1(const OrientedTrunk&t,const Break1Config&c){Break1Result r;int nr=t.radii.size();std::vector<double>y;y.push_back(0);y.insert(y.end(),t.radii.begin(),t.radii.end());y.push_back(0);int n=y.size();if(n<12||nr<3)return r;auto s=suffix(y);double syy=0;for(double v:y)syy+=v*v;int gap=c.minGap,edge=c.minEdge;double maxB1=1.0+c.maxFraction*std::max(nr-1,1);int p1max=std::min((int)floor(maxB1),n-edge-gap-1);if(p1max<edge)return r;Fit best;for(int p1=edge;p1<=p1max;p1++)for(int p2=p1+gap;p2<n-edge;p2++){auto f=at(p1,p2,s,syy,n);if(f.ok&&f.rss<best.rss-1e-12)best=f;}if(!best.ok)return r;if(c.refineSpan>0&&c.refineStep>0){double lo1=std::max((double)edge,best.b1-c.refineSpan),hi1=std::min({maxB1,(double)(n-edge-gap),best.b1+c.refineSpan}),lo2=std::max((double)(edge+gap),best.b2-c.refineSpan),hi2=std::min((double)(n-edge),best.b2+c.refineSpan);for(double f1=lo1;f1<=hi1+.5*c.refineStep;f1+=c.refineStep){if(f1>maxB1+1e-12)continue;for(double f2=lo2;f2<=hi2+.5*c.refineStep;f2+=c.refineStep){if(f2-f1<gap)continue;auto f=at(f1,f2,s,syy,n);if(f.ok&&f.rss<best.rss-1e-12)best=f;}}}r.valid=true;r.break1Augmented=best.b1;r.break2Augmented=best.b2;r.break1Real=std::clamp(best.b1-1.0,0.0,double(nr-1));r.rss=best.rss;r.predictionReal.resize(nr);for(int i=0;i<nr;i++){double x=i+1;r.predictionReal[i]=best.beta[0]+best.beta[1]*x+best.beta[2]*std::max(0.0,x-best.b1)+best.beta[3]*std::max(0.0,x-best.b2);}return r;}
+}

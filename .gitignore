@@ -66,4 +66,29 @@ android/key.properties
 graphify-out/
 
 packages/instaham_ml_ffi/android/.cxx
+packages/instaham_ml_ffi/src/build/
 android/build/
+model_and_cutter/
+.pig_pictures/
+# export toolchain venv (dev only, never bundled)
+.venv-export/
+Instaham/
+
+# docs/test-plan-phase/1-host-toolchain.md: host_scale_test's CMake build dir and the
+# generated ONNX Runtime DLL/import-lib (copied from the pip install, regenerable via
+# ML/host_scale_test/third_party/make_ort_lib.py) -- not sources, not results.
+ML/host_scale_test/build/
+ML/host_scale_test/third_party/onnxruntime.dll
+ML/host_scale_test/third_party/onnxruntime.lib
+ML/host_scale_test/third_party/onnxruntime.exp
+
+# docs/test-plan-phase/3-driver-sweep.md: run_sweep.py's temporary patched manifest copies,
+# deleted at the end of every run -- never meant to be committed if one is ever left behind.
+assets/ml/manifest.test_*.json
+
+# local Drift/SQLite database — per-machine state, never shared
+instaham.sqlite
+
+# native crash dump, 4.9 MB, regenerable
+crash.txt
+old_mds

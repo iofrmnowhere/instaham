@@ -2355,6 +2355,50 @@ class $WeightResultsTable extends WeightResults
     type: DriftSqlType.double,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _featureVectorMeta = const VerificationMeta(
+    'featureVector',
+  );
+  @override
+  late final GeneratedColumn<String> featureVector = GeneratedColumn<String>(
+    'feature_vector',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _featureFamilyMeta = const VerificationMeta(
+    'featureFamily',
+  );
+  @override
+  late final GeneratedColumn<String> featureFamily = GeneratedColumn<String>(
+    'feature_family',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _cutterKeptFractionMeta =
+      const VerificationMeta('cutterKeptFraction');
+  @override
+  late final GeneratedColumn<double> cutterKeptFraction =
+      GeneratedColumn<double>(
+        'cutter_kept_fraction',
+        aliasedName,
+        true,
+        type: DriftSqlType.double,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _cutterStatusMeta = const VerificationMeta(
+    'cutterStatus',
+  );
+  @override
+  late final GeneratedColumn<String> cutterStatus = GeneratedColumn<String>(
+    'cutter_status',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _failureReasonMeta = const VerificationMeta(
     'failureReason',
   );
@@ -2424,6 +2468,10 @@ class $WeightResultsTable extends WeightResults
     featureBl,
     featureBw,
     featureE,
+    featureVector,
+    featureFamily,
+    cutterKeptFraction,
+    cutterStatus,
     failureReason,
     modelVersion,
     preprocessingVersion,
@@ -2521,6 +2569,42 @@ class $WeightResultsTable extends WeightResults
         featureE.isAcceptableOrUnknown(data['feature_e']!, _featureEMeta),
       );
     }
+    if (data.containsKey('feature_vector')) {
+      context.handle(
+        _featureVectorMeta,
+        featureVector.isAcceptableOrUnknown(
+          data['feature_vector']!,
+          _featureVectorMeta,
+        ),
+      );
+    }
+    if (data.containsKey('feature_family')) {
+      context.handle(
+        _featureFamilyMeta,
+        featureFamily.isAcceptableOrUnknown(
+          data['feature_family']!,
+          _featureFamilyMeta,
+        ),
+      );
+    }
+    if (data.containsKey('cutter_kept_fraction')) {
+      context.handle(
+        _cutterKeptFractionMeta,
+        cutterKeptFraction.isAcceptableOrUnknown(
+          data['cutter_kept_fraction']!,
+          _cutterKeptFractionMeta,
+        ),
+      );
+    }
+    if (data.containsKey('cutter_status')) {
+      context.handle(
+        _cutterStatusMeta,
+        cutterStatus.isAcceptableOrUnknown(
+          data['cutter_status']!,
+          _cutterStatusMeta,
+        ),
+      );
+    }
     if (data.containsKey('failure_reason')) {
       context.handle(
         _failureReasonMeta,
@@ -2616,6 +2700,22 @@ class $WeightResultsTable extends WeightResults
         DriftSqlType.double,
         data['${effectivePrefix}feature_e'],
       ),
+      featureVector: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}feature_vector'],
+      ),
+      featureFamily: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}feature_family'],
+      ),
+      cutterKeptFraction: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}cutter_kept_fraction'],
+      ),
+      cutterStatus: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}cutter_status'],
+      ),
       failureReason: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}failure_reason'],
@@ -2657,6 +2757,10 @@ class WeightResult extends DataClass implements Insertable<WeightResult> {
   final double? featureBl;
   final double? featureBw;
   final double? featureE;
+  final String? featureVector;
+  final String? featureFamily;
+  final double? cutterKeptFraction;
+  final String? cutterStatus;
   final String? failureReason;
   final String? modelVersion;
   final String? preprocessingVersion;
@@ -2674,6 +2778,10 @@ class WeightResult extends DataClass implements Insertable<WeightResult> {
     this.featureBl,
     this.featureBw,
     this.featureE,
+    this.featureVector,
+    this.featureFamily,
+    this.cutterKeptFraction,
+    this.cutterStatus,
     this.failureReason,
     this.modelVersion,
     this.preprocessingVersion,
@@ -2711,6 +2819,18 @@ class WeightResult extends DataClass implements Insertable<WeightResult> {
     }
     if (!nullToAbsent || featureE != null) {
       map['feature_e'] = Variable<double>(featureE);
+    }
+    if (!nullToAbsent || featureVector != null) {
+      map['feature_vector'] = Variable<String>(featureVector);
+    }
+    if (!nullToAbsent || featureFamily != null) {
+      map['feature_family'] = Variable<String>(featureFamily);
+    }
+    if (!nullToAbsent || cutterKeptFraction != null) {
+      map['cutter_kept_fraction'] = Variable<double>(cutterKeptFraction);
+    }
+    if (!nullToAbsent || cutterStatus != null) {
+      map['cutter_status'] = Variable<String>(cutterStatus);
     }
     if (!nullToAbsent || failureReason != null) {
       map['failure_reason'] = Variable<String>(failureReason);
@@ -2759,6 +2879,18 @@ class WeightResult extends DataClass implements Insertable<WeightResult> {
       featureE: featureE == null && nullToAbsent
           ? const Value.absent()
           : Value(featureE),
+      featureVector: featureVector == null && nullToAbsent
+          ? const Value.absent()
+          : Value(featureVector),
+      featureFamily: featureFamily == null && nullToAbsent
+          ? const Value.absent()
+          : Value(featureFamily),
+      cutterKeptFraction: cutterKeptFraction == null && nullToAbsent
+          ? const Value.absent()
+          : Value(cutterKeptFraction),
+      cutterStatus: cutterStatus == null && nullToAbsent
+          ? const Value.absent()
+          : Value(cutterStatus),
       failureReason: failureReason == null && nullToAbsent
           ? const Value.absent()
           : Value(failureReason),
@@ -2796,6 +2928,12 @@ class WeightResult extends DataClass implements Insertable<WeightResult> {
       featureBl: serializer.fromJson<double?>(json['featureBl']),
       featureBw: serializer.fromJson<double?>(json['featureBw']),
       featureE: serializer.fromJson<double?>(json['featureE']),
+      featureVector: serializer.fromJson<String?>(json['featureVector']),
+      featureFamily: serializer.fromJson<String?>(json['featureFamily']),
+      cutterKeptFraction: serializer.fromJson<double?>(
+        json['cutterKeptFraction'],
+      ),
+      cutterStatus: serializer.fromJson<String?>(json['cutterStatus']),
       failureReason: serializer.fromJson<String?>(json['failureReason']),
       modelVersion: serializer.fromJson<String?>(json['modelVersion']),
       preprocessingVersion: serializer.fromJson<String?>(
@@ -2820,6 +2958,10 @@ class WeightResult extends DataClass implements Insertable<WeightResult> {
       'featureBl': serializer.toJson<double?>(featureBl),
       'featureBw': serializer.toJson<double?>(featureBw),
       'featureE': serializer.toJson<double?>(featureE),
+      'featureVector': serializer.toJson<String?>(featureVector),
+      'featureFamily': serializer.toJson<String?>(featureFamily),
+      'cutterKeptFraction': serializer.toJson<double?>(cutterKeptFraction),
+      'cutterStatus': serializer.toJson<String?>(cutterStatus),
       'failureReason': serializer.toJson<String?>(failureReason),
       'modelVersion': serializer.toJson<String?>(modelVersion),
       'preprocessingVersion': serializer.toJson<String?>(preprocessingVersion),
@@ -2840,6 +2982,10 @@ class WeightResult extends DataClass implements Insertable<WeightResult> {
     Value<double?> featureBl = const Value.absent(),
     Value<double?> featureBw = const Value.absent(),
     Value<double?> featureE = const Value.absent(),
+    Value<String?> featureVector = const Value.absent(),
+    Value<String?> featureFamily = const Value.absent(),
+    Value<double?> cutterKeptFraction = const Value.absent(),
+    Value<String?> cutterStatus = const Value.absent(),
     Value<String?> failureReason = const Value.absent(),
     Value<String?> modelVersion = const Value.absent(),
     Value<String?> preprocessingVersion = const Value.absent(),
@@ -2861,6 +3007,16 @@ class WeightResult extends DataClass implements Insertable<WeightResult> {
     featureBl: featureBl.present ? featureBl.value : this.featureBl,
     featureBw: featureBw.present ? featureBw.value : this.featureBw,
     featureE: featureE.present ? featureE.value : this.featureE,
+    featureVector: featureVector.present
+        ? featureVector.value
+        : this.featureVector,
+    featureFamily: featureFamily.present
+        ? featureFamily.value
+        : this.featureFamily,
+    cutterKeptFraction: cutterKeptFraction.present
+        ? cutterKeptFraction.value
+        : this.cutterKeptFraction,
+    cutterStatus: cutterStatus.present ? cutterStatus.value : this.cutterStatus,
     failureReason: failureReason.present
         ? failureReason.value
         : this.failureReason,
@@ -2892,6 +3048,18 @@ class WeightResult extends DataClass implements Insertable<WeightResult> {
       featureBl: data.featureBl.present ? data.featureBl.value : this.featureBl,
       featureBw: data.featureBw.present ? data.featureBw.value : this.featureBw,
       featureE: data.featureE.present ? data.featureE.value : this.featureE,
+      featureVector: data.featureVector.present
+          ? data.featureVector.value
+          : this.featureVector,
+      featureFamily: data.featureFamily.present
+          ? data.featureFamily.value
+          : this.featureFamily,
+      cutterKeptFraction: data.cutterKeptFraction.present
+          ? data.cutterKeptFraction.value
+          : this.cutterKeptFraction,
+      cutterStatus: data.cutterStatus.present
+          ? data.cutterStatus.value
+          : this.cutterStatus,
       failureReason: data.failureReason.present
           ? data.failureReason.value
           : this.failureReason,
@@ -2922,6 +3090,10 @@ class WeightResult extends DataClass implements Insertable<WeightResult> {
           ..write('featureBl: $featureBl, ')
           ..write('featureBw: $featureBw, ')
           ..write('featureE: $featureE, ')
+          ..write('featureVector: $featureVector, ')
+          ..write('featureFamily: $featureFamily, ')
+          ..write('cutterKeptFraction: $cutterKeptFraction, ')
+          ..write('cutterStatus: $cutterStatus, ')
           ..write('failureReason: $failureReason, ')
           ..write('modelVersion: $modelVersion, ')
           ..write('preprocessingVersion: $preprocessingVersion, ')
@@ -2944,6 +3116,10 @@ class WeightResult extends DataClass implements Insertable<WeightResult> {
     featureBl,
     featureBw,
     featureE,
+    featureVector,
+    featureFamily,
+    cutterKeptFraction,
+    cutterStatus,
     failureReason,
     modelVersion,
     preprocessingVersion,
@@ -2965,6 +3141,10 @@ class WeightResult extends DataClass implements Insertable<WeightResult> {
           other.featureBl == this.featureBl &&
           other.featureBw == this.featureBw &&
           other.featureE == this.featureE &&
+          other.featureVector == this.featureVector &&
+          other.featureFamily == this.featureFamily &&
+          other.cutterKeptFraction == this.cutterKeptFraction &&
+          other.cutterStatus == this.cutterStatus &&
           other.failureReason == this.failureReason &&
           other.modelVersion == this.modelVersion &&
           other.preprocessingVersion == this.preprocessingVersion &&
@@ -2984,6 +3164,10 @@ class WeightResultsCompanion extends UpdateCompanion<WeightResult> {
   final Value<double?> featureBl;
   final Value<double?> featureBw;
   final Value<double?> featureE;
+  final Value<String?> featureVector;
+  final Value<String?> featureFamily;
+  final Value<double?> cutterKeptFraction;
+  final Value<String?> cutterStatus;
   final Value<String?> failureReason;
   final Value<String?> modelVersion;
   final Value<String?> preprocessingVersion;
@@ -3002,6 +3186,10 @@ class WeightResultsCompanion extends UpdateCompanion<WeightResult> {
     this.featureBl = const Value.absent(),
     this.featureBw = const Value.absent(),
     this.featureE = const Value.absent(),
+    this.featureVector = const Value.absent(),
+    this.featureFamily = const Value.absent(),
+    this.cutterKeptFraction = const Value.absent(),
+    this.cutterStatus = const Value.absent(),
     this.failureReason = const Value.absent(),
     this.modelVersion = const Value.absent(),
     this.preprocessingVersion = const Value.absent(),
@@ -3021,6 +3209,10 @@ class WeightResultsCompanion extends UpdateCompanion<WeightResult> {
     this.featureBl = const Value.absent(),
     this.featureBw = const Value.absent(),
     this.featureE = const Value.absent(),
+    this.featureVector = const Value.absent(),
+    this.featureFamily = const Value.absent(),
+    this.cutterKeptFraction = const Value.absent(),
+    this.cutterStatus = const Value.absent(),
     this.failureReason = const Value.absent(),
     this.modelVersion = const Value.absent(),
     this.preprocessingVersion = const Value.absent(),
@@ -3041,6 +3233,10 @@ class WeightResultsCompanion extends UpdateCompanion<WeightResult> {
     Expression<double>? featureBl,
     Expression<double>? featureBw,
     Expression<double>? featureE,
+    Expression<String>? featureVector,
+    Expression<String>? featureFamily,
+    Expression<double>? cutterKeptFraction,
+    Expression<String>? cutterStatus,
     Expression<String>? failureReason,
     Expression<String>? modelVersion,
     Expression<String>? preprocessingVersion,
@@ -3061,6 +3257,11 @@ class WeightResultsCompanion extends UpdateCompanion<WeightResult> {
       if (featureBl != null) 'feature_bl': featureBl,
       if (featureBw != null) 'feature_bw': featureBw,
       if (featureE != null) 'feature_e': featureE,
+      if (featureVector != null) 'feature_vector': featureVector,
+      if (featureFamily != null) 'feature_family': featureFamily,
+      if (cutterKeptFraction != null)
+        'cutter_kept_fraction': cutterKeptFraction,
+      if (cutterStatus != null) 'cutter_status': cutterStatus,
       if (failureReason != null) 'failure_reason': failureReason,
       if (modelVersion != null) 'model_version': modelVersion,
       if (preprocessingVersion != null)
@@ -3083,6 +3284,10 @@ class WeightResultsCompanion extends UpdateCompanion<WeightResult> {
     Value<double?>? featureBl,
     Value<double?>? featureBw,
     Value<double?>? featureE,
+    Value<String?>? featureVector,
+    Value<String?>? featureFamily,
+    Value<double?>? cutterKeptFraction,
+    Value<String?>? cutterStatus,
     Value<String?>? failureReason,
     Value<String?>? modelVersion,
     Value<String?>? preprocessingVersion,
@@ -3102,6 +3307,10 @@ class WeightResultsCompanion extends UpdateCompanion<WeightResult> {
       featureBl: featureBl ?? this.featureBl,
       featureBw: featureBw ?? this.featureBw,
       featureE: featureE ?? this.featureE,
+      featureVector: featureVector ?? this.featureVector,
+      featureFamily: featureFamily ?? this.featureFamily,
+      cutterKeptFraction: cutterKeptFraction ?? this.cutterKeptFraction,
+      cutterStatus: cutterStatus ?? this.cutterStatus,
       failureReason: failureReason ?? this.failureReason,
       modelVersion: modelVersion ?? this.modelVersion,
       preprocessingVersion: preprocessingVersion ?? this.preprocessingVersion,
@@ -3149,6 +3358,18 @@ class WeightResultsCompanion extends UpdateCompanion<WeightResult> {
     if (featureE.present) {
       map['feature_e'] = Variable<double>(featureE.value);
     }
+    if (featureVector.present) {
+      map['feature_vector'] = Variable<String>(featureVector.value);
+    }
+    if (featureFamily.present) {
+      map['feature_family'] = Variable<String>(featureFamily.value);
+    }
+    if (cutterKeptFraction.present) {
+      map['cutter_kept_fraction'] = Variable<double>(cutterKeptFraction.value);
+    }
+    if (cutterStatus.present) {
+      map['cutter_status'] = Variable<String>(cutterStatus.value);
+    }
     if (failureReason.present) {
       map['failure_reason'] = Variable<String>(failureReason.value);
     }
@@ -3186,6 +3407,10 @@ class WeightResultsCompanion extends UpdateCompanion<WeightResult> {
           ..write('featureBl: $featureBl, ')
           ..write('featureBw: $featureBw, ')
           ..write('featureE: $featureE, ')
+          ..write('featureVector: $featureVector, ')
+          ..write('featureFamily: $featureFamily, ')
+          ..write('cutterKeptFraction: $cutterKeptFraction, ')
+          ..write('cutterStatus: $cutterStatus, ')
           ..write('failureReason: $failureReason, ')
           ..write('modelVersion: $modelVersion, ')
           ..write('preprocessingVersion: $preprocessingVersion, ')
@@ -7417,6 +7642,10 @@ typedef $$WeightResultsTableCreateCompanionBuilder =
       Value<double?> featureBl,
       Value<double?> featureBw,
       Value<double?> featureE,
+      Value<String?> featureVector,
+      Value<String?> featureFamily,
+      Value<double?> cutterKeptFraction,
+      Value<String?> cutterStatus,
       Value<String?> failureReason,
       Value<String?> modelVersion,
       Value<String?> preprocessingVersion,
@@ -7437,6 +7666,10 @@ typedef $$WeightResultsTableUpdateCompanionBuilder =
       Value<double?> featureBl,
       Value<double?> featureBw,
       Value<double?> featureE,
+      Value<String?> featureVector,
+      Value<String?> featureFamily,
+      Value<double?> cutterKeptFraction,
+      Value<String?> cutterStatus,
       Value<String?> failureReason,
       Value<String?> modelVersion,
       Value<String?> preprocessingVersion,
@@ -7529,6 +7762,26 @@ class $$WeightResultsTableFilterComposer
 
   ColumnFilters<double> get featureE => $composableBuilder(
     column: $table.featureE,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get featureVector => $composableBuilder(
+    column: $table.featureVector,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get featureFamily => $composableBuilder(
+    column: $table.featureFamily,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get cutterKeptFraction => $composableBuilder(
+    column: $table.cutterKeptFraction,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get cutterStatus => $composableBuilder(
+    column: $table.cutterStatus,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -7640,6 +7893,26 @@ class $$WeightResultsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get featureVector => $composableBuilder(
+    column: $table.featureVector,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get featureFamily => $composableBuilder(
+    column: $table.featureFamily,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get cutterKeptFraction => $composableBuilder(
+    column: $table.cutterKeptFraction,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get cutterStatus => $composableBuilder(
+    column: $table.cutterStatus,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get failureReason => $composableBuilder(
     column: $table.failureReason,
     builder: (column) => ColumnOrderings(column),
@@ -7734,6 +8007,26 @@ class $$WeightResultsTableAnnotationComposer
   GeneratedColumn<double> get featureE =>
       $composableBuilder(column: $table.featureE, builder: (column) => column);
 
+  GeneratedColumn<String> get featureVector => $composableBuilder(
+    column: $table.featureVector,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get featureFamily => $composableBuilder(
+    column: $table.featureFamily,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<double> get cutterKeptFraction => $composableBuilder(
+    column: $table.cutterKeptFraction,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get cutterStatus => $composableBuilder(
+    column: $table.cutterStatus,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get failureReason => $composableBuilder(
     column: $table.failureReason,
     builder: (column) => column,
@@ -7820,6 +8113,10 @@ class $$WeightResultsTableTableManager
                 Value<double?> featureBl = const Value.absent(),
                 Value<double?> featureBw = const Value.absent(),
                 Value<double?> featureE = const Value.absent(),
+                Value<String?> featureVector = const Value.absent(),
+                Value<String?> featureFamily = const Value.absent(),
+                Value<double?> cutterKeptFraction = const Value.absent(),
+                Value<String?> cutterStatus = const Value.absent(),
                 Value<String?> failureReason = const Value.absent(),
                 Value<String?> modelVersion = const Value.absent(),
                 Value<String?> preprocessingVersion = const Value.absent(),
@@ -7838,6 +8135,10 @@ class $$WeightResultsTableTableManager
                 featureBl: featureBl,
                 featureBw: featureBw,
                 featureE: featureE,
+                featureVector: featureVector,
+                featureFamily: featureFamily,
+                cutterKeptFraction: cutterKeptFraction,
+                cutterStatus: cutterStatus,
                 failureReason: failureReason,
                 modelVersion: modelVersion,
                 preprocessingVersion: preprocessingVersion,
@@ -7858,6 +8159,10 @@ class $$WeightResultsTableTableManager
                 Value<double?> featureBl = const Value.absent(),
                 Value<double?> featureBw = const Value.absent(),
                 Value<double?> featureE = const Value.absent(),
+                Value<String?> featureVector = const Value.absent(),
+                Value<String?> featureFamily = const Value.absent(),
+                Value<double?> cutterKeptFraction = const Value.absent(),
+                Value<String?> cutterStatus = const Value.absent(),
                 Value<String?> failureReason = const Value.absent(),
                 Value<String?> modelVersion = const Value.absent(),
                 Value<String?> preprocessingVersion = const Value.absent(),
@@ -7876,6 +8181,10 @@ class $$WeightResultsTableTableManager
                 featureBl: featureBl,
                 featureBw: featureBw,
                 featureE: featureE,
+                featureVector: featureVector,
+                featureFamily: featureFamily,
+                cutterKeptFraction: cutterKeptFraction,
+                cutterStatus: cutterStatus,
                 failureReason: failureReason,
                 modelVersion: modelVersion,
                 preprocessingVersion: preprocessingVersion,

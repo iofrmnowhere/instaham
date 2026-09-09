@@ -1,27 +1,116 @@
-"""Convert the final XGBoost weight regressor (model.json) to ONNX + a manifest fragment.
+"""Convert the XGBoost weight regressor (model.json) to ONNX + a manifest fragment.
 
     python -m ML.export.export_xgboost \
-        --model ML/weight_prediction/model.json \
-        --metadata ML/weight_prediction/model.metadata.json \
+        --model ML/weight_prediction_chen16/model.json \
+        --feature-family chen16_noheight \
+        --test-predictions ML/weight_prediction_chen16/fixed_test_predictions.csv \
+        --test-metrics ML/weight_prediction_chen16/fixed_test_metrics.json \
+        --params ML/weight_prediction_chen16/selected_params.json \
         --out build/ml_export/weight
 
 Emits:
     weight/xgboost.onnx
-    weight/feature_order.json   {"feature_family": "baseline5", "features": ["RA","LC","BL","BW","E"]}
-    weight/xgboost.meta.json    (feature_names, n_estimators, objective, source sha256)
-    weight/manifest_fragment.json
+    weight/feature_order.json    {"feature_family": ..., "features": [...]}
+    weight/xgboost.meta.json     (feature_names, n_estimators, objective, base_score,
+                                  source sha256, onnx_max_abs_diff, reproduced_test_mae)
+    weight/manifest_fragment.json (weight capability block — see docs/plan-phase/3-manifest-pipeline.md)
 """
 from __future__ import annotations
 
 import argparse
+import csv
 from pathlib import Path
 
-from ML.export.common import BASELINE5, read_json, sha256_file, write_json
+from ML.export.common import FEATURE_FAMILIES, read_json, sha256_file, write_json
+
+# Per-feature dimension and eligibility-gate flags for chen16_noheight.
+# dimension drives the calibration-uncertainty exponent in pipeline.cpp:
+#   area -> uncertainty**2, linear -> uncertainty**1, dimensionless -> uncertainty**0.
+# gate: only the features k actually scales, and where "the model has never seen a pig
+#   this size" is the real question, are gated. The other ten are diagnostics only.
+# See docs/plan-phase/3-manifest-pipeline.md.
+_CHEN16_FEATURE_META = {
+    "mask_area":        {"dimension": "area",          "gate": True},
+    "convex_hull_area": {"dimension": "area",          "gate": True},
+    "difference":       {"dimension": "area",          "gate": True},
+    "dif_mask":         {"dimension": "dimensionless", "gate": False},
+    "body_curve":       {"dimension": "dimensionless", "gate": False},
+    "perimeter":        {"dimension": "linear",        "gate": True},
+    "outline_curve":    {"dimension": "dimensionless", "gate": False},
+    "longest":          {"dimension": "linear",        "gate": True},
+    "shortest":         {"dimension": "linear",        "gate": True},
+    "Hu_1":             {"dimension": "dimensionless", "gate": False},
+    "Hu_2":             {"dimension": "dimensionless", "gate": False},
+    "Hu_3":             {"dimension": "dimensionless", "gate": False},
+    "Hu_4":             {"dimension": "dimensionless", "gate": False},
+    "Hu_5":             {"dimension": "dimensionless", "gate": False},
+    "Hu_6":             {"dimension": "dimensionless", "gate": False},
+    "Hu_7":             {"dimension": "dimensionless", "gate": False},
+}
+
+_BASELINE5_FEATURE_META = {
+    "RA": {"dimension": "area",   "gate": True},
+    "LC": {"dimension": "linear", "gate": True},
+    "BL": {"dimension": "linear", "gate": True},
+    "BW": {"dimension": "linear", "gate": True},
+    "E":  {"dimension": "dimensionless", "gate": False},
+}
+
+_FEATURE_META = {
+    "chen16_noheight": _CHEN16_FEATURE_META,
+    "baseline5": _BASELINE5_FEATURE_META,
+}
+
+_FEATURE_EXTRACTOR_PROTOCOL = {
+    "chen16_noheight": "chen16_noheight_centerchord_v2",
+    "baseline5": "baseline5_v1",
+}
+
+_CUT_PROTOCOL_VERSION = (
+    "v176_strict_nonprimary_break1_region_meet_v144_fixed_center_bilateral_circle_v1"
+)
+
+
+def _read_base_score(model: Path) -> float:
+    raw = read_json(model)["learner"]["learner_model_param"]["base_score"]
+    if isinstance(raw, list):
+        raw = raw[0]
+    # XGBoost 3.x writes this as a JSON string in bracketed vector form, e.g. "[1.21669174E2]".
+    if isinstance(raw, str):
+        raw = raw.strip().lstrip("[").rstrip("]")
+    return float(raw)
+
+
+def _feature_domain_from_csv(
+    test_csv: Path, features: list[str], feature_meta: dict[str, dict]
+) -> dict[str, dict]:
+    cols: dict[str, list[float]] = {f: [] for f in features}
+    with test_csv.open(newline="") as fh:
+        for row in csv.DictReader(fh):
+            for f in features:
+                cols[f].append(float(row[f]))
+    domain: dict[str, dict] = {}
+    for f in features:
+        meta = feature_meta[f]
+        domain[f] = {
+            "min": min(cols[f]),
+            "max": max(cols[f]),
+            "dimension": meta["dimension"],
+            "gate": meta["gate"],
+            # With the real cutter running, the identity-stub widening is gone.
+            "upper_multiplier": 1.0,
+            "lower_multiplier": 1.0,
+        }
+    return domain
 
 
 def export(
     *,
     model: Path,
+    feature_family: str,
+    test_predictions: Path,
+    test_metrics: Path,
+    params: Path | None,
     metadata: Path | None,
     out: Path,
     opset: int = 15,
@@ -33,190 +122,188 @@ def export(
     from onnxmltools import convert_xgboost
     from onnxmltools.convert.common.data_types import FloatTensorType
 
+    if feature_family not in FEATURE_FAMILIES:
+        raise SystemExit(f"unknown --feature-family {feature_family!r}; known: {sorted(FEATURE_FAMILIES)}")
+    family = FEATURE_FAMILIES[feature_family]
+    feature_meta = _FEATURE_META[feature_family]
+
+
     out.mkdir(parents=True, exist_ok=True)
 
     booster = xgb.Booster()
     booster.load_model(str(model))
-    feature_names = list(booster.feature_names or BASELINE5)
-    if feature_names != BASELINE5:
+    feature_names = list(booster.feature_names or family)
+    if feature_names != family:
         raise SystemExit(
-            f"XGBoost feature order {feature_names} != required {BASELINE5} (AGENTS.md rule 2)"
+            f"XGBoost feature order {feature_names} != required {feature_family} order "
+            f"{family} (AGENTS.md rule 2)"
         )
 
-    # onnxmltools' tree walker only accepts generic 'f%d' feature names. The named
-    # order is verified above (AGENTS.md rule 2) and re-asserted in the self-check
-    # below by feeding rows in BASELINE5 order; renaming here does not relax the rule.
-    booster.feature_names = [f"f{i}" for i in range(len(BASELINE5))]
+    # onnxmltools' tree walker only accepts generic 'f%d' names. The named order is
+    # verified above and re-asserted by the CSV reproduction self-check below (which
+    # feeds columns in `family` order), so this rename does not relax AGENTS.md rule 2.
+    booster.feature_names = [f"f{i}" for i in range(len(family))]
 
     onnx_model = convert_xgboost(
         booster,
-        initial_types=[("input", FloatTensorType([None, len(BASELINE5)]))],
+        initial_types=[("input", FloatTensorType([None, len(family)]))],
         target_opset=opset,
     )
     onnx_path = out / "xgboost.onnx"
     onnx_path.write_bytes(onnx_model.SerializeToString())
+    sess = ort.InferenceSession(onnx_path.as_posix())
 
-    # self-check: xgboost vs ORT on random rows
-    rows = np.random.rand(8, len(BASELINE5)).astype("float32")
-    ref = booster.predict(xgb.DMatrix(rows, feature_names=booster.feature_names))
-    got = ort.InferenceSession(onnx_path.as_posix()).run(None, {"input": rows})[0].ravel()
-    max_abs = float(np.max(np.abs(ref - got)))
-    if max_abs >= 1e-3:
-        raise SystemExit(f"XGBoost/ONNX divergence too large: {max_abs:.2e}")
+    # --- self-check 1: graph transparency on realistic per-feature ranges ---
+    # Random rows sampled from each feature's real [min, max] across the test split,
+    # not np.random.rand in [0,1) which is nowhere near this model's input scale.
+    with test_predictions.open(newline="") as fh:
+        rows_csv = list(csv.DictReader(fh))
+    feat_cols = {f: np.array([float(r[f]) for r in rows_csv], dtype="float64") for f in family}
+    rng = np.random.default_rng(0)
+    sample = np.stack(
+        [rng.uniform(feat_cols[f].min(), feat_cols[f].max(), size=64) for f in family],
+        axis=1,
+    ).astype("float32")
+    ref = booster.predict(xgb.DMatrix(sample, feature_names=booster.feature_names))
+    got = sess.run(None, {"input": sample})[0].ravel()
+    onnx_max_abs_diff = float(np.max(np.abs(ref - got)))
+    if onnx_max_abs_diff >= 1e-3:
+        raise SystemExit(f"self-check 1 (graph transparency) failed: max_abs {onnx_max_abs_diff:.2e}")
 
+    # --- self-check 2: end-to-end reproduction of the eval CSV ---
+    # Feed all held-out rows through the ONNX graph, compare to the CSV's own
+    # `prediction` column, and recompute MAE against `fixed_test_metrics.json`. Passing
+    # this proves the feature order, base_score, objective, and tree walk simultaneously.
+    X = np.stack([feat_cols[f] for f in family], axis=1).astype("float32")
+    onnx_pred = sess.run(None, {"input": X})[0].ravel().astype("float64")
+    csv_pred = np.array([float(r["prediction"]) for r in rows_csv], dtype="float64")
+    repro_max_abs = float(np.max(np.abs(onnx_pred - csv_pred)))
+    if repro_max_abs >= 1e-3:
+        raise SystemExit(f"self-check 2 (CSV reproduction) failed: max_abs {repro_max_abs:.2e}")
+
+    y_true = np.array([float(r["weight_kg"]) for r in rows_csv], dtype="float64")
+    expected_mae = float(read_json(test_metrics)["mae"])
+    # The CSV `prediction` column must reproduce fixed_test_metrics.json in float64 —
+    # this proves the eval CSV is a consistent oracle before we trust it for parity.
+    csv_mae = float(np.mean(np.abs(csv_pred - y_true)))
+    if abs(csv_mae - expected_mae) >= 1e-6:
+        raise SystemExit(
+            f"eval CSV inconsistent: prediction-column MAE {csv_mae!r} vs "
+            f"fixed_test_metrics.json {expected_mae!r}"
+        )
+    # The ONNX graph runs in float32, so its MAE lands within the per-row 1e-3 bound of
+    # the float64 reference rather than exactly on it. Record it; assert the loose bound.
+    reproduced_test_mae = float(np.mean(np.abs(onnx_pred - y_true)))
+    if abs(reproduced_test_mae - expected_mae) >= 1e-3:
+        raise SystemExit(
+            f"self-check 2 MAE mismatch: reproduced {reproduced_test_mae!r} vs "
+            f"fixed_test_metrics.json {expected_mae!r}"
+        )
+
+    # --- sidecars ---
+    base_score = _read_base_score(model)
+    n_estimators = None
+    if params is not None and params.exists():
+        n_estimators = int(read_json(params).get("n_estimators", 0)) or None
     meta_src = read_json(metadata) if metadata and metadata.exists() else {}
-    write_json(
+
+    feature_order_path = write_json(
         out / "feature_order.json",
-        {"feature_family": "baseline5", "features": BASELINE5},
+        {"feature_family": feature_family, "features": family},
     )
-    write_json(
+    meta_path = write_json(
         out / "xgboost.meta.json",
         {
-            "feature_names": BASELINE5,
-            "n_estimators": int(meta_src.get("params", {}).get("n_estimators", 0)) or None,
+            "feature_names": family,
+            "feature_family": feature_family,
+            "n_estimators": n_estimators,
             "objective": "reg:squarederror",
+            "base_score": base_score,
             "target": meta_src.get("target", "weight_kg"),
             "source_model_sha256": sha256_file(model),
+            "onnx_max_abs_diff": onnx_max_abs_diff,
+            "reproduced_test_mae": reproduced_test_mae,
         },
     )
 
-    # --enable-for-testing (default False) is a deliberate, opt-in override of
-    # ML_implementation_plan.md revision 7 section 3.4's rule that weight.available must
-    # stay false while the cutter is a permanent identity dummy. It exists ONLY to let a
-    # developer manually verify the C++ weight_prediction stage end-to-end on a real
-    # device -- estimated_kg will read heavy because the head/neck were never removed
-    # from the mask. Never pass this flag when building a manifest meant to ship.
-    weight_block: dict = {
-        "available": bool(enable_for_testing),
-        "stability": "temporary",
-    }
+    feature_domain = _feature_domain_from_csv(test_predictions, family, feature_meta)
+
+    # The V176/V144 cutter is ported and runs on every dorsal scan (ADR-009), so neither
+    # string below may claim otherwise -- docs/spec.md flagged exactly that false clause.
+    # weight.available now stays false only until plan phase 5 re-derives cm_per_px_target
+    # from post-cut field masks; pipeline.cpp names that pending work
+    # `weight_pending_field_validation`, and this reason matches it deliberately.
+    # --enable-for-testing is the one switch that turns the branch on without a rebuild,
+    # for on-device verification only.
+    weight_block: dict = {"available": bool(enable_for_testing), "stability": "temporary"}
     if enable_for_testing:
         weight_block["note"] = (
-            "TEST OVERRIDE: cutter is the identity stub (head/neck not removed). "
-            "estimated_kg overestimates the research protocol's number."
+            "TEST OVERRIDE: cm_per_px_target is an empirical fit awaiting phase 5's field "
+            "re-derivation, and the regressor cannot predict below ~73 kg (ADR-010), so a "
+            "pig under ~85 kg reads high; estimated_kg is not trustworthy."
         )
     else:
-        weight_block["unavailable_reason"] = "cutter_identity_stub"
+        weight_block["unavailable_reason"] = "weight_pending_field_validation"
 
     fragment = {
         "weight": {
             **weight_block,
-            # ref_fix.md F16/F23: minimum fraction (of the image's own diagonal) the
-            # constructed mask's bounding-box diagonal must reach before the
-            # cutter/feature/domain gate stages even run on it -- a mask smaller than
-            # this isn't a pig. Raised from 0.15 to 0.35 in F23: measured against the
-            # three ground-truth photos in .pig_pictures/, every CORRECT whole-pig mask
-            # (once F18 fixes detection) came in at 0.62-0.74, and every WRONG mask (an
-            # ear, a foot, a snippet of another pig through a grate) came in at 0.06-0.15
-            # -- the old 0.15 threshold sat exactly on the wrong edge of that gap and let
-            # a 0.149 junk mask (the 118kg photo, pre-F18) through. Also the threshold
-            # pipeline.cpp's F19 retry ladder tests each rung against, so raising it here
-            # makes the ladder retry rather than settle for the first junk mask. Tunable
-            # here rather than a compiled-in native constant; a manifest that predates
-            # this field falls back to manifest.h's own 0.15 default.
+            "feature_family": feature_family,
+            "feature_order": family,
             "min_mask_diagonal_fraction": 0.35,
             "regressor": {
                 "format": "onnx",
                 "path": "weight/xgboost.onnx",
                 "sha256": sha256_file(onnx_path),
                 "meta_path": "weight/xgboost.meta.json",
-                "meta_sha256": sha256_file(out / "xgboost.meta.json"),
+                "meta_sha256": sha256_file(meta_path),
                 "feature_order_path": "weight/feature_order.json",
-                "feature_order_sha256": sha256_file(out / "feature_order.json"),
-                "feature_family": "baseline5",
+                "feature_order_sha256": sha256_file(feature_order_path),
+                "feature_family": feature_family,
                 "objective": "reg:squarederror",
+                "base_score": base_score,
             },
             "feature_extractor": {
-                "protocol_version": "baseline5_v1",
-                "names": BASELINE5,
+                "protocol_version": _FEATURE_EXTRACTOR_PROTOCOL[feature_family],
+                "names": family,
                 "linear_scale": 1.0,
             },
+            "feature_domain": feature_domain,
             "body_mask": {
                 "stage": "provisional",
-                "protocol_version": "ji_duan_residual_06q_v9_headfit_exact_twotangent_v26",
-                "ported_functions": [
-                    "clean_binary_mask",
-                    "isolate_dorsal_core_ji_duan",
-                    "extract_five_features",
-                    "unletterbox_native_mask",
-                ],
+                "cut_protocol_version": _CUT_PROTOCOL_VERSION,
+                "cut_required": True,
+            },
+            "quality_gates": {
+                # Ported in phase 2, ship dark until phase 5 measures the real rejection
+                # rate. posture_max_bend_deg is a validated research value carried here to
+                # be recorded, not casually tuned (README_AI_INTEGRATION.md section 8).
+                "truncation": False,
+                "posture": False,
+                "posture_max_bend_deg": 40.0,
             },
             "capture_contract": {
                 "feature_space": "fixed_camera_pixels",
                 "training_camera_height_m": 1.88,
                 "camera_height_is_xgboost_feature": False,
-                # TASKS.md W1: cm/px this regressor's features were trained at, and the
-                # frame (px) RA's denominator was measured against -- 720x720 is recovered
-                # exactly (body_mask_area_px / RA on every row of
-                # ML/weight_prediction/fixed_test_predictions_POSTHOC.csv). cm_per_px_target
-                # is NOT recoverable from anything in this repo and the value below is an
-                # unmeasured order-of-magnitude seed (see TASKS.md section 3.2/4) -- replace
-                # it with the median of several 1.88m calibration captures (TASKS.md W1)
-                # before trusting a predicted weight. packages/instaham_ml_ffi's
-                # load_manifest() refuses to load a weight-available manifest missing
-                # either field, so this contract must travel with every export.
-                # ref_fix.md F21 (round 4): replaces the round-1 0.26 seed above. Derived
-                # two independent ways against the three ground-truth photos in
-                # .pig_pictures/ (ref_fix.md section 3, F21):
-                #   1. BW (the minAreaRect minor axis, the feature the identity-stub cutter
-                #      perturbs least) measured on the uncut mask, divided by the trained
-                #      BW median for each photo's true-weight bin in
-                #      fixed_test_predictions_POSTHOC.csv, implies 0.347-0.368.
-                #   2. Sweeping cm_per_px_target and reading the regressor's own output
-                #      lands all three photos within +/-15% of true weight in the
-                #      0.32-0.36 band, independently of (1).
-                # Both land in the same place. 0.35 is a three-sample field estimate, NOT
-                # the 1.88m calibration capture TASKS.md W1 still asks for -- retune
-                # (downward) the moment the real cutter lands, since this value currently
-                # absorbs some of the cutter's head/neck inflation as well as the scale
-                # error, and three photos cannot separate the two.
+                # 720x720 recovered exactly: mask_area / RA == 518400 on all 1821 rows.
+                "training_frame_px": [720, 720],
+                # cm_per_px_target and its uncertainty are re-derived from post-cut field
+                # masks in phase 5 (plan open question 1). Phase 2 (docs/fix-phase-2/
+                # 2-scale-target-conflict.md) swept the specification's theoretical 304 px/m
+                # (0.3289 cm/px) against 0.35 using ML/host_scale_test/ over the real V176/V144
+                # cutter and the shipped models against five PIGRGB images with known true
+                # weights (docs/scale-constant-sweep-results.md). 0.35 won on MAE (11.5% vs
+                # 19.0%) and on every image individually. 304 px/m is retracted per
+                # INSTAHAM_CAMERA_SCALE_NORMALIZATION.md section 24, which says to replace it
+                # once empirical calibration exists. 0.35 is an empirical fit, not a derived
+                # constant, and its F21 provenance under the identity-stub cutter is still
+                # contaminated -- it wins on measurement, not on derivation.
                 "cm_per_px_target": 0.35,
                 "cm_per_px_target_source": (
-                    "three_sample_field_estimate_pending_1p88m_calibration_capture"
+                    "host_scale_sweep_round6_f49_empirical_fit_not_derived"
                 ),
-                # ref_fix.md F9/F21: how far cm_per_px_target above might be off, expressed
-                # as a multiplicative bound (>= 1.0). Widens (pipeline.cpp's
-                # feature_in_domain), never tightens, the SIZE feature_domain bounds below,
-                # so the eligibility gate is never stricter than the calibration it rests on
-                # (ref_fix.md section 1.5). Set to 1.0 the moment a real 1.88m calibration
-                # capture replaces the field estimate above -- this is the MANIFEST's
-                # uncertainty about itself, not a per-photo tolerance. Raised from 1.15 to
-                # 1.30 alongside F21's retune: a three-sample field estimate carries more
-                # uncertainty than the allometric guess it replaced.
                 "cm_per_px_target_uncertainty": 1.30,
-                "training_frame_px": [720, 720],
-            },
-            # ref_fix.md F3/F8: the [min, max] each feature actually took across the
-            # regressor's own eval set (ML/weight_prediction/fixed_test_predictions_POSTHOC.csv,
-            # 2014 rows) -- a normalized feature vector outside this range is rejected by
-            # the native pipeline rather than fed to the regressor (AGENTS.md rule 8),
-            # replacing a resolution-blind k-range check with a check on the thing that
-            # actually determines whether the model has ever seen anything like this input.
-            #
-            # `upper_multiplier` / `lower_multiplier` widen the max / min respectively, to
-            # allow for the identity-stub cutter leaving the head/neck in the mask. Unlike
-            # the flat 1.5x this replaced, each multiplier here is measured, not guessed:
-            # the same CSV also carries `whole_mask_area_px` (uncut, i.e. exactly what the
-            # identity-stub cutter produces) alongside `body_mask_area_px` (head-removed).
-            # Their ratio across all 2014 rows is min=1.0148, p50=1.1210, p99=1.3400,
-            # max=1.4121 -- so:
-            #   - RA is an AREA ratio and whole_mask_area_px/720^2 is directly the uncut
-            #     domain (min=0.0760, max=0.2042); no multiplier is needed at all.
-            #   - LC/BL are LENGTHS: an area inflation of up to 1.34 (p99) bounds their
-            #     linear inflation from above; 1.35 is used, deliberately conservative since
-            #     the head mostly adds length, not width.
-            #   - BW is the MINOR axis of minAreaRect, which the head barely perturbs; 1.10
-            #     reflects that rather than reusing the LC/BL figure.
-            #   - E (eccentricity) is a shape ratio the cutter can move in EITHER direction,
-            #     so unlike the others it also gets a lower_multiplier (0.97) -- the only
-            #     feature where "smaller than trained" has no such excuse does not apply.
-            # Retune (tighten toward 1.0) once the real cutter lands.
-            "feature_domain": {
-                "RA": {"min": 0.0760, "max": 0.2042, "upper_multiplier": 1.0, "lower_multiplier": 1.0},
-                "LC": {"min": 811.5605, "max": 1540.2884, "upper_multiplier": 1.35, "lower_multiplier": 1.0},
-                "BL": {"min": 312.4134, "max": 638.0170, "upper_multiplier": 1.35, "lower_multiplier": 1.0},
-                "BW": {"min": 118.4502, "max": 207.9156, "upper_multiplier": 1.10, "lower_multiplier": 1.0},
-                "E": {"min": 0.8888, "max": 0.9773, "upper_multiplier": 1.05, "lower_multiplier": 0.97},
             },
         }
     }
@@ -226,22 +313,40 @@ def export(
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--model", type=Path, required=True)
+    ap.add_argument("--feature-family", default="chen16_noheight", choices=sorted(FEATURE_FAMILIES))
+    ap.add_argument(
+        "--test-predictions",
+        type=Path,
+        default=Path("ML/weight_prediction_chen16/fixed_test_predictions.csv"),
+        help="eval CSV carrying the 16 feature columns and a `prediction` column — the "
+        "parity + domain oracle.",
+    )
+    ap.add_argument(
+        "--test-metrics",
+        type=Path,
+        default=Path("ML/weight_prediction_chen16/fixed_test_metrics.json"),
+    )
+    ap.add_argument(
+        "--params",
+        type=Path,
+        default=Path("ML/weight_prediction_chen16/selected_params.json"),
+    )
     ap.add_argument("--metadata", type=Path, default=None)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--opset", type=int, default=15)  # onnxmltools XGBoost converter caps at opset 15
     ap.add_argument(
         "--enable-for-testing",
         action="store_true",
-        help=(
-            "DEV ONLY: flips weight.available to true so instaham_ml_predict_weight_json "
-            "and the pipeline's weight branch return a real (uncut-mask, overestimated) "
-            "kg number instead of ERR_UNAVAILABLE. Overrides ML_implementation_plan.md "
-            "revision 7 section 3.4's rule. Never pass this for a build meant to ship."
-        ),
+        help="DEV ONLY: flips weight.available to true for on-device verification before "
+        "the real cutter is ported. Never pass this for a build meant to ship.",
     )
     a = ap.parse_args()
     written = export(
         model=a.model,
+        feature_family=a.feature_family,
+        test_predictions=a.test_predictions,
+        test_metrics=a.test_metrics,
+        params=a.params,
         metadata=a.metadata,
         out=a.out,
         opset=a.opset,

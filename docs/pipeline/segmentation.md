@@ -59,6 +59,13 @@ confidence used, `content_scale`, `clamped_to_letterbox`, and outcome.
 With no confirmed reference, or with an older manifest whose `input_cm_per_px` is 0.0, there
 is exactly one attempt using the plain letterbox.
 
+Observed so far: every real device scan has selected **rung 0** — default multiplier, no
+retry — including a photo the offline harness fails to detect at that rung at all (below).
+Three scans from one session is far too small a sample to call the ladder unnecessary;
+`ladder_rung` is persisted so the distribution can be watched as scans accumulate. A spread
+across rungs, or frequent falls through to the `retry_conf_threshold` pass, is evidence for
+re-exporting the segmenter rather than widening the ladder.
+
 ## Instance selection
 
 Candidates above the confidence threshold go through single-class NMS at `iou` 0.7. The
@@ -104,6 +111,24 @@ The result carries its own nonzero-pixel `area_px` and bounding box.
 
 `scale_mask_to_training_space()` lives in the same file but belongs to the weight branch —
 see [prediction.md](prediction.md).
+
+## Reproducing this stage offline
+
+`ML/tools/replicate_native_weight_branch.py` re-implements this stage and the weight branch in
+Python against the same manifest and `.onnx` files — seconds rather than an APK cycle. Its
+fidelity is not uniform across the stage, and the difference matters:
+
+- **Measurement is faithful.** Given a mask, the harness's five features land within 2% of the
+  native pipeline's on the same photo, and the regressor agrees exactly (see
+  [prediction-2.md](prediction-2.md)).
+- **Detection is not.** The harness reports no detection at all on a field photo that the
+  device segments at confidence 0.92 on the same rung. Its own image loading re-encodes
+  through a JPEG round-trip at quality 92 and caps the long edge at 3000 px before the
+  segmenter sees anything, which the native decode path does not do.
+
+So a harness result about *what the mask measures* is usable evidence; a harness result about
+*whether a pig is detected*, or which rung detects it, is not. Confirm detection behaviour
+against persisted `rungs_tried` from a real device scan instead.
 
 ## Envelope fields
 

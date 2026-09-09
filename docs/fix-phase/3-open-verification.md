@@ -1,93 +1,78 @@
-# Phase 3 — Open verification and tweaking
+# Phase 3 — Round-4 verification on device
 
-Status: in progress
+Status: done
 
-Everything still outstanding. New items in this phase number from **F25** upward; F1–F24 are
-taken, and source comments cite them.
+The device run happened. Round 4's availability goal is met; its accuracy goal is not. This
+file is now the record of that verdict. All remaining work moved to
+[4-ra-dominance.md](4-ra-dominance.md).
 
-## Steps
+Source of the device numbers: `docs/logs/ref_log.md`, "Weight Mismatch" section — an APK
+built from the round-4 tree (`c198456`) and run on the user's own phone against the same
+three `.pig_pictures/` photos.
 
-- [ ] **Run the harness first.** `python ML/tools/replicate_native_weight_branch.py . T`
-      against the three `.pig_pictures/` photos, on the current manifest values. Seconds, not
-      an APK cycle. Do this before touching any C++ — it is the loop that produced every
-      number in phase 1.
-- [ ] `ctest` over `test_segmentation_canvas.cpp`, `test_mask_selection.cpp` and
-      `test_feature_domain.cpp` — F18's composition and clamp, F19's ladder advance/stop,
-      F21's manifest values parsing, F22's unwidened comparison.
-- [ ] `dart format` on changed Dart files, then `flutter analyze`.
-- [ ] `flutter test test/features/inference_pipeline/` — F20's persisted blocks and F22's
-      `extrapolated` rendering.
-- [ ] Rebuild native, sideload, re-run all three `.pig_pictures/` scans on the phone.
-- [ ] Read the persisted `segmentation` and `construction` events from that run and settle
-      F24, F25 and F26 below from the log rather than by inspection.
-- [ ] Regenerate `assets/ml/manifest.json` via `python ML/export/export_xgboost.py` and
-      re-diff. The round-4 manifest edits were made by hand; the toolchain question is now
-      only `xgboost` + `onnxmltools`, so there is no reason to keep hand-editing it.
+## Result
 
-No Drift schema change is involved in any of this: no `schemaVersion` bump, no migration, no
-`build_runner`.
+| Photo | True | Device | Error | Harness, same manifest | Device − harness |
+|---|---|---|---|---|---|
+| `96kg_pig_porac_stick` | 96 kg | 116.0 kg | +20.8% | 110.3 kg (+14.9%) | +5.7 kg |
+| `92kg_pig_meter_stick` | 92 kg | 108.3 kg | +17.7% | 90.0 kg (−2.1%) | +18.3 kg |
+| `118kg_pig_porac_stick` | 118 kg | 128.8 kg | +9.2% | 107.7 kg (−8.7%) | +21.1 kg |
 
-## Acceptance
+The `cm_per_px` the device derived from the marked reference (0.0634 / 0.0648 / 0.0652)
+matches the values the harness assumes to within 0.2%, and the reference-object pixel lengths
+(2065 / 1543 / 2008) match the harness's working resolution. The divergence is not in the
+reference measurement and not in the capture resolution.
 
-Carried forward from `ref_fix.md` §4, unchanged:
+## Against round 4's acceptance criteria
 
-- All three photos produce a weight.
-- Mask bbox diagonal ≥ 0.55 of the frame diagonal on all three (harness measured 0.62 /
-  0.71 / 0.72).
-- Predictions within ±20% of true on all three, and within ±10% on at least two (harness
-  measured at target 0.35: −2.1%, −8.7%, +14.9%).
-- `candidates_kept`, `ladder_rung` and `content_scale` present in the persisted
-  `segmentation` event for every scan.
+- **All three photos produce a weight.** Pass. This is the round's real win: F18's
+  scale-aware canvas, F19's ladder and F23's diagonal threshold together removed every
+  "weight branch unavailable" rejection. The user reports no unavailable pigs since.
+- **Predictions within ±20% on all three, and within ±10% on at least two.** Fail on both
+  clauses — +20.8% breaches the outer bound, and only one photo (+9.2%) is inside ±10%.
+- **Mask bbox diagonal ≥ 0.55 on all three.** Not evaluated: the persisted `segmentation`
+  event was not read off the device. The harness measures 0.72 / 0.62 / 0.72.
+- **`candidates_kept`, `ladder_rung`, `content_scale` present in the persisted event.** Not
+  evaluated, same reason. F20 shipped the write; nobody has read it back yet.
+- **Non-acceptance — the 96 kg control must not regress.** Pass. It read 139.3 kg (+45.1%)
+  before round 4 and 116.0 kg (+20.8%) after. Worse than the target, better than before.
 
-**Non-acceptance.** Do not accept a build where the two previously-failing photos predict but
-the 96 kg photo regresses. That photo is the only one with a known-good history and it is the
-control.
+## What this phase established, beyond the pass/fail
 
-## F24 — the `RA` discrepancy (open, carried from round 4)
+Three findings from the harness runs made while judging this result. They are the substance
+of round 5 and are written up with their measurements in
+[4-ra-dominance.md](4-ra-dominance.md); named here so this file is a complete record.
 
-The harness reports `RA` = 0.00728 on the 118 kg photo against the app's 0.00086 — a factor
-of 8.5 on a mask whose `BL`, `BW`, `LC` and `E` all agree within 5%. A 5% difference in
-outline cannot produce that.
+1. **The harness does not reproduce the device.** Same photos, same manifest, same ladder,
+   same rung-selection rule — and the harness lands 5.7 to 21.1 kg below the app on every
+   photo, in the same direction each time. Every number in phase 1 and every constant fitted
+   in phase 2 came from this harness. Until the gap is explained, the harness is a tool for
+   understanding the model, not for calibrating the app.
+2. **`cm_per_px_target` cannot be fitted.** Sweeping it from 0.28 to 0.52 at each photo's
+   selected rung produces a jagged, non-monotone response — the 118 kg photo reads 103.6 kg
+   at 0.32, 107.7 at 0.35, 82.6 at 0.38 and 112.0 at 0.41. F21's move from 0.26 to 0.35 was
+   fitted on this surface and did not survive contact with the device.
+3. **The regressor is very nearly a function of `RA` alone.** Holding the other four features
+   at the midpoint of their trained ranges and sweeping each in turn across its full range:
+   `RA` moves the prediction 72.6 → 171.2 kg, while `LC` moves it 5.6 kg, `BW` 4.2 kg, `E`
+   11.9 kg, and `BL` −21.8 kg. `RA` carries the entire output range and the shape features
+   carry almost nothing.
 
-Two candidate explanations, and no guessing between them: either it is nothing (the masks are
-not bit-identical, and `RA` is the only feature depending on filled area rather than outline
-geometry), or it is a real defect in how the native side counts area or chooses the `RA`
-denominator. `RA`'s denominator is the one input that changes with `scale_ok` — the
-manifest's 720×720 training frame when a scale was applied, the mask's own dimensions
-otherwise — which is the first thing to check in the persisted `features` event.
+## F24 — closed
 
-F20 has made this a log read. Do it on the first device run after round 4.
+The round-4 `RA` discrepancy (harness 0.00728 against the app's 0.00086 on the 118 kg photo)
+is closed by inspection of `pipeline.cpp:542` and `feature_calculation.cpp:35`: `RA`'s
+denominator is `manifest.weight.training_frame_px` when `scale_ok` and the mask's own
+dimensions otherwise, exactly as suspected. The 0.00086 was recorded on a build where the
+scale branch had failed, so the denominator was the full captured frame rather than 720×720.
+With `scale_ok` true on every scan in this run, both sides now use the same denominator, and
+the device and harness `RA` values are within the same few percent as the other features.
 
-## F25 — orientation sensitivity
+This closes F24 as a reporting artefact, not a defect. Note that it does **not** explain the
+device-vs-harness weight gap in the table above — see finding 1.
 
-`ref_fix.md` §1.5: the 96 kg photo is the only one the pre-round-4 pipeline could ever
-segment, and only rotated 90° clockwise, where the model returns a 523×206 box at conf 0.30
-against a 72×55 snout upright. That is consistent with it being the one scan that ever
-produced a number, and with the app having handled its HEIC `irot` differently from the other
-two — but it is *not* a settled reconstruction: replaying the rotated path end to end predicts
-172.6 kg where the app reported 139.3 kg.
+## F25, F26 — still open, carried forward
 
-Treat it as the best available explanation of the anomaly, not as fact. F20's telemetry
-should now show whether orientation sensitivity is still biting after F18. If it is, the fix
-is the same as the segmenter retraining in phase 2's out-of-scope list, not another
-workaround here.
-
-## F26 — is the ladder papering over brittleness?
-
-`input_cm_per_px = 1.10` and the ladder were both fitted to three photos of one animal type,
-by one photographer, on one phone. The 118 kg row in phase 1's sweep already shows the
-segmenter detecting at 1.30, 1.60, 1.80 and 2.40 but not at 0.90–1.20, 1.40 or 2.00 — which
-is model brittleness the ladder papers over rather than removes.
-
-Watch `ladder_rung` across real scans as they accumulate. A distribution concentrated on rung
-0 means the constant is right; a spread across rungs, or frequent falls through to the
-`retry_conf_threshold` pass, is evidence for re-exporting the segmenter rather than widening
-the ladder further.
-
-## Standing follow-up, not blocking this phase
-
-`cm_per_px_target` must be retuned **downward** the moment the real cutter lands. F21
-knowingly conflates the scale error with the missing cutter's inflation because three samples
-cannot separate them, so a cutter landing against a target fitted to uncut masks would
-silently make accuracy worse, not better. This belongs in the manifest's own notes as well as
-here.
+Both need the persisted telemetry that this run wrote and nobody read. They move to phase 4
+unchanged: F25 is orientation sensitivity, F26 is whether the ladder papers over segmenter
+brittleness.

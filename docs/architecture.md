@@ -51,15 +51,29 @@ flowchart LR
 - **Pipeline orchestrator** (`src/pipeline.cpp`) — the only file that knows the stage order.
   Every stage-level failure is reported inside the envelope with its own status rather than
   aborting the call.
-- **Stages** (`src/stages/`) — one file per stage: `segmentation`, `construction`, `cutter`,
-  `feature_calculation`, `weight_prediction`. `construction` and the geometry headers link
-  no ONNX Runtime, so they are unit-testable without a model.
+- **Stages** (`src/stages/`) — one file per stage: `segmentation`, `construction`,
+  `quality_gates`, `cutter`, `feature_calculation`, `weight_prediction`. `construction` and
+  the geometry headers link no ONNX Runtime, so they are unit-testable without a model.
+  `quality_gates` (truncation, posture) runs on the whole mask in capture coordinates before
+  the cutter, gated by two manifest switches that both ship `false`.
+- **Vendor cutter/feature stack** (`src/vendor/instaham_v176/`) — the supplied C++
+  implementation of the V176/V144 cut protocol and the 16-feature Chen16 vector, copied
+  verbatim (per-file sha256 and every edit logged in its `VENDOR.md`). `stages/cutter.cpp`
+  and `stages/feature_calculation.cpp` are thin adapters over it; nothing else calls into it,
+  and its `cv::Mat` types never reach `pipeline.cpp`. Unconditionally OpenCV-dependent, so it
+  compiles only under `INSTAHAM_ML_WITH_OPENCV` — now on for host builds too, not just
+  Android, because `stages/cutter.cpp` is no longer header-only.
 - **Manifest** (`src/manifest.cpp`, `assets/ml/manifest.json`) — declares every model path,
-  its sha256, preprocessing constants, class maps, feature order, and capability
-  availability flags. Every referenced file's hash is verified before any ORT session is
-  created. Class indices are never hardcoded; they come from `classes.json`.
-- **ONNX Runtime** — four sessions: GhostNetV3 view classifier, GhostNetV3 health
-  classifier, YOLO11s-seg segmenter, XGBoost weight regressor.
+  its sha256, preprocessing constants, class maps, capability availability flags, and the
+  weight branch's whole feature contract: `feature_family`, an arbitrary-width
+  `feature_order`, and a `feature_domain` map keyed by feature name carrying each feature's
+  trained bounds, `dimension`, and `gate` flag. Nothing native names a feature; the
+  regressor's vector width is data, not code ([ADR-007](adr/007-manifest-declared-feature-family.md)).
+  Every referenced file's hash is verified before any ORT session is created. Class indices
+  are never hardcoded; they come from `classes.json`.
+- **ONNX Runtime** — four sessions: MobileNetV4-Conv-Small view classifier (`view_v2`,
+  replaced GhostNetV3 in docs/plan.md), GhostNetV3 health classifier, YOLO11s-seg
+  segmenter, XGBoost weight regressor.
 
 ## Boundaries that matter
 
@@ -68,7 +82,10 @@ flowchart LR
   rotation and assumes an already-normalised RGB image.
 - **cm/pixel originates only from the user-confirmed reference object.** There is no
   implicit `k = 1.0` fallback anywhere in the native chain; a missing or unusable scale
-  degrades the weight branch instead of predicting on unnormalised pixels.
+  degrades the weight branch instead of predicting on unnormalised pixels. This boundary is
+  also the highest-gain one: the weight regressor is effectively univariate in mask area
+  ratio, which carries the scale squared, so a 1% scale error becomes a 2.8–4.0% weight
+  error — see [pipeline/prediction-2.md](pipeline/prediction-2.md).
 - **The view classifier gates the graph.** `reject` stops the pipeline; `health_only` skips
   segmentation entirely (health's region protocols are stubs that degrade to full-frame, so
   the YOLO pass would feed nothing); `dorsal_valid` runs the full graph. An unrecognised or
@@ -76,3 +93,15 @@ flowchart LR
 - **One native call per scan.** The whole-graph entrypoint exists so the single constructed
   mask feeds both the health and weight branches instead of three per-capability calls each
   re-segmenting from the image path.
+- **That call is synchronous on the Dart main isolate.** `Isolate.run`, `Isolate.spawn` and
+  `compute(` appear nowhere in `lib/`, so the whole native graph — segmentation, cutter,
+  features, both models — runs on the UI thread and blocks it for the duration. Measured at
+  about 5 s on device, against Android's 10 s input-dispatch timeout. This is why a slow
+  native stage presents to the user as a crash rather than as a long spinner: the first field
+  build with the real cutter blew that budget and was killed as an ANR, which is what
+  [ADR-008](adr/008-unscaled-cutter-input-is-capped-not-gated.md) bounds. The margin is
+  currently adequate and deliberately not defended by anything; moving the call off the main
+  isolate is the standing remedy if it is ever wanted back.
+
+> Continued in [architecture-2.md](architecture-2.md) — the Flutter module layout: `lib/`
+> boundaries, layering, naming conventions, and the single FFI seam.

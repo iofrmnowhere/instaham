@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:drift/drift.dart';
@@ -77,11 +78,28 @@ class WeightResults extends Table {
   RealColumn get referenceLengthCm => real().nullable()();
   RealColumn get referencePixelLength => real().nullable()();
   RealColumn get cmPerPixel => real().nullable()();
+  // DEPRECATED (docs/plan-phase/4-dart-persistence-ui.md): the weight regressor moved from
+  // the 5-feature baseline5 family to the 16-feature chen16_noheight family. These five
+  // columns are no longer written -- the feature vector now lands in [featureVector] as a
+  // family-tagged JSON blob so a future feature-family change needs no migration. They are
+  // KEPT, not dropped, because they still hold real field measurements from scans taken
+  // before schemaVersion 4 (the history docs/fix-phase/6-device-telemetry-findings.md was
+  // built from).
   RealColumn get featureRa => real().nullable()();
   RealColumn get featureLc => real().nullable()();
   RealColumn get featureBl => real().nullable()();
   RealColumn get featureBw => real().nullable()();
   RealColumn get featureE => real().nullable()();
+  // Whole envelope `features` block verbatim: {"family": "...", "values": {name: value}}.
+  TextColumn get featureVector => text().nullable()();
+  // Queryable discriminator ("baseline5" | "chen16_noheight") so an export/analytics query
+  // can filter by family without parsing every blob.
+  TextColumn get featureFamily => text().nullable()();
+  // Cutter telemetry (docs/plan-phase/3-manifest-pipeline.md): post-cut / pre-cut mask area
+  // ratio, median ~0.95 on training rows. TELEMETRY ONLY -- nothing in the Dart layer may
+  // branch on it and it must not reach the UI.
+  RealColumn get cutterKeptFraction => real().nullable()();
+  TextColumn get cutterStatus => text().nullable()();
   TextColumn get failureReason => text().nullable()();
   TextColumn get modelVersion => text().nullable()();
   TextColumn get preprocessingVersion => text().nullable()();
@@ -175,7 +193,7 @@ class AppDatabase extends _$AppDatabase {
   static final Random _random = Random.secure();
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -187,6 +205,18 @@ class AppDatabase extends _$AppDatabase {
       if (from < 3) {
         await migrator.addColumn(scanRecords, scanRecords.measurementMode);
         await migrator.addColumn(scanRecords, scanRecords.cameraHeightCm);
+      }
+      if (from < 4) {
+        // docs/plan-phase/4-dart-persistence-ui.md: 16-feature weight vector as a JSON
+        // blob plus a queryable family discriminator, and two cutter-telemetry columns.
+        // All nullable additions -- no backfill; featureRa..featureE keep their old values.
+        await migrator.addColumn(weightResults, weightResults.featureVector);
+        await migrator.addColumn(weightResults, weightResults.featureFamily);
+        await migrator.addColumn(
+          weightResults,
+          weightResults.cutterKeptFraction,
+        );
+        await migrator.addColumn(weightResults, weightResults.cutterStatus);
       }
     },
     beforeOpen: (_) async {
@@ -375,11 +405,10 @@ class AppDatabase extends _$AppDatabase {
     double? referenceLengthCm,
     double? referencePixelLength,
     double? cmPerPixel,
-    double? ra,
-    double? lc,
-    double? bl,
-    double? bw,
-    double? e,
+    Map<String, double>? features,
+    String? featureFamily,
+    double? cutterKeptFraction,
+    String? cutterStatus,
     String? failureReason,
     String? modelVersion,
     String? preprocessingVersion,
@@ -393,11 +422,14 @@ class AppDatabase extends _$AppDatabase {
         referenceLengthCm: Value(referenceLengthCm),
         referencePixelLength: Value(referencePixelLength),
         cmPerPixel: Value(cmPerPixel),
-        featureRa: Value(ra),
-        featureLc: Value(lc),
-        featureBl: Value(bl),
-        featureBw: Value(bw),
-        featureE: Value(e),
+        featureVector: Value(
+          features == null
+              ? null
+              : jsonEncode({'family': featureFamily, 'values': features}),
+        ),
+        featureFamily: Value(featureFamily),
+        cutterKeptFraction: Value(cutterKeptFraction),
+        cutterStatus: Value(cutterStatus),
         failureReason: Value(failureReason),
         modelVersion: Value(modelVersion),
         preprocessingVersion: Value(preprocessingVersion),
@@ -477,22 +509,11 @@ class AppDatabase extends _$AppDatabase {
       final valueKg = double.parse(
         (40.0 + _random.nextDouble() * 90.0).toStringAsFixed(1),
       );
-      final ra = double.parse(
-        (0.15 + _random.nextDouble() * 0.45).toStringAsFixed(2),
-      );
-      final lc = double.parse(
-        (0.80 + _random.nextDouble() * 0.70).toStringAsFixed(2),
-      );
-      final bl = double.parse(
-        (0.50 + _random.nextDouble() * 0.60).toStringAsFixed(2),
-      );
-      final bw = double.parse(
-        (0.25 + _random.nextDouble() * 0.35).toStringAsFixed(2),
-      );
-      final e = double.parse(
-        (0.60 + _random.nextDouble() * 0.35).toStringAsFixed(2),
-      );
 
+      // docs/plan-phase/4-dart-persistence-ui.md: the seed helper no longer fabricates a
+      // feature vector. Inventing sixteen plausible Chen16 values (signed Hu moments
+      // included) would be fabricated model output, which the UI contract forbids
+      // surfacing. valueKg stays synthetic -- it is only ever the demo record's headline.
       await saveWeightResult(
         scanId: scanId,
         eligible: true,
@@ -500,11 +521,6 @@ class AppDatabase extends _$AppDatabase {
         referenceLengthCm: reference.lengthCm,
         referencePixelLength: pixelLength,
         cmPerPixel: cmPerPixel,
-        ra: ra,
-        lc: lc,
-        bl: bl,
-        bw: bw,
-        e: e,
         modelVersion: 'xgb-weight-v1',
       );
     } else {

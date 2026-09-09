@@ -1,7 +1,7 @@
-"""Fold a GhostNetV3 checkpoint's re-parameterisation branches into inference-only form.
+"""Fold a re-parameterised checkpoint's training-time branches into inference-only form.
 
 Section 6.1 of ML_implementation_plan.md: `model_state` in `ML/view_model/best.pt` and
-`ML/health_cnn/best.pt` carries the training-time multi-branch form
+`ML/health_cnn/best.pt` (both GhostNetV3) carries the training-time multi-branch form
 (`*_rpr_conv.{0,1,2}`, `*_rpr_skip`, `*_rpr_scale`). Exporting that as-is ships every
 training branch as a fan of parallel Convs plus a scalar-scaled Add per Ghost module —
 correct, but needlessly large and slow. This folds them.
@@ -14,10 +14,33 @@ load). Fusion itself is `timm.utils.model.reparameterize_model` — this module 
 the fold is one named, tested call site rather than inlined in every export script, and so
 a future real architecture mismatch (e.g. a timm downgrade) fails here with a clear error
 instead of silently exporting the unfused graph.
+
+Not every architecture has anything to fold. `reparameterize_model` walks the module tree
+looking for children exposing `.fuse()` / `.reparameterize()` / `.switch_to_deploy()` and is
+a silent no-op where none exist — e.g. `mobilenetv4_conv_small` (the view classifier's
+2026-09 replacement, docs/plan.md), which has no re-parameterisation branches at all. Running
+the fold on such a model is harmless but the "< 1e-5" assertion below then proves nothing
+(both sides are the same graph), so `has_reparam_modules()` lets a caller skip the step
+outright rather than keep a check that always trivially passes.
 """
 from __future__ import annotations
 
 FUSION_TOLERANCE = 1e-5  # fused vs trained logits, section 6.1
+
+
+def has_reparam_modules(model) -> bool:
+    """True if any submodule exposes a fuse/reparameterize/switch_to_deploy hook.
+
+    Mirrors exactly the predicate `timm.utils.model.reparameterize_model` uses internally
+    to decide what to fold, so this never disagrees with what `fuse()` below would actually
+    do.
+    """
+    for _, child in model.named_modules():
+        if hasattr(child, "fuse") or hasattr(child, "reparameterize") or hasattr(
+            child, "switch_to_deploy"
+        ):
+            return True
+    return False
 
 
 def fuse(model, *, sample_input, tolerance: float = FUSION_TOLERANCE):

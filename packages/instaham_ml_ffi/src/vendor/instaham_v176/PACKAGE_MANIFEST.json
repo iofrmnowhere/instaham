@@ -1,0 +1,15 @@
+{
+  "baseline": "V176",
+  "feature_family": "chen16_noheight",
+  "feature_count": 16,
+  "quality_order": "whole_yolo_mask -> truncation + body_curve/posture -> JiDuan",
+  "cut_protocol": "V176 selector + V144 fixed-center bilateral circle",
+  "model_files_included": false,
+  "orchestrator_only_controls_order": true,
+  "yolo_coordinate_protocol": "original_coordinate_polygon_v1",
+  "yolo_rasterization_protocol": "native_unletterbox_primary_v2",
+  "yolo_selection_protocol": "cleaned_target_instance_v1",
+  "lt80_kept_area_runtime_flag": false,
+  "kept_area_rejection": false,
+  "body_curve_skeleton_protocol": "skimage_0.26.0_zhang_exact_lut_v1"
+}

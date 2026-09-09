@@ -30,7 +30,12 @@ PigMask make_disc_mask(int size, int radius) {
   for (int y = 0; y < size; ++y) {
     for (int x = 0; x < size; ++x) {
       const int dx = x - cx, dy = y - cy;
-      if (dx * dx + dy * dy <= radius * radius) mask.pixels[size_t(y) * size + x] = 255;
+      if (dx * dx + dy * dy <= radius * radius) {
+        mask.pixels[size_t(y) * size + x] = 255;
+        ++mask.area_px;  // scale_mask_to_training_space() actually computes this; this
+                          // helper must too, or the k=1.0 identity assertion below compares
+                          // a real count against PigMask's default-constructed 0.
+      }
     }
   }
   return mask;

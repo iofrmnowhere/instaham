@@ -12,25 +12,27 @@ namespace stages {
 // in, body-only mask out (ML/pipeline/cutter.py's isolate_body_only_mask).
 //
 // ---------------------------------------------------------------------------------
-// IDENTITY STUB -- AND, PER ML_implementation_plan.md REVISION 7, PERMANENT
+// V176 SELECTOR + V144 CIRCLE CUT -- ported from the vendor package, not the identity
+// stub ADR-001 shipped
 // ---------------------------------------------------------------------------------
-// This returns the input mask unchanged. Revision 7 section 3.4 settles the question
-// revision 6 deferred: ML/pipeline/cutter.py is NOT ported to C++, and it is NOT shipped
-// as on-device Python either (the Chaquopy programme -- section 3.5's options A/B/C -- is
-// deleted). This stage is a permanent C++ identity dummy (refactor_plan.md: "whenever it
-// gets called it would just return the same image"), because re-implementing ~9,900 lines
-// of SciPy/scikit-image-coupled geometry would risk silently changing the research weight
-// numbers, and shipping the real Python on device costs 65-85 MB per ABI for a regressor
-// already flagged temporary.
+// ADR-001 declined to port ML/pipeline/cutter.py directly: ~9,900 lines coupled to SciPy
+// and scikit-image, with no fixture to prove equivalence. That reasoning does not extend to
+// this cutter -- the Chen16 model was trained on masks cut by a DIFFERENT protocol
+// (`v176_..._v144_..._v1`, not `ML/pipeline/cutter.py`'s
+// `ji_duan_residual_06q_v9_headfit_exact_twotangent_v26`), and the vendor package
+// (`vendor/instaham_v176/`) is an existing, small (31 translation units) C++
+// implementation of exactly that protocol, with every SciPy/skimage call already replaced
+// by OpenCV or hand-rolled equivalents. See docs/plan-phase/2-native-cutter-chen16.md.
+// Phase 5 writes the ADR that formally supersedes ADR-001.
 //
-// Because the cut does not happen, `head_removal_applied` is false and `status` says so.
-// Callers MUST propagate both into the result envelope: a weight computed from an uncut
-// mask includes the head and neck and is therefore NOT a valid estimate under the research
-// protocol. AGENTS.md rule 8 forbids emitting a number after a check that did not pass, so
-// pipeline.cpp keeps weight.available == false (and instaham_ml_predict_weight_json keeps
-// returning ERR_UNAVAILABLE / "cutter_identity_stub") for as long as this file is what
-// runs -- passing the mask through is a structural convenience for stages 4 (feature
-// calculation) to exercise on real photos, never a licence to publish a weight from it.
+// This stage wraps the mask in a cv::Mat and runs, in order:
+//   Ji/Duan cleanup -> outline build -> shrinking-ball medial candidates -> Selle filter
+//   -> terminal trunk geometry -> break1 fit -> V176 shoulder selection -> V144 circle cut.
+// `head_removal_applied` is true only when the circle cut actually ran (status
+// "cut_applied"); every other status leaves the mask uncut and the field false, because a
+// weight computed from an uncut mask includes the head and neck and is not a valid
+// estimate under the research protocol (AGENTS.md rule 8: never emit a number after a
+// check that did not pass).
 struct MaskView {
   const uint8_t* data = nullptr;  // width * height, 0/1, row-major, not owned
   int width = 0;
@@ -40,19 +42,32 @@ struct MaskView {
 };
 
 struct CutterResult {
-  std::vector<uint8_t> mask;          // width * height, 0/1 -- the body-only mask
+  std::vector<uint8_t> mask;          // width * height, 0/1 -- the (possibly cut) mask
   int width = 0;
   int height = 0;
-  bool head_removal_applied = false;  // false while this identity stub is what runs
-  // "identity_stub"  -- passed through unchanged (the only value this stub emits)
-  // "invalid_input"  -- the incoming mask was empty or null
+  bool head_removal_applied = false;  // true only when status == "cut_applied"
+
+  // "cut_applied"       -- the V144 circle cut ran; `mask` is the final cut body mask.
+  // "cut_not_required"  -- the V176 selector decided no cut was needed; `mask` is the
+  //                        Ji/Duan-cleaned mask, unmodified further.
+  // "invalid_input"     -- the incoming mask was empty or null.
+  // "jiduan_failed"      -- Ji/Duan cleanup could not retain a plausible silhouette
+  //                        (JiDuanResult::fallback) -- no reliable body shape to cut.
+  // "no_terminal_balls"  -- outline build, shrinking-ball, Selle filtering, or terminal
+  //                        trunk assembly failed to produce a usable medial-axis trunk.
+  // "break1_unfit"       -- the break1 (shoulder-region) piecewise fit did not converge.
+  // "shoulder_undecided" -- the V176 selector could not decide a cut point on a valid
+  //                        trunk/break1 fit.
+  // "circle_cut_failed"  -- the V144 circle cut geometry failed on an otherwise valid,
+  //                        cut-required shoulder decision (e.g. no transverse mask exit).
   std::string status;
 
-  bool ok() const { return status == "identity_stub"; }
+  bool ok() const { return status == "cut_applied" || status == "cut_not_required"; }
 };
 
-// Copies `in` through unchanged. Never fails on a valid mask; an invalid one yields an
-// empty result with status "invalid_input" rather than a crash or a fabricated mask.
+// Runs the ported V176/V144 cutter over `in`. Never fails on a valid mask -- every decline
+// path returns the best mask available (uncut) with a status naming which stage declined,
+// so phase 4 can tell the user why and phase 5 can attribute parity failures to a stage.
 CutterResult cut_body_mask(const MaskView& in);
 
 }  // namespace stages

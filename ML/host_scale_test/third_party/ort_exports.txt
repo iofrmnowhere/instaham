@@ -1,0 +1,32 @@
+Microsoft (R) COFF/PE Dumper Version 14.44.35228.0
+Copyright (C) Microsoft Corporation.  All rights reserved.
+
+
+Dump of file C:\Users\Adrian Jared Sido\OneDrive\Documents\Instaham_Proj\instaham\ML\host_scale_test\third_party\onnxruntime.dll
+
+File Type: DLL
+
+  Section contains the following exports for onnxruntime.dll
+
+    00000000 characteristics
+    FFFFFFFF time date stamp
+        0.00 version
+           1 ordinal base
+           2 number of functions
+           2 number of names
+
+    ordinal hint RVA      name
+
+          1    0 00029600 OrtGetApiBase
+          2    1 0022EFC0 OrtSessionOptionsAppendExecutionProvider_CPU
+
+  Summary
+
+       DD000 .data
+        1000 .didat
+       59000 .pdata
+      2E9000 .rdata
+       12000 .reloc
+        1000 .rsrc
+      D15000 .text
+        1000 _RDATA

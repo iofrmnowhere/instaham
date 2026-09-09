@@ -40,7 +40,7 @@ import '../../../../core/models/scan_flow.dart';
 import '../../../../services/ml/pipeline_service.dart';
 import '../../../../services/ml/view_model_service.dart';
 
-const String kViewModelVersion = 'ghostnetv3-view-v1';
+const String kViewModelVersion = 'mobilenetv4-view-v2';
 const String kHealthModelVersion = 'ghostnetv3-health-v1';
 const String kWeightModelVersion = 'xgb-weight-v1';
 
@@ -118,6 +118,14 @@ class RunAndPersistPipelineUseCase {
           '${envelope['status'] ?? 'unknown'}',
         );
       }
+
+      // TEMPORARY (docs/fix-phase-2/1.1-manifest-input-scale-regression.md, step "capture
+      // the envelope, not just the message"): dump the whole section-9 envelope to logcat
+      // so a device run can be diagnosed without pulling the SQLite file off a release
+      // build. `construction.mask_diagonal_fraction` and `segmentation.rungs_tried` are the
+      // values phase 1.1 and phase 2 are waiting on. Chunked because logcat truncates a
+      // single long line. Remove this block once those numbers are recorded.
+      _dumpEnvelopeToLog(scanId, envelope);
 
       // ref_fix.md F4: record the native scale decision every run, success or failure --
       // previously a rejected scan left no trace of what cm_per_px/k/height_ratio actually
@@ -205,7 +213,27 @@ class RunAndPersistPipelineUseCase {
           message: jsonEncode(featuresJson),
         );
       }
-      final features = featuresJson['values'] as Map<String, dynamic>?;
+      // docs/plan-phase/4-dart-persistence-ui.md: the envelope's `features` block is now
+      // family-tagged and arbitrary-width ({family, order, values:{name: value}}). Carry
+      // the whole `values` map and its `family` through to persistence untouched -- the
+      // Dart layer names no feature.
+      final featuresRaw = featuresJson['values'] as Map<String, dynamic>?;
+      final features = featuresRaw == null
+          ? null
+          : <String, double>{
+              for (final entry in featuresRaw.entries)
+                if (entry.value is num)
+                  entry.key: (entry.value as num).toDouble(),
+            };
+      final featureFamily = featuresJson['family'] as String?;
+
+      // Cutter telemetry (docs/plan-phase/3-manifest-pipeline.md). TELEMETRY ONLY -- no
+      // branch reads it, it never reaches the UI; persisted so a bad cut is diagnosable.
+      final cutterJson =
+          envelope['cutter'] as Map<String, dynamic>? ?? const {};
+      final cutterKeptFraction = (cutterJson['kept_fraction'] as num?)
+          ?.toDouble();
+      final cutterStatus = cutterJson['status'] as String?;
 
       if (weightEligible) {
         // ref_fix.md F22: the regressor is a gradient-boosted tree ensemble, so a feature
@@ -237,11 +265,10 @@ class RunAndPersistPipelineUseCase {
           referenceLengthCm: annotation?.lengthCm,
           referencePixelLength: annotation?.pixelLength,
           cmPerPixel: cmPerPixel,
-          ra: (features?['RA'] as num?)?.toDouble(),
-          lc: (features?['LC'] as num?)?.toDouble(),
-          bl: (features?['BL'] as num?)?.toDouble(),
-          bw: (features?['BW'] as num?)?.toDouble(),
-          e: (features?['E'] as num?)?.toDouble(),
+          features: features,
+          featureFamily: featureFamily,
+          cutterKeptFraction: cutterKeptFraction,
+          cutterStatus: cutterStatus,
           modelVersion: note.isEmpty
               ? kWeightModelVersion
               : '$kWeightModelVersion ($note)',
@@ -263,19 +290,20 @@ class RunAndPersistPipelineUseCase {
           referenceLengthCm: annotation?.lengthCm,
           referencePixelLength: annotation?.pixelLength,
           cmPerPixel: cmPerPixel,
-          ra: (features?['RA'] as num?)?.toDouble(),
-          lc: (features?['LC'] as num?)?.toDouble(),
-          bl: (features?['BL'] as num?)?.toDouble(),
-          bw: (features?['BW'] as num?)?.toDouble(),
-          e: (features?['E'] as num?)?.toDouble(),
+          features: features,
+          featureFamily: featureFamily,
+          cutterKeptFraction: cutterKeptFraction,
+          cutterStatus: cutterStatus,
           failureReason: _weightFailureMessage(
             weightJson['reason'] as String?,
             weightJson['reason'] == 'mask_implausibly_small'
                 ? _maskFractionDetail(weightJson)
                 : _domainFeatureDetail(
                     features,
+                    featuresJson['gated'] as List?,
                     weightJson['violations'] as List?,
                   ),
+            cutterStatus,
           ),
           modelVersion: kWeightModelVersion,
         );
@@ -366,7 +394,32 @@ String _confidenceText(double confidence) =>
 /// "NAME=value " list of whichever RA/LC/BL/BW/E features fell outside the trained
 /// domain -- appended to the three domain-gate reasons so the message names exactly what
 /// was measured, not just that something was out of range.
-String _weightFailureMessage(String? reason, [String? detail]) {
+String _weightFailureMessage(
+  String? reason, [
+  String? detail,
+  String? cutterStatus,
+]) {
+  // docs/plan-phase/4-dart-persistence-ui.md: the V176/V144 cutter can now decline for
+  // reasons of its own. In the shipped build weight.available is false, so weight.reason
+  // is the generic `weight_pending_field_validation` and the real cause sits in
+  // envelope['cutter']['status'] -- surface that here rather than the pending-validation
+  // boilerplate. All four mean "the pig's outline could not be resolved well enough to
+  // find the shoulder"; the corrective action is the same (retake from the side), and it
+  // is deliberately distinct from the domain-gate message (animal outside the trained
+  // size range).
+  const cutterDeclineStatuses = {
+    'jiduan_failed',
+    'no_terminal_balls',
+    'break1_unfit',
+    'shoulder_undecided',
+  };
+  if (reason == 'weight_pending_field_validation' &&
+      cutterStatus != null &&
+      cutterDeclineStatuses.contains(cutterStatus)) {
+    return 'Weight branch unavailable: the pig outline in this photo could not be '
+        'resolved well enough to remove the head and neck. Retake the photo from '
+        'directly above, with the pig standing straight and fully in frame.';
+  }
   // ref_fix.md F7: these three reasons are pipeline.cpp's classify_domain_violation()
   // result -- which feature(s) actually violated the trained domain decides which message
   // the user sees, since "re-check the reference object" is only correct advice for one of
@@ -391,6 +444,20 @@ String _weightFailureMessage(String? reason, [String? detail]) {
       'Weight branch unavailable in this build (cutter is the identity stub).',
     'contour_too_small' || 'cutter_failed' =>
       'Weight branch unavailable: feature extraction failed on this photo.',
+    // docs/plan-phase/4: phase 5 still owes the field re-derivation of cm_per_px_target
+    // from post-cut masks. The cutter is real (phase 2); the calibration is not yet
+    // confirmed, so no estimate ships even though nothing failed.
+    'weight_pending_field_validation' =>
+      'Weight estimation is not available in this build yet -- the measurement scale is '
+          'still being validated against field data. Health screening is unaffected.',
+    // docs/plan-phase/4 / README_AI_INTEGRATION.md section 7: the two pre-cutter quality
+    // gates (ship dark today). Each names its own corrective retake.
+    'truncation_gate_rejected' =>
+      'Weight branch stopped: the pig is cut off at the edge of the photo. Retake it '
+          'with the whole body inside the frame.',
+    'posture_gate_rejected' =>
+      'Weight branch stopped: the pig is too curved in this photo for a reliable '
+          'estimate. Retake it with the pig standing straight.',
     // TASKS.md W5/W6: the reference-object scale is a §7 eligibility check, not just a
     // display value -- these three reasons name why it failed rather than the generic
     // cutter-stub message, which would be misleading here.
@@ -449,11 +516,18 @@ String _weightFailureMessage(String? reason, [String? detail]) {
 /// simply can't catch a degenerate mask on its own (see F16, which catches it instead).
 /// `values` is `envelope['features']['values']` (null when the failure happened before
 /// feature extraction, e.g. no reference marked -- callers only invoke this for the
-/// domain-gate reasons, where it is always present). `violations` is
-/// `envelope['weight']['violations']`, pipeline.cpp's structured
-/// feature/value/allowed_min/allowed_max/direction list.
+/// domain-gate reasons, where it is always present). `gated` is
+/// `envelope['features']['gated']`, the subset of feature names whose domain is an actual
+/// eligibility check (six on chen16_noheight; "Do not gate on all sixteen",
+/// docs/plan-phase/3). Rendering all sixteen -- signed Hu moments included -- would be
+/// unreadable and is internal jargon, so only the gated features are shown, by their
+/// plain-language label, driven by the envelope's own list rather than a second hardcoded
+/// Dart order. `violations` is `envelope['weight']['violations']`, pipeline.cpp's
+/// structured feature/value/allowed_min/allowed_max/direction list; a violating feature is
+/// marked with `*`.
 String _domainFeatureDetail(
-  Map<String, dynamic>? values,
+  Map<String, double>? values,
+  List<dynamic>? gated,
   List<dynamic>? violations,
 ) {
   if (values == null || values.isEmpty) return '';
@@ -461,14 +535,43 @@ String _domainFeatureDetail(
     for (final v in violations ?? const [])
       if (v is Map && v['feature'] is String) v['feature'] as String,
   };
-  const order = ['RA', 'LC', 'BL', 'BW', 'E'];
+  // Fall back to the features named in `violations` if the envelope carried no `gated`
+  // list (older native build), and to nothing sensible only if both are absent.
+  final names = <String>[
+    for (final g in gated ?? const [])
+      if (g is String) g,
+  ];
+  final order = names.isNotEmpty
+      ? names
+      : violatingFeatures.toList(growable: false);
+  if (order.isEmpty) return '';
   final parts = order.map((name) {
     final raw = values[name];
-    final text = raw is num ? raw.toStringAsFixed(4) : '?';
-    return violatingFeatures.contains(name) ? '$name=$text*' : '$name=$text';
+    final text = raw != null ? raw.toStringAsFixed(4) : '?';
+    final label = _featureLabel(name);
+    return violatingFeatures.contains(name) ? '$label=$text*' : '$label=$text';
   });
   return parts.join(' ');
 }
+
+/// docs/plan-phase/4-dart-persistence-ui.md: the Chen16 feature names are internal jargon.
+/// The gated ones get a plain-language label for the rejection sentence; the raw name
+/// stays in the persisted `featureVector` blob for diagnostics. Never surface a Hu moment.
+String _featureLabel(String feature) => switch (feature) {
+  'mask_area' => 'body area',
+  'convex_hull_area' => 'body area (outline hull)',
+  'difference' => 'area gap',
+  'perimeter' => 'outline length',
+  'longest' => 'body length',
+  'shortest' => 'body width',
+  // baseline5 fallbacks, for a manifest still on the old family.
+  'RA' => 'relative area',
+  'LC' => 'outline length',
+  'BL' => 'body length',
+  'BW' => 'body width',
+  'E' => 'body outline shape',
+  _ => feature,
+};
 
 /// ref_fix.md F16: renders the measured/required mask-diagonal fraction for a
 /// `mask_implausibly_small` rejection, e.g. "8% of frame diagonal, 15% required".
@@ -478,4 +581,27 @@ String _maskFractionDetail(Map<String, dynamic> weightJson) {
   if (measured == null || required == null) return '';
   return '${(measured * 100).toStringAsFixed(1)}% of frame diagonal, '
       '${(required * 100).toStringAsFixed(0)}% required';
+}
+
+/// TEMPORARY diagnostic (docs/fix-phase-2/1.1-manifest-input-scale-regression.md).
+///
+/// Prints the full pipeline envelope to the platform log in fixed-size chunks, tagged so a
+/// device run can be filtered with `adb logcat -s flutter | grep INSTAHAM_ENVELOPE`. logcat
+/// drops the tail of a very long single line, and the envelope's `segmentation.rungs_tried`
+/// array makes it long, so the JSON is split rather than emitted whole. Delete this function
+/// and its call site once phase 1.1's `mask_diagonal_fraction` reading is recorded.
+void _dumpEnvelopeToLog(String scanId, Map<String, dynamic> envelope) {
+  const int chunkSize = 800;
+  final String encoded = jsonEncode(envelope);
+  final int total = (encoded.length + chunkSize - 1) ~/ chunkSize;
+  for (int i = 0; i < total; i++) {
+    final int start = i * chunkSize;
+    final int end = start + chunkSize < encoded.length
+        ? start + chunkSize
+        : encoded.length;
+    // ignore: avoid_print
+    print(
+      'INSTAHAM_ENVELOPE $scanId ${i + 1}/$total ${encoded.substring(start, end)}',
+    );
+  }
 }

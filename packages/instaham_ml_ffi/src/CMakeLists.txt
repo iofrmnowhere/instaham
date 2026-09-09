@@ -10,19 +10,14 @@ option(INSTAHAM_ML_WITH_ORT   "Link ONNX Runtime (slice 2+)"     OFF)
 # ML_implementation_plan.md revision 7, section 11.1: OpenCV is a HARD dependency for
 # stages/construction.cpp and stages/feature_calculation.cpp -- morphologyEx, findContours,
 # minAreaRect, fitEllipse are not hand-rollable inside gate B's 1% feature tolerance.
-#
-# Defaults ON for Android (the only platform wired below) and OFF elsewhere, so a host
-# ctest build -- which only needs the header-only stages/cutter.cpp for gate D -- neither
-# requires the fetched prebuilts nor trips the non-Android FATAL_ERROR further down.
-# NOTE: android/build.gradle.kts passes -DINSTAHAM_ML_WITH_OPENCV explicitly, which wins
-# over this default; the two must be kept in agreement.
-if(ANDROID)
-  set(_INSTAHAM_ML_OPENCV_DEFAULT ON)
-else()
-  set(_INSTAHAM_ML_OPENCV_DEFAULT OFF)
-endif()
-option(INSTAHAM_ML_WITH_OPENCV "Link opencv-mobile (stages/, revision 7 section 11.1)"
-       ${_INSTAHAM_ML_OPENCV_DEFAULT})
+# docs/plan-phase/2-native-cutter-chen16.md added a third hard dependent: stages/cutter.cpp
+# now wraps the ported vendor V176/V144 stack, which is unconditionally OpenCV-based, so
+# unlike revision 7 this is no longer a default that a host ctest build can leave off --
+# every INSTAHAM_ML_SOURCES translation unit needs it now. Defaults ON everywhere; NOTE:
+# android/build.gradle.kts passes -DINSTAHAM_ML_WITH_OPENCV explicitly, which wins over
+# this default; the two must be kept in agreement.
+option(INSTAHAM_ML_WITH_OPENCV "Link OpenCV (stages/, revision 7 section 11.1; phase 2 cutter port)"
+       ON)
 
 # ---- sources -----------------------------------------------------------------
 # Slice 0 shipped only the skeleton. Slices 3/4 (Android-first pass) added the ORT-backed
@@ -40,11 +35,67 @@ set(INSTAHAM_ML_SOURCES
   pipeline.cpp       # THE FLOW -- section 3, revision 7. Nowhere else knows the order.
   stages/segmentation.cpp
   stages/construction.cpp
-  stages/cutter.cpp             # identity dummy -- not ported, by design (section 3.4)
+  stages/cutter.cpp             # V176/V144 port -- docs/plan-phase/2-native-cutter-chen16.md
+  stages/quality_gates.cpp      # truncation/posture gate wiring -- docs/plan-phase/3-manifest-pipeline.md
   stages/feature_calculation.cpp
   stages/weight_prediction.cpp  # slice R4 -- runs the XGBoost ONNX graph, nothing else
   util/image_io.cpp
   util/sha256.cpp
+)
+
+# docs/plan-phase/2-native-cutter-chen16.md, "Build wiring": the vendor V176/V144 cutter
+# and Chen16 feature stack are unconditionally OpenCV-dependent (every file below includes
+# opencv2/core.hpp or opencv2/imgproc.hpp), so they are only buildable -- and only added to
+# INSTAHAM_ML_SOURCES -- when INSTAHAM_ML_WITH_OPENCV is on. stages/cutter.cpp and
+# stages/feature_calculation.cpp (both already unconditional sources above) call into this
+# vendor code and therefore also require OpenCV; that dependency pre-dates this phase for
+# feature_calculation.cpp and is new for cutter.cpp as of this phase. Split into four
+# variables (rather than one flat list) so test/CMakeLists.txt can link narrower slices --
+# e.g. the cutter test needs the cutter set plus MaskUtils/JiDuan, but not the Chen16
+# feature set.
+set(INSTAHAM_ML_VENDOR_V176_COMMON_SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/MaskUtils.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/preprocess/JiDuan.cpp
+)
+set(INSTAHAM_ML_VENDOR_V176_FEATURE_SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/features/MaskArea.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/features/ConvexHullArea.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/features/Difference.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/features/DifMask.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/features/BodyCurve.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/features/Perimeter.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/features/OutlineCurve.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/features/CenterCrossingAxesWork.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/features/Longest.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/features/Shortest.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/features/HuMomentsWork.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/features/Hu1.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/features/Hu2.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/features/Hu3.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/features/Hu4.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/features/Hu5.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/features/Hu6.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/features/Hu7.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/features/Chen16Vector.cpp
+)
+set(INSTAHAM_ML_VENDOR_V176_CUTTER_SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/cutter/OutlineBuilder.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/cutter/ShrinkingBall.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/cutter/SelleFilter.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/cutter/TerminalGeometry.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/cutter/Break1Fit.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/cutter/ShoulderSelectorV176.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/src/cutter/CircleCutterV144.cpp
+)
+set(INSTAHAM_ML_VENDOR_V176_GATE_SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/quality_gates/truncation_gate/EdgeTruncationDetector.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/quality_gates/posture_gate/PostureGate.cpp
+)
+set(INSTAHAM_ML_VENDOR_V176_SOURCES
+  ${INSTAHAM_ML_VENDOR_V176_COMMON_SOURCES}
+  ${INSTAHAM_ML_VENDOR_V176_FEATURE_SOURCES}
+  ${INSTAHAM_ML_VENDOR_V176_CUTTER_SOURCES}
+  ${INSTAHAM_ML_VENDOR_V176_GATE_SOURCES}
 )
 
 add_library(instaham_ml SHARED ${INSTAHAM_ML_SOURCES})
@@ -83,27 +134,44 @@ endif()
 # INTERFACE_LINK_LIBRARIES, which find_package() picks up automatically -- re-deriving it
 # by hand is what produced the undefined-symbol link failure this replaces.
 if(INSTAHAM_ML_WITH_OPENCV)
-  set(_OPENCV_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/opencv")
-  if(NOT ANDROID)
-    message(FATAL_ERROR "INSTAHAM_ML_WITH_OPENCV is only wired for Android in this pass; iOS lands with opencv-mobile's xcframework at iOS bring-up")
+  if(ANDROID)
+    set(_OPENCV_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/opencv")
+    # Point straight at the ABI-specific config rather than the dispatching top-level one
+    # (sdk/native/jni/OpenCVConfig.cmake), which keys off the legacy ANDROID_NDK_ABI_NAME
+    # variable rather than the ANDROID_ABI the modern NDK toolchain file actually sets.
+    set(OpenCV_DIR "${_OPENCV_ROOT}/sdk/native/jni/abi-${ANDROID_ABI}")
+    if(NOT EXISTS "${OpenCV_DIR}/OpenCVConfig.cmake")
+      message(FATAL_ERROR "opencv-mobile not fetched for ABI ${ANDROID_ABI} -- run scripts/fetch_deps.sh (${OpenCV_DIR})")
+    endif()
+    find_package(OpenCV REQUIRED COMPONENTS core imgproc)
+    # opencv_core/opencv_imgproc carry their full transitive link interface (dl, m, log,
+    # the kleidicv archives where applicable, -fopenmp -static-openmp) as
+    # INTERFACE_LINK_LIBRARIES -- linking the module targets is sufficient.
+    target_link_libraries(instaham_ml PRIVATE opencv_imgproc opencv_core)
+    # NDK 28.2's libomp (LLVM 19) predates __kmpc_dispatch_deinit, which opencv-mobile's
+    # NDK-r29-built libopencv_core.a references from cv::parallel_for_impl. Weak no-op shim,
+    # inert once the NDK is bumped past r29. build_fix.md section 3, Option A.
+    target_sources(instaham_ml PRIVATE util/openmp_compat.cpp)
+  else()
+    # docs/plan-phase/2-native-cutter-chen16.md: the host ctest build needs a real OpenCV
+    # too now that stages/cutter.cpp wraps the vendor V176/V144 stack. opencv-mobile above
+    # is an Android-only prebuilt (no desktop libs in that drop) so the host side goes
+    # through a normal desktop OpenCV instead -- point CMAKE_TOOLCHAIN_FILE at vcpkg's
+    # scripts/buildsystems/vcpkg.cmake (installed: `vcpkg install opencv4[core]`) and this
+    # ordinary find_package resolves it via vcpkg's exported config, same module names
+    # (opencv_core, opencv_imgproc) as the Android path.
+    find_package(OpenCV CONFIG REQUIRED COMPONENTS core imgproc)
+    target_link_libraries(instaham_ml PRIVATE opencv_imgproc opencv_core)
   endif()
-  # Point straight at the ABI-specific config rather than the dispatching top-level one
-  # (sdk/native/jni/OpenCVConfig.cmake), which keys off the legacy ANDROID_NDK_ABI_NAME
-  # variable rather than the ANDROID_ABI the modern NDK toolchain file actually sets.
-  set(OpenCV_DIR "${_OPENCV_ROOT}/sdk/native/jni/abi-${ANDROID_ABI}")
-  if(NOT EXISTS "${OpenCV_DIR}/OpenCVConfig.cmake")
-    message(FATAL_ERROR "opencv-mobile not fetched for ABI ${ANDROID_ABI} -- run scripts/fetch_deps.sh (${OpenCV_DIR})")
-  endif()
-  find_package(OpenCV REQUIRED COMPONENTS core imgproc)
-  # opencv_core/opencv_imgproc carry their full transitive link interface (dl, m, log,
-  # the kleidicv archives where applicable, -fopenmp -static-openmp) as
-  # INTERFACE_LINK_LIBRARIES -- linking the module targets is sufficient.
-  target_link_libraries(instaham_ml PRIVATE opencv_imgproc opencv_core)
   target_compile_definitions(instaham_ml PRIVATE INSTAHAM_ML_HAS_OPENCV=1)
-  # NDK 28.2's libomp (LLVM 19) predates __kmpc_dispatch_deinit, which opencv-mobile's
-  # NDK-r29-built libopencv_core.a references from cv::parallel_for_impl. Weak no-op shim,
-  # inert once the NDK is bumped past r29. build_fix.md section 3, Option A.
-  target_sources(instaham_ml PRIVATE util/openmp_compat.cpp)
+
+  # docs/plan-phase/2-native-cutter-chen16.md, "Build wiring" -- vendor sources are
+  # unconditionally OpenCV-dependent, so they are only ever compiled inside this guard.
+  target_sources(instaham_ml PRIVATE ${INSTAHAM_ML_VENDOR_V176_SOURCES})
+  target_include_directories(instaham_ml PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/quality_gates/truncation_gate"
+    "${CMAKE_CURRENT_SOURCE_DIR}/vendor/instaham_v176/quality_gates/posture_gate")
 endif()
 
 # nlohmann/json — header-only, fetched into third_party/ by scripts/fetch_deps.sh

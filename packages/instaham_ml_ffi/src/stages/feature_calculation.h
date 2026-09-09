@@ -1,6 +1,7 @@
 #ifndef INSTAHAM_ML_STAGES_FEATURE_CALCULATION_H
 #define INSTAHAM_ML_STAGES_FEATURE_CALCULATION_H
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -38,6 +39,26 @@ std::optional<FiveFeatures> extract_five_features(const std::vector<uint8_t>& ma
                                                    double linear_scale = 1.0,
                                                    bool preserve_processed_mask = false,
                                                    int ra_frame_w = 0, int ra_frame_h = 0);
+
+// Chen16 -- mask_area, convex_hull_area, difference, dif_mask, body_curve, perimeter,
+// outline_curve, longest, shortest, Hu_1..Hu_7 (docs/plan.md). A thin adapter over the
+// ported vendor stack (vendor/instaham_v176/include/instaham/features/*), which speaks
+// cv::Mat; this seam keeps the app's std::vector<uint8_t>+w/h mask convention on both
+// sides of the wrapper (docs/plan-phase/2-native-cutter-chen16.md, "Seam into the app's
+// stages"). `mask` is expected to be the FINAL CUT mask (post-cutter): `body_curve` here is
+// intentionally a second, independent call into computeBodyCurve, never a reuse of the
+// whole-mask value the posture gate computed pre-Ji/Duan -- see the "Two body-curve calls,
+// not one" note in the phase 2 plan. No RA-style frame normalization applies: mask_area is
+// a raw pixel count, and the training frame enters only through
+// construction::scale_mask_to_training_space upstream, so there is no ra_frame_w/h-style
+// parameter here.
+struct Chen16Features {
+  std::array<double, 16> values{};
+  bool valid = false;
+};
+
+std::optional<Chen16Features> extract_chen16_features(const std::vector<uint8_t>& mask, int w,
+                                                        int h);
 
 }  // namespace stages
 }  // namespace instaham_ml

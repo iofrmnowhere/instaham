@@ -1,0 +1,21 @@
+{
+  "feature_family": "chen16_noheight",
+  "features": [
+    "mask_area",
+    "convex_hull_area",
+    "difference",
+    "dif_mask",
+    "body_curve",
+    "perimeter",
+    "outline_curve",
+    "longest",
+    "shortest",
+    "Hu_1",
+    "Hu_2",
+    "Hu_3",
+    "Hu_4",
+    "Hu_5",
+    "Hu_6",
+    "Hu_7"
+  ]
+}

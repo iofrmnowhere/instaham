@@ -1,13 +1,28 @@
 {
+  "base_score": 121.669174,
+  "feature_family": "chen16_noheight",
   "feature_names": [
-    "RA",
-    "LC",
-    "BL",
-    "BW",
-    "E"
+    "mask_area",
+    "convex_hull_area",
+    "difference",
+    "dif_mask",
+    "body_curve",
+    "perimeter",
+    "outline_curve",
+    "longest",
+    "shortest",
+    "Hu_1",
+    "Hu_2",
+    "Hu_3",
+    "Hu_4",
+    "Hu_5",
+    "Hu_6",
+    "Hu_7"
   ],
-  "n_estimators": 300,
+  "n_estimators": 600,
   "objective": "reg:squarederror",
-  "source_model_sha256": "5ae8eabd68ff962824cb726fe692574c42d03064f9b2f41e8671f63def2d168d",
+  "onnx_max_abs_diff": 0.0002899169921875,
+  "reproduced_test_mae": 4.563711419312392,
+  "source_model_sha256": "efa3377e280c4d1332f598e7cf434d9a37c2525973ae49a0a42d66d5b9450278",
   "target": "weight_kg"
 }

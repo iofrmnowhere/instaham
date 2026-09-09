@@ -1,0 +1,10 @@
+#include "instaham/cutter/SelleFilter.hpp"
+#include "instaham/MaskUtils.hpp"
+#include <opencv2/imgproc.hpp>
+#include <algorithm>
+#include <cmath>
+#include <stdexcept>
+namespace instaham {
+static cv::Vec2d principalMask(const cv::Mat&m,cv::Point2d&origin){std::vector<cv::Point>p;cv::findNonZero(binary255(m),p);if(p.size()<10)throw std::runtime_error("Mask too small for PCA");origin={0,0};for(auto&q:p)origin+=cv::Point2d(q);origin*=1.0/p.size();double sxx=0,syy=0,sxy=0;for(auto&q:p){double x=q.x-origin.x,y=q.y-origin.y;sxx+=x*x;syy+=y*y;sxy+=x*y;}double th=.5*atan2(2*sxy,sxx-syy);cv::Vec2d d(cos(th),sin(th));if(d[0]<0||(d[0]==0&&d[1]<0))d=-d;return unitVec(d);}
+SelleResult applySelleFilter(const ShrinkingBallResult&sb,const OutlineResult&o,const SelleConfig&cfg){SelleResult r;r.major=principalMask(o.mask,r.frameOrigin);r.lateral={-r.major[1],r.major[0]};cv::Mat edt;cv::distanceTransform(binary255(o.mask),edt,cv::DIST_L2,cv::DIST_MASK_PRECISE);for(auto c:sb.candidates){if(!c.converged||!std::isfinite(c.radius)||c.radius<cfg.minRadiusPx)continue;if(!maskContainsNearest(o.mask,c.center))continue;cv::Vec2d dc(c.center.x-r.frameOrigin.x,c.center.y-r.frameOrigin.y);c.longitudinal=dot2(dc,r.major);c.lateral=dot2(dc,r.lateral);cv::Vec2d pc(c.p.x-c.center.x,c.p.y-c.center.y),qc(c.q.x-c.center.x,c.q.y-c.center.y);double pdy=dot2(pc,r.lateral),qdy=dot2(qc,r.lateral);bool same=(pdy>cfg.sameSideEpsPx&&qdy>cfg.sameSideEpsPx)||(pdy<-cfg.sameSideEpsPx&&qdy<-cfg.sameSideEpsPx);if(same)continue;int x=std::clamp(roundEvenInt(c.center.x),0,edt.cols-1),y=std::clamp(roundEvenInt(c.center.y),0,edt.rows-1);c.edtRadius=edt.at<float>(y,x);c.radiusMinusEdt=c.radius-c.edtRadius;if(std::abs(c.radiusMinusEdt)>cfg.edtTolerancePx)continue;r.retained.push_back(c);}if((int)r.retained.size()<cfg.minRetainedPoints)throw std::runtime_error("Too few retained medial points");std::sort(r.retained.begin(),r.retained.end(),[](auto&a,auto&b){if(a.longitudinal!=b.longitudinal)return a.longitudinal<b.longitudinal;if(a.center.y!=b.center.y)return a.center.y<b.center.y;return a.pIndex<b.pIndex;});return r;}
+}

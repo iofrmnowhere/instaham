@@ -1,8 +1,44 @@
 # Model I/O Spec
 
-Initial capture, not a drift check — `docs/spec.md` did not exist before today, so there was
-nothing to compare against. Everything below was derived from the code and from
-`assets/ml/manifest.json` as they stand now.
+Derived from the code and from `assets/ml/manifest.json` as they stand now. The view, health,
+and segmenter contracts below were re-checked on 2026-09-07 and are unchanged; the **weight
+regressor section was rewritten** — the shipped family moved from 5-feature `baseline5` to
+16-feature `chen16_noheight` (plan phases 1–3), and that was legitimate, intended change, not
+unintended drift.
+
+Re-checked again the same day after `docs/fix-2.md` phase 1 and 1.1 closed. Three legitimate
+changes were folded in — `weight.available` is now `true` under the `--enable-for-testing`
+override (F42), the unscaled cutter fallback is capped (F43), and `jiduan_threw` joins the
+cutter statuses (F44) — plus one genuine mismatch, flagged rather than absorbed at the time and
+since fixed in the exporter; see the bottom of this file. The segmenter's `input_scale` block briefly went missing from the manifest
+during phase 1 and was restored (F50); the values below match the manifest again and never
+needed changing here.
+
+Re-checked again on 2026-09-09 after `docs/fix-2.md` phase 2 was decided and applied. One
+legitimate change: `capture_contract.cm_per_px_target` moved back **0.3289 → 0.35** by
+re-export, with its `_source` tag now
+`host_scale_sweep_round6_f49_empirical_fit_not_derived`. This closes the round the 2026-09-08
+entry below left open — the host sweep in `ML/host_scale_test/` measured both constants against
+the shipped models and the real V176/V144 cutter over five PIGRGB images and 0.35 won on MAE
+(11.5% vs 19.0%) and on every image individually
+(`docs/scale-constant-sweep-results.md`). It is still an **empirical fit, not a derived
+constant** — see the weight Output section. The regressor's `xgboost.onnx` sha256 changed
+again, which is only the re-export's non-determinism over the same `model.json`, not a new
+model; `feature_order.json` and `xgboost.meta.json` were regenerated with identical content.
+The manifest rebuild dropped 28 `baseline5` `RA/LC/BL/BW/E` `feature_domain` keys that HEAD
+still carried, which is the intended retirement of that family from the shipped manifest, not
+a loss. Nothing else moved: the segmenter's `input_scale` (1.10, ladder
+`[1.0, 1.32, 1.68, 0.77]`), the 16-feature order and its `feature_domain`, the quality-gate
+switches, and the view/health contracts all verified unchanged.
+
+The 2026-09-08 entry that follows is retained for provenance; its "revert is expected but not
+taken" state is now superseded by the paragraph above.
+
+Re-checked on 2026-09-08 after `docs/fix-2.md` phase 2's sweep. One legitimate change:
+`capture_contract.cm_per_px_target` moved 0.35 → **0.3289** (and its `_source` tag with it) by
+re-export, to run the 0.3289 half of phase 2's comparison. It was recorded as the current
+manifest state, **not** as a settled contract — the sweep argued for reverting it, and that
+decision was open at the time.
 
 Four ONNX graphs. `OnnxRunner` consumes outputs **positionally, in declaration order** —
 output names are never looked up, so a re-export that reorders outputs breaks the pipeline
@@ -15,7 +51,9 @@ rotates.
 
 ## View classifier — `assets/ml/view/model.onnx`
 
-GhostNetV3-100, opset 17, `protocol_version: view_v1`.
+MobileNetV4-Conv-Small, opset 17, `protocol_version: view_v2` (replaced GhostNetV3-100
+`view_v1`; docs/adr/006-view-classifier-swapped-to-mobilenetv4.md). Input shape,
+preprocessing, output mapping, and gating contract below are unchanged by the swap.
 
 ### Input
 - Shape: `1x3x224x224`, NCHW, RGB, float32. Input name `input`.
@@ -86,35 +124,121 @@ YOLO11s-seg with LDConv + ACmix, opset 17,
 
 ## Weight regressor — `assets/ml/weight/xgboost.onnx`
 
-XGBoost, 300 estimators, `reg:squarederror`, target `weight_kg`, feature family
-`baseline5`.
+XGBoost, **600 estimators**, `reg:squarederror`, base score 121.669174, target `weight_kg`,
+feature family **`chen16_noheight`** (replaced `baseline5`; docs/plan.md phases 1–3). Export
+self-check `onnx_max_abs_diff` 2.9e-4 kg, reproduced test MAE 4.564 kg.
+
+The feature contract is **manifest data, not compiled-in**
+(docs/adr/007-manifest-declared-feature-family.md): `capabilities.weight.feature_family`,
+`feature_order`, and a `feature_domain` map keyed by feature name. Nothing in the native
+layer or the Dart layer names a feature.
 
 ### Input
-- Shape: `[1, 5]`, float32, matching the export's `FloatTensorType([None, 5])`.
-- Order is fixed and non-negotiable: **`RA, LC, BL, BW, E`**. Asserted three times — at
-  export against `BASELINE5`, at manifest load against `weight/feature_order.json`, and in
-  the packing itself. A manifest whose order disagrees fails to load with
-  `INSTAHAM_ML_ERR_CONTRACT`.
-- Features are measured on a mask resampled into the regressor's training pixel space by
-  `k = cm_per_px_actual / cm_per_px_target` (target 0.35 cm/px), with `RA`'s denominator the
-  720×720 training frame. `cm_per_px` comes **only** from the user-confirmed reference
-  object; there is no implicit `k = 1.0`.
-- Definitions: `RA` = filled area / frame area; `LC` = contour arc length; `BL`/`BW` = longer
-  and shorter side of `minAreaRect`; `E` = `sqrt(1 − (minor/major)²)` of `fitEllipse`.
+- Shape: `[None, 16]` float32, graph input name `input` (opset domain `ai.onnx.ml`).
+  Native packing is `[1, N]` where `N` is the manifest's `feature_order` width; a width the
+  loaded graph disagrees with is refused, never truncated or padded.
+- Order is fixed and non-negotiable: **`mask_area, convex_hull_area, difference, dif_mask,
+  body_curve, perimeter, outline_curve, longest, shortest, Hu_1 … Hu_7`**. Asserted three
+  times — at export against `CHEN16_NOHEIGHT` in `ML/export/common.py`, at manifest load
+  against `weight/feature_order.json` and the compiled-in per-family constant, and in the
+  packing itself. A manifest whose order disagrees fails to load with
+  `INSTAHAM_ML_ERR_CONTRACT`. (AGENTS.md rule 2's `RA, LC, BL, BW, E` now describes the
+  retained `baseline5` rollback family only, not the shipped one.)
+- Features are measured on the **final V176/V144 cut mask** — the head/neck-removed mask the
+  model was trained on — after the mask is resampled into the regressor's training pixel
+  space by `k = cm_per_px_actual / cm_per_px_target` (**target currently 0.35 cm/px**, see
+  the calibration note below — 0.3289 was shipped 2026-09-08 for one round of measurement and
+  reverted; 720×720 training frame). `cm_per_px` comes **only** from the user-confirmed
+  reference object; there is no
+  implicit `k = 1.0`. `chen16_noheight` values are raw pixel counts and lengths on that
+  mask — there is no `RA`-style frame denominator and no additional linear scaling.
+- When no scale is available (no reference marked, or a rejected one), the cutter still runs
+  for telemetry on an **unscaled** mask, but that mask is now capped: `pipeline.cpp`'s
+  `kUnscaledCutterMaxDimPx` (2880, the bound the scaled path already guarantees at
+  `training_scale` 720 × `kMaxValidHeightRatio` 4.0) resamples it down before
+  `cut_body_mask` sees it (`docs/fix-phase-2/1-cutter-freeze.md` F43). Features measured on
+  that path are labelled `measured_on: uncut_mask_unnormalized` and are never weight input —
+  the cap changes only the pixel budget handed to the cutter, not `scale_ok` or anything
+  gated on it.
+- Per-feature metadata in `feature_domain` (from `ML/export/export_xgboost.py`'s family meta
+  tables): `dimension` ∈ {`area`, `linear`, `dimensionless`} and a boolean `gate`.
+
+| `gate` | `dimension` | Features |
+|---|---|---|
+| `true` | `area` | `mask_area`, `convex_hull_area`, `difference` |
+| `true` | `linear` | `perimeter`, `longest`, `shortest` |
+| `false` | `dimensionless` | `dif_mask`, `body_curve`, `outline_curve`, `Hu_1`–`Hu_7` |
 
 ### Output
-- Format: `[1, 1]`; `outputs[0].data[0]` is kilograms.
-- Postprocessing: no transform. Two gates surround it — a **pre**-gate against the widened
-  `feature_domain` bounds (widened by the per-feature multipliers and by
-  `cm_per_px_target_uncertainty` 1.30, squared for `RA`, first power for the lengths, not at
-  all for `E`), and a **post**-check against the *unwidened* trained `[min, max]` that sets
-  `extrapolated` + `extrapolated_features` when the ensemble can only answer from an edge
-  leaf.
-- Standing caveat: the cutter is a permanent identity stub, so every number here is measured
-  on an uncut mask (head and neck included) and overestimates the research protocol.
-  `protocol_implemented` is always `false` and the envelope carries an explicit note.
-  `cm_per_px_target` is a three-sample field estimate and must be retuned downward when the
-  real cutter lands.
+- Format: `[None, 1]` float32, graph output name `variable`; `outputs[0].data[0]` is
+  kilograms.
+- Postprocessing: no transform. Two gates surround it, and **both act on gated features
+  only** — a **pre**-gate against the widened `feature_domain` bounds (per-feature
+  multipliers, all `1.0` on this family, times `cm_per_px_target_uncertainty` 1.30 raised to
+  the feature's `dimension` exponent: squared for areas, first power for lengths, untouched
+  for dimensionless), and a **post**-check against the *unwidened* trained `[min, max]` that
+  sets `extrapolated` + `extrapolated_features` when the ensemble can only answer from an
+  edge leaf.
+- Because no dimensionless feature is gated in either family's current export meta,
+  `classify_domain_violation()`'s `mask_shape_out_of_domain` branch is **unreachable** with a
+  manifest produced by the current exporter. A degenerate mask is caught upstream instead, by
+  `min_mask_diagonal_fraction` (0.35) and the posture quality gate.
+- Standing caveat: **`capabilities.weight.available` is now `true`**, set deliberately by
+  re-exporting with `--enable-for-testing` for on-device verification
+  (`docs/fix-phase-2/1-cutter-freeze.md` F42). Estimates therefore ship, and every one of them
+  is real inference carrying the envelope's explicit provisional-calibration `note`, never a
+  fabricated value. The calibration itself is still unvalidated. `cm_per_px_target` now reads
+  **0.35** with `cm_per_px_target_source:
+  host_scale_sweep_round6_f49_empirical_fit_not_derived`, restored by re-export on 2026-09-09
+  after the host sweep settled the question the 0.3289 experiment was opened to answer. The
+  evidence, in `docs/scale-constant-sweep-results.md`: measured on this machine against the
+  shipped models and the **real** V176/V144 cutter over five PIGRGB images with known true
+  weights, 0.35 beat 0.3289 on MAE (11.5% vs 19.0%) and on every image individually. The
+  earlier three-photo device sweep (round 3 in `docs/logs/recorded.md`) pointed the other way
+  on one photo; the host sweep supersedes it, being a larger sample against ground truth rather
+  than field photos of unknown geometry.
+- **0.35 is an empirical fit, not a derived constant, and the source tag says so.** Three
+  things keep it provisional. Its F21 provenance is contaminated — it was fitted while the
+  cutter was an identity stub, i.e. partly to absorb head-and-neck area that is now actually
+  being cut (it still wins, which is evidence the head was never what it was absorbing, but the
+  fit was never re-derived). The sweep's three criteria disagree: minimum MAE at 0.35, minimum
+  |bias| at 0.38, minimum spread at 0.30 — no single scalar satisfies all three, which is what
+  you expect when the constant is not the dominant error term. And plan phase 5 still owes the
+  re-derivation from post-cut field masks.
+- **The specification's 304 px/m (0.3289) is retracted as the shipped value.**
+  `docs/INSTAHAM_CAMERA_SCALE_NORMALIZATION.md` §24 states it is a *theoretical* floor-plane
+  baseline from reported rig geometry, never measured against a pig in a released image, and
+  directs that it be replaced if empirical calibration is ever obtained. That calibration now
+  exists and 304 lost. `baseline5` remains the documented rollback family; 0.3289 does not
+  remain a documented rollback constant.
+- **A larger error term sits below the constant.** The same sweep found the regressor cannot
+  emit a prediction below roughly 73 kg: both light test pigs fell under the trained minimum on
+  every gated size feature, so the ensemble answers from its floor leaf and no value of
+  `cm_per_px_target` moves those rows. The two in-domain pigs predicted within ±5% at 0.35, so
+  the geometry chain is sound and the gap is the regressor's training coverage at the low end.
+  This is a model-coverage limit, not an I/O contract term, so it is named here and owned
+  elsewhere. A returned number is provisional, and for a pig under about 85 kg it is
+  systematically high.
+- Consequence of that flag, worth stating because it changes which reasons are reachable:
+  `weight_pending_field_validation` lives only in `pipeline.cpp`'s `weight_unavailable_json`,
+  which every branch assigns on the `weight_override == false` side of its ternary. With the
+  override active that reason **cannot fire**, and neither can the Dart message keyed to it
+  (`run_and_persist_pipeline_use_case.dart:411`, the cutter-decline sentence). Rejections now
+  surface their real cause instead — `mask_implausibly_small`, a domain-gate reason, a quality
+  gate, or `cutter_failed`.
+- The standalone `instaham_ml_predict_weight_json` entrypoint was **not** migrated: it still
+  emits a `baseline5` feature block, `qc.cutter: "identity_stub"` and
+  `cutter_protocol_implemented: false`. It is a debug-only path; `instaham_ml_run_pipeline_*`
+  is the shipped contract and the one this section describes.
+
+## Quality gates (pre-cutter)
+
+`capabilities.weight.quality_gates` declares `truncation` and `posture` (with
+`posture_max_bend_deg` 40.0). Both are **`false`** in the shipped manifest. When switched on
+they run on the whole mask in original capture coordinates, before Ji/Duan and before scale
+normalization, and report under `envelope["quality_gates"]` whether or not they reject
+(`truncation_gate_rejected` / `posture_gate_rejected`). They are a manifest switch, not a
+rebuild.
 
 ## Envelope and ABI
 
@@ -123,4 +247,36 @@ additive and `INSTAHAM_ML_ABI_VERSION` stays 1. Callers branch on the `InstahamM
 return code, never on JSON shape. Manifest `schema_version` is 1; every referenced model and
 class-map file's sha256 is verified before any ORT session is created.
 
-## Last verified against code: 2026-09-05
+`envelope["features"]` carries `status`, `family`, `order`, `gated` (the enforced subset),
+`values` (keyed by feature name) and `measured_on`. `envelope["cutter"]` carries `status`,
+`head_removal_applied`, the real `protocol_version`, `protocol_implemented: true`, and
+`kept_fraction` / `removed_fraction` — telemetry only, computed in this app's adapter because
+the vendor V144 cutter deliberately does not return it, and never a gate.
+
+`envelope["cutter"]["status"]` values from `cut_body_mask`: `cut_applied`, `invalid_input`,
+`jiduan_failed`, **`jiduan_threw`**, `no_terminal_balls`, `break1_unfit`, `shoulder_undecided`,
+`cut_not_required`, `circle_cut_failed`. `jiduan_threw` is new
+(`docs/fix-phase-2/1-cutter-freeze.md` F44) and distinguishes `applyJiDuan` raising from its
+existing `ji.fallback` decline. Note that Dart's `cutterDeclineStatuses` set
+(`run_and_persist_pipeline_use_case.dart:401`) has **not** been extended with it; that set is
+unreachable while the weight override is on, so this is a latent gap rather than a live one,
+and it needs closing before `weight.available` returns to `false`.
+
+## Previously flagged mismatch — resolved 2026-09-09
+
+`capabilities.weight.note` used to read *"TEST OVERRIDE: real V176/V144 cutter not yet ported;
+estimated_kg is not trustworthy."* The first clause was **false** — the cutter was ported by
+`docs/plan.md` phases 1–4 — while the second was accurate for an unrelated reason, making it a
+wrong justification for a correct warning. It was written unconditionally by
+`ML/export/export_xgboost.py`, so every `--enable-for-testing` export reproduced it.
+
+Fixed in the exporter and re-exported, so the shipped asset now states the two reasons that are
+actually true: `cm_per_px_target` is an empirical fit awaiting phase 5's field re-derivation,
+and the regressor cannot predict below about 73 kg, so a pig under roughly 85 kg reads high.
+The `else` branch's `unavailable_reason` was stale in the same way — it said
+`cutter_identity_stub`, a reason `pipeline.cpp` stopped emitting when the cutter shipped — and
+now reads `weight_pending_field_validation`, matching what the native side actually reports.
+Nothing in `manifest.cpp` or Dart reads either field, so this was descriptive text only, with
+no behaviour change.
+
+## Last verified against code: 2026-09-09

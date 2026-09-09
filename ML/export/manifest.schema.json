@@ -84,6 +84,10 @@
       "properties": {
         "available": { "type": "boolean" },
         "unavailable_reason": { "type": "string" },
+        "stability": { "type": "string" },
+        "note": { "type": "string" },
+        "feature_family": { "type": "string", "enum": ["baseline5", "chen16_noheight"] },
+        "feature_order": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
         "regressor": {
           "type": "object",
           "required": ["format", "path", "sha256", "feature_family"],
@@ -92,23 +96,44 @@
             "path": { "type": "string" },
             "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
             "feature_family": { "type": "string" },
-            "objective": { "type": "string" }
+            "objective": { "type": "string" },
+            "base_score": { "type": "number" }
           }
         },
         "feature_extractor": {
           "type": "object",
           "required": ["names"],
           "properties": {
-            "names": {
-              "type": "array",
-              "items": { "type": "string" },
-              "const": ["RA", "LC", "BL", "BW", "E"]
-            }
+            "names": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+            "protocol_version": { "type": "string" },
+            "linear_scale": { "type": "number" }
           }
         },
         "body_mask": { "type": "object" },
         "capture_contract": { "type": "object" },
-        "feature_domain": { "type": "object" },
+        "quality_gates": {
+          "type": "object",
+          "properties": {
+            "truncation": { "type": "boolean" },
+            "posture": { "type": "boolean" },
+            "posture_max_bend_deg": { "type": "number" }
+          }
+        },
+        "feature_domain": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["min", "max"],
+            "properties": {
+              "min": { "type": "number" },
+              "max": { "type": "number" },
+              "dimension": { "type": "string", "enum": ["area", "linear", "dimensionless"] },
+              "gate": { "type": "boolean" },
+              "upper_multiplier": { "type": "number" },
+              "lower_multiplier": { "type": "number" }
+            }
+          }
+        },
         "min_mask_diagonal_fraction": { "type": "number" }
       }
     },
