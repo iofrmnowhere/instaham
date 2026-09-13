@@ -53,9 +53,10 @@ rather than on evidence that it had ever fired.
 
 The vendor passes were written against the 720×720 training frame, and the shrinking-ball and
 medial-axis work scales badly with pixel count. `pipeline.cpp` therefore guarantees a bounded
-mask on both routes: with a scale, the mask is resampled into training space (~720×720, at
-most ~2880×2880 given the 0.25–4.0 height-ratio clamp); without one, `kUnscaledCutterMaxDimPx`
-(2880) caps it to the same budget.
+mask on both routes: with a scale, the mask arrives already in training space (~720×720, at
+most ~2880×2880 given the 0.25–4.0 height-ratio clamp), composed there in a single resample
+from the 640×640 segmentation mask ([segmentation-2.md](segmentation-2.md)); without one,
+`kUnscaledCutterMaxDimPx` (2880) caps the capture-resolution mask to the same budget.
 
 Before `docs/fix-2.md` F43 the no-scale route handed over the mask at full capture resolution
 — roughly 3000×4000 on a modern phone, about 20× the pixel count the passes were designed for.

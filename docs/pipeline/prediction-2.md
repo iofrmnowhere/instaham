@@ -1,15 +1,14 @@
 # Weight Prediction — Sensitivity and Calibration
 
-Continuation of [prediction.md](prediction.md), which documents the code path. This file
-documents the *measured behaviour* of the shipped regressor and the pipeline feeding it: which
-inputs actually move the output, and by how much. Read it before changing any manifest constant
-that feeds the weight branch.
+Continuation of [prediction.md](prediction.md), which documents the code path. This file covers
+the *measured behaviour* of the shipped regressor and the pipeline feeding it: which inputs
+actually move the output, and by how much. Read it before changing any manifest constant that
+feeds the weight branch.
 
 The shipped family is **`chen16_noheight`** (16 features, [ADR-007](../adr/007-manifest-declared-feature-family.md)).
 Its values are raw pixel counts and lengths measured on the cut mask — there is no `RA`-style
 frame denominator and no additional linear scaling (`spec.md`, `feature_calculation.h`). Any
-claim below phrased in terms of `RA` belongs to the retired `baseline5` family and is marked as
-such.
+claim below phrased in terms of `RA` belongs to the retired `baseline5` family and is marked such.
 
 ## The exported model's own accuracy
 
@@ -76,8 +75,8 @@ constant, on medians (`../logs/recorded.md` rounds 2 and 3):
 
 Every separation exceeds its photo's jitter band, so the constant does move the answer
 measurably — but it moves all three photos from undershooting to overshooting without landing on
-any of them, and the theoretical 0.3289 is the *worse* of the two on two of three. A third
-fitted value would find a fourth set of leaves; that is the point of this section.
+any of them, and 0.3289 was the *worse* of the two on two of three. Both arms predate round 7's
+composed transform, and 0.3289 is what ships now ([ADR-011](../adr/011-derived-scale-target.md)).
 
 ## F53 — the pipeline amplifies reference-marking noise
 
@@ -91,19 +90,20 @@ length), the shipped V176/V144 cutter in the loop:
 | 96 kg | 78.53 – 88.84 kg | 12.04% | no |
 | 118 kg | 104.80 – 118.49 kg | 12.55% | yes |
 
-Four terms, not the three originally identified. Per-photo spreads:
+Four terms, not three, all measured on the pre-round-7 double-rasterization path — 2 and 4
+name a step the weight branch no longer runs ([segmentation-2.md](segmentation-2.md)):
 
 | term | mechanism | measured |
 |---|---|---|
 | 1 — segmenter input | `content_scale = cm_per_px_actual / input_cm_per_px` (`pipeline.cpp:355-360`) resizes what YOLO sees, so the mask itself changes | 0.39–3.38% mask area — the **smallest** term |
-| 2 — resample quantization | `lround(w·k)`, `lround(h·k)` + `INTER_NEAREST` (`construction.cpp:133-138`) | not separable on device; it is the mechanism feeding 3 and 4 |
+| 2 — resample quantization | `lround(w·k)`, `lround(h·k)` + `INTER_NEAREST`, applied twice (unletterbox, then scale-by-`k`) | not separable on device; it is the mechanism feeding 3 and 4, and the one F55 removed by composing a single transform |
 | 3 — cutter on the resampled grid | the cut runs *after* the resample (`pipeline.cpp:667-697`); V176 selection is discrete | **dominant on 2 of 3 photos**; `kept_fraction` moved 0.8063→0.9507 and the answer 10.31 kg with the segmentation mask **bit-identical** |
-| 4 — boundary features into a step-function regressor | `INTER_NEAREST` preserves area and destroys boundary statistics; 8 of 16 features are boundary-derived | **dominant on the 118 kg photo**: mask area moved −0.04%, `outline_curve` +16.22%, `Hu_6` +128.84%, weight **−5.84 kg** |
+| 4 — boundary features into a step-function regressor | `INTER_NEAREST` preserves area and destroys boundary statistics; 8 of 16 features are boundary-derived. The weight path now resamples once, `INTER_AREA`/`INTER_LINEAR`, so this term is expected to shrink — unverified on device | **dominant on the 118 kg photo**: mask area moved −0.04%, `outline_curve` +16.22%, `Hu_6` +128.84%, weight **−5.84 kg** |
 
-Item 3 is isolated on pairs of adjacent marks that share an identical
-`construction.mask_area_px`, so segmentation contributed exactly nothing across them. The
-cutter amplifies upstream jitter rather than absorbing it. Item 4 is isolated the same way,
-on a pair where the regressor's own mask area is unchanged to four significant figures.
+Item 3 is isolated on pairs of adjacent marks sharing an identical `construction.mask_area_px`,
+so segmentation contributed exactly nothing across them: the cutter amplifies upstream jitter
+rather than absorbing it. Item 4 is isolated the same way, on a pair where the regressor's own
+mask area is unchanged to four significant figures.
 
 `Hu_3` through `Hu_7` are the least stable inputs, swinging hundreds to thousands of percent
 between adjacent marks — near-zero quantities, so not alarming alone, but nothing stabilises

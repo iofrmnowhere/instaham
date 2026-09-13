@@ -15,7 +15,6 @@ import '../../../../core/utils/image_service.dart';
 import '../../../../core/utils/length_units.dart';
 import '../../../inference_pipeline/domain/use_cases/run_and_persist_pipeline_use_case.dart';
 import '../../data/capture_preferences.dart';
-import '../widgets/height_mode_settings.dart';
 import '../widgets/reference_object_picker.dart';
 
 class CaptureScreen extends StatefulWidget {
@@ -29,10 +28,13 @@ class CaptureScreen extends StatefulWidget {
 
 class _CaptureScreenState extends State<CaptureScreen>
     with WidgetsBindingObserver {
-  MeasurementMode _mode = MeasurementMode.referenceObject;
+  // docs/metrics-plan.md phase 4 task 5: height mode is withdrawn (finding 9) -- reference
+  // object is now the only capture mode. `measurementMode` stays on ScanRecords/ScanFlowArgs
+  // (AGENTS.md "Database rules": no schema change for no behavioural gain), so this is kept
+  // as a constant rather than removed, to keep writing the same enum value every capture.
+  static const MeasurementMode _mode = MeasurementMode.referenceObject;
   LengthUnit _unit = LengthUnit.cm;
   late ReferenceSelection? _reference = widget.initialArgs?.reference;
-  late double? _cameraHeight = widget.initialArgs?.cameraHeightCm;
   String? _sessionId;
   AppDatabase? _database;
   bool _initialized = false;
@@ -133,15 +135,11 @@ class _CaptureScreenState extends State<CaptureScreen>
 
   Future<void> _loadPreferences() async {
     final savedRef = await CapturePreferences.loadReference();
-    final savedHeight = await CapturePreferences.loadHeight();
     final savedUnit = await CapturePreferences.loadUnit();
     if (!mounted) return;
     setState(() {
       if (_reference == null && savedRef != null) {
         _reference = savedRef;
-      }
-      if (_cameraHeight == null && savedHeight != null) {
-        _cameraHeight = savedHeight;
       }
       _unit = savedUnit;
     });
@@ -172,46 +170,14 @@ class _CaptureScreenState extends State<CaptureScreen>
     await CapturePreferences.saveReference(result);
   }
 
-  Future<void> _openHeightConfig() async {
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
-        ),
-        child: HeightModeSettings(
-          value: _cameraHeight ?? 0.0,
-          unit: _unit,
-          onUnitChanged: _updateUnit,
-          onChange: (newHeight) {
-            if (!mounted) return;
-            setState(() => _cameraHeight = newHeight);
-            CapturePreferences.saveHeight(newHeight);
-          },
-          onNext: () => Navigator.pop(sheetContext),
-          onBack: () => Navigator.pop(sheetContext),
-        ),
-      ),
-    );
-  }
-
   void _showGuidance() {
-    final tips = _mode == MeasurementMode.referenceObject
-        ? const [
-            'Photograph one pig from directly above.',
-            'Keep the full head, body, and tail inside the frame.',
-            'Place the straight reference flat beside the pig.',
-            'Keep both reference endpoints visible.',
-            'Hold the phone parallel to the ground.',
-          ]
-        : const [
-            'Photograph one pig from directly above.',
-            'Hold camera at the specified height above the pig.',
-            'Match pig position with the on-screen silhouette.',
-            'Keep the phone parallel to the ground and avoid blur.',
-          ];
+    const tips = [
+      'Photograph one pig from directly above.',
+      'Keep the full head, body, and tail inside the frame.',
+      'Place the straight reference flat beside the pig.',
+      'Keep both reference endpoints visible.',
+      'Hold the phone parallel to the ground.',
+    ];
 
     showModalBottomSheet<void>(
       context: context,
@@ -253,21 +219,13 @@ class _CaptureScreenState extends State<CaptureScreen>
   }
 
   Future<void> _capture() async {
-    if (_mode == MeasurementMode.referenceObject && _reference == null) {
+    if (_reference == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Choose the known reference object before capturing.'),
         ),
       );
       await _openReferenceConfig();
-      return;
-    }
-    if (_mode == MeasurementMode.fixedHeight &&
-        (_cameraHeight == null || _cameraHeight! <= 0)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Set camera height before capturing.')),
-      );
-      await _openHeightConfig();
       return;
     }
 
@@ -296,9 +254,6 @@ class _CaptureScreenState extends State<CaptureScreen>
         id,
         imagePath: result.localPath,
         measurementMode: _mode,
-        cameraHeightCm: _mode == MeasurementMode.fixedHeight
-            ? _cameraHeight
-            : null,
       );
 
       if (!mounted) return;
@@ -319,7 +274,7 @@ class _CaptureScreenState extends State<CaptureScreen>
   }
 
   Future<void> _pickFromGallery() async {
-    if (_mode == MeasurementMode.referenceObject && _reference == null) {
+    if (_reference == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -328,16 +283,6 @@ class _CaptureScreenState extends State<CaptureScreen>
         ),
       );
       await _openReferenceConfig();
-      return;
-    }
-    if (_mode == MeasurementMode.fixedHeight &&
-        (_cameraHeight == null || _cameraHeight! <= 0)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Set camera height before choosing photo.'),
-        ),
-      );
-      await _openHeightConfig();
       return;
     }
 
@@ -355,9 +300,6 @@ class _CaptureScreenState extends State<CaptureScreen>
         id,
         imagePath: result.localPath,
         measurementMode: _mode,
-        cameraHeightCm: _mode == MeasurementMode.fixedHeight
-            ? _cameraHeight
-            : null,
       );
 
       if (!mounted) return;
@@ -391,7 +333,6 @@ class _CaptureScreenState extends State<CaptureScreen>
       sessionId: id,
       goal: ScanGoal.weightAndHealth,
       measurementMode: _mode,
-      cameraHeightCm: _cameraHeight,
       reference: _reference,
       imagePath: imagePath,
       imageBytes: _capturedResult?.bytes ?? widget.initialArgs?.imageBytes,
@@ -449,7 +390,7 @@ class _CaptureScreenState extends State<CaptureScreen>
     // exactly as before this change.
     final skipReference = viewLabel == 'health_only';
 
-    if (_mode == MeasurementMode.referenceObject && !skipReference) {
+    if (!skipReference) {
       await _database!.updateScanStatus(id, ScanStatuses.referenceReview);
       if (mounted) context.push('/reference-marking', extra: args);
     } else {
@@ -458,9 +399,8 @@ class _CaptureScreenState extends State<CaptureScreen>
         id,
         'analysis',
         'queued',
-        message: skipReference
-            ? 'Photo classified as health-only — reference marking and weight estimation skipped.'
-            : 'Height mode — weight estimation requires height-calibrated model (not yet available).',
+        message:
+            'Photo classified as health-only — reference marking and weight estimation skipped.',
       );
       if (mounted) context.push('/analysis', extra: args);
     }
@@ -490,9 +430,14 @@ class _CaptureScreenState extends State<CaptureScreen>
                   icon: const Icon(Icons.close, color: Colors.white),
                 ),
                 Expanded(
-                  child: _MeasurementModeSelector(
-                    selected: _mode,
-                    onChanged: (mode) => setState(() => _mode = mode),
+                  child: Center(
+                    child: Text(
+                      'Weight & Health Capture',
+                      style: AppTextStyles.label.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
                 ),
                 IconButton(
@@ -565,10 +510,7 @@ class _CaptureScreenState extends State<CaptureScreen>
                       ],
                     ),
                   ),
-                if (_mode == MeasurementMode.referenceObject)
-                  CustomPaint(painter: _DorsalGuidePainter())
-                else
-                  CustomPaint(painter: _HeightGuidePainter()),
+                CustomPaint(painter: _DorsalGuidePainter()),
                 Positioned(
                   left: 16,
                   right: 16,
@@ -576,46 +518,25 @@ class _CaptureScreenState extends State<CaptureScreen>
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      if (_mode == MeasurementMode.referenceObject)
-                        ActionChip(
-                          avatar: Icon(
-                            _reference == null
-                                ? Icons.warning_amber
-                                : Icons.straighten,
-                            size: 17,
-                            color: _reference == null
-                                ? AppColors.blocked
-                                : AppColors.signalPink,
-                          ),
-                          label: Text(
-                            _reference == null
-                                ? 'Set reference'
-                                : '${_reference!.name} · ${_unit.format(_reference!.lengthCm)} ${_unit.label}',
-                          ),
-                          onPressed: _openReferenceConfig,
-                          backgroundColor: Colors.white,
-                          side: BorderSide.none,
-                        )
-                      else
-                        ActionChip(
-                          avatar: Icon(
-                            _cameraHeight == null || _cameraHeight! <= 0
-                                ? Icons.warning_amber
-                                : Icons.height,
-                            size: 17,
-                            color: _cameraHeight == null || _cameraHeight! <= 0
-                                ? AppColors.blocked
-                                : AppColors.signalPink,
-                          ),
-                          label: Text(
-                            _cameraHeight == null || _cameraHeight! <= 0
-                                ? 'Set height'
-                                : 'Height: ${_unit.format(_cameraHeight!)} ${_unit.label}',
-                          ),
-                          onPressed: _openHeightConfig,
-                          backgroundColor: Colors.white,
-                          side: BorderSide.none,
+                      ActionChip(
+                        avatar: Icon(
+                          _reference == null
+                              ? Icons.warning_amber
+                              : Icons.straighten,
+                          size: 17,
+                          color: _reference == null
+                              ? AppColors.blocked
+                              : AppColors.signalPink,
                         ),
+                        label: Text(
+                          _reference == null
+                              ? 'Set reference'
+                              : '${_reference!.name} · ${_unit.format(_reference!.lengthCm)} ${_unit.label}',
+                        ),
+                        onPressed: _openReferenceConfig,
+                        backgroundColor: Colors.white,
+                        side: BorderSide.none,
+                      ),
                     ],
                   ),
                 ),
@@ -702,18 +623,9 @@ class _CaptureScreenState extends State<CaptureScreen>
                 SizedBox(
                   width: 64,
                   child: IconButton(
-                    tooltip: _mode == MeasurementMode.referenceObject
-                        ? 'Change reference'
-                        : 'Change height',
-                    onPressed: _mode == MeasurementMode.referenceObject
-                        ? _openReferenceConfig
-                        : _openHeightConfig,
-                    icon: Icon(
-                      _mode == MeasurementMode.referenceObject
-                          ? Icons.straighten
-                          : Icons.height,
-                      color: Colors.white70,
-                    ),
+                    tooltip: 'Change reference',
+                    onPressed: _openReferenceConfig,
+                    icon: const Icon(Icons.straighten, color: Colors.white70),
                   ),
                 ),
               ],
@@ -792,9 +704,7 @@ class _CaptureScreenState extends State<CaptureScreen>
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      _mode == MeasurementMode.referenceObject
-                          ? 'Next, verify the app suggestion or mark both reference endpoints manually.'
-                          : 'Next, visual health assessment and height-based feature extraction will run.',
+                      'Next, verify the app suggestion or mark both reference endpoints manually.',
                       style: AppTextStyles.subtext.copyWith(
                         color: AppColors.mutedForeground,
                       ),
@@ -815,11 +725,7 @@ class _CaptureScreenState extends State<CaptureScreen>
                   Expanded(
                     child: ElevatedButton(
                       onPressed: _usePhoto,
-                      child: Text(
-                        _mode == MeasurementMode.referenceObject
-                            ? 'Verify reference'
-                            : 'Continue to analysis',
-                      ),
+                      child: const Text('Verify reference'),
                     ),
                   ),
                 ],
@@ -828,55 +734,6 @@ class _CaptureScreenState extends State<CaptureScreen>
           ),
         ),
       ],
-    );
-  }
-}
-
-class _MeasurementModeSelector extends StatelessWidget {
-  final MeasurementMode selected;
-  final ValueChanged<MeasurementMode> onChanged;
-
-  const _MeasurementModeSelector({
-    required this.selected,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(AppRadius.lg),
-      ),
-      child: Row(
-        children: MeasurementMode.values.map((mode) {
-          final active = mode == selected;
-          return Expanded(
-            child: InkWell(
-              onTap: () => onChanged(mode),
-              borderRadius: BorderRadius.circular(AppRadius.md),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 6),
-                decoration: BoxDecoration(
-                  color: active ? Colors.white : Colors.transparent,
-                  borderRadius: BorderRadius.circular(AppRadius.md),
-                ),
-                child: Text(
-                  mode.label,
-                  textAlign: TextAlign.center,
-                  style: AppTextStyles.label.copyWith(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: active ? AppColors.foreground : Colors.white70,
-                  ),
-                ),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
     );
   }
 }
@@ -902,44 +759,6 @@ class _DorsalGuidePainter extends CustomPainter {
     );
     canvas.drawCircle(Offset(size.width * 0.2, size.height * 0.25), 8, paint);
     canvas.drawCircle(Offset(size.width * 0.2, size.height * 0.75), 8, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-class _HeightGuidePainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.45)
-      ..strokeWidth = 2.0
-      ..style = PaintingStyle.stroke;
-
-    final bodyRect = Rect.fromCenter(
-      center: Offset(size.width / 2, size.height / 2),
-      width: size.width * 0.52,
-      height: size.height * 0.52,
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(bodyRect, const Radius.circular(24)),
-      paint,
-    );
-    canvas.drawCircle(Offset(size.width / 2, bodyRect.top - 24), 30, paint);
-
-    final linePaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.2)
-      ..strokeWidth = 1.0;
-    canvas.drawLine(
-      Offset(0, size.height * 0.25),
-      Offset(size.width, size.height * 0.25),
-      linePaint,
-    );
-    canvas.drawLine(
-      Offset(0, size.height * 0.75),
-      Offset(size.width, size.height * 0.75),
-      linePaint,
-    );
   }
 
   @override

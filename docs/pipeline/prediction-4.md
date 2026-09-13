@@ -8,14 +8,18 @@ are drawn from. Read that file first; this one is only the standing conclusions.
 - Do not tune `cm_per_px_target` against a small set of field photos. It has now been done
   three times — 0.26, then 0.35 (both fitted), then the specification's theoretical 0.3289
   (F46, measured on device against all three photos). None of them survived contact with a
-  device, and the constant was not the problem any of those times.
-- **The constant is settled at 0.35 on measurement, and is still not derived.** The host
-  harness in `ML/host_scale_test/` swept 0.28–0.50 against five PIGRGB images with known true
-  weights, using the shipped models and the real cutter
-  ([../scale-constant-sweep-results.md](../scale-constant-sweep-results.md)): 0.35 won on MAE
-  (11.5% vs 0.3289's 19.0%) and on every image individually, so it ships. Three criteria still
-  give three different optima — MAE at 0.35, |bias| at 0.38, spread at 0.30 — which is the
-  signature of a constant that is not the dominant error term. Do not read the win as validation.
+  device, and the constant was not the problem any of those times. The value shipping today is
+  derived rather than fitted, which is the only reason it is not a fourth instance of this.
+- **The constant now ships derived, not fitted, and its accuracy is unmeasured.** The manifest
+  carries `0.3289473684210526` = `100 / 304`, from the PIGRGB floor-plane baseline in
+  [../INSTAHAM_CAMERA_SCALE_NORMALIZATION.md](../INSTAHAM_CAMERA_SCALE_NORMALIZATION.md)
+  ([ADR-011](../adr/011-derived-scale-target.md)). The host sweep that previously justified
+  0.35 ([../scale-constant-sweep-results.md](../scale-constant-sweep-results.md): MAE 11.5% vs
+  0.3289's 19.0% over five PIGRGB images) was run before round 7's composed transform, so it
+  measures a code path the weight branch no longer runs. **Nothing has re-measured either value
+  on the current pipeline — do not quote an accuracy figure against the shipped constant until
+  that re-run exists.** The sweep's three disagreeing optima (MAE at 0.35, |bias| at 0.38,
+  spread at 0.30) remain the signature of a constant that is not the dominant error term.
 - **Below roughly 85 kg, no calibration change will help.** The regressor cannot emit a value
   under about 73 kg; light pigs fall outside its trained feature domain and answer from a floor
   leaf ([ADR-010](../adr/010-regressor-training-domain-floor.md)). Check `extrapolated_features`

@@ -1,5 +1,9 @@
 # Phase 3 — Normalization order: resize the image, not the mask
 
+> **Superseded 2026-09-10 by `docs/fix-3.md` (round 7).** Never started. F48 describes
+> the same defect round 7 fixes at its source; working both would produce two competing
+> changes to the same code path.
+
 Status: not started — blocked on phases 1 and 2
 
 ## Symptom

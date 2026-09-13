@@ -1,6 +1,6 @@
 # ADR-010: The regressor's training-domain floor, not the scale constant or the cutter, is the weight branch's dominant error
 
-Status: Accepted
+Status: Accepted — the `cm_per_px_target = 0.35` retention is superseded by [011](011-derived-scale-target.md); the training-domain floor finding stands
 
 Context: [ADR-005](005-identity-cutter-is-the-dominant-error.md) attributed the weight branch's
 systematic field bias to the identity cutter and priced it at roughly 16% of mean bias. That

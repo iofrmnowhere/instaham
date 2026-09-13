@@ -27,9 +27,12 @@ training protocol rejected. Their `*_ffi` layers are deliberately not taken; thi
 one consolidated C ABI.
 
 `src/stages/quality_gates.{h,cpp}` is the app's adapter over them, and `pipeline.cpp` now runs
-both — on the **whole mask in original capture coordinates**, after `unletterbox_native_mask`
-and before both Ji/Duan and `scale_mask_to_training_space`. Each is switched by its own
-manifest flag under `weight.quality_gates`:
+both — on the **whole mask in original capture coordinates**, i.e. on `construct_pig_mask()`'s
+output, before Ji/Duan and before the weight branch exists at all. Since round 7 that is a
+branch point rather than a step order: the gates keep the unletterboxed capture-coordinate
+mask, while the weight branch composes its own transform from the same decoded 640×640 mask
+([segmentation-2.md](segmentation-2.md)) and never sees capture resolution. Each gate is
+switched by its own manifest flag under `weight.quality_gates`:
 
 | Manifest flag | Shipped value | Rejection reason |
 |---|---|---|

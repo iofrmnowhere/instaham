@@ -66,7 +66,12 @@ class RunAndPersistPipelineUseCase {
   /// failed upstream check).
   Future<void> execute(AppDatabase db, String scanId, String imagePath) async {
     try {
-      final view = await resolveViewGate(db, scanId, imagePath);
+      final view = await resolveViewGate(
+        db,
+        scanId,
+        imagePath,
+        viewModelService: viewModelService,
+      );
       final viewRejected = view.label == 'reject';
 
       if (viewRejected) {

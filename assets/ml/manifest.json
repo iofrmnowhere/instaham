@@ -176,8 +176,8 @@
       },
       "capture_contract": {
         "camera_height_is_xgboost_feature": false,
-        "cm_per_px_target": 0.35,
-        "cm_per_px_target_source": "host_scale_sweep_round6_f49_empirical_fit_not_derived",
+        "cm_per_px_target": 0.3289473684210526,
+        "cm_per_px_target_source": "pigrgb_floor_plane_304ppm_theoretical_geometry_INSTAHAM_CAMERA_SCALE_NORMALIZATION_md",
         "cm_per_px_target_uncertainty": 1.3,
         "feature_space": "fixed_camera_pixels",
         "training_camera_height_m": 1.88,
@@ -358,7 +358,7 @@
         "Hu_7"
       ],
       "min_mask_diagonal_fraction": 0.35,
-      "note": "TEST OVERRIDE: cm_per_px_target is an empirical fit awaiting phase 5's field re-derivation, and the regressor cannot predict below ~73 kg (ADR-010), so a pig under ~85 kg reads high; estimated_kg is not trustworthy.",
+      "note": "TEST OVERRIDE: cm_per_px_target is the derived PIGRGB floor-plane value (ADR-011), unmeasured on the current pipeline, and the regressor cannot predict below ~73 kg (ADR-010), so a pig under ~85 kg reads high; estimated_kg is not trustworthy.",
       "quality_gates": {
         "posture": false,
         "posture_max_bend_deg": 40.0,

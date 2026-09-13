@@ -1,0 +1,95 @@
+{
+  "scenario_id": 6,
+  "title": "Close-up lesion image -> visual health classified with confidence",
+  "image_file": "image.jpg",
+  "source": {
+    "origin": "health_pigs/owaKvudb.jpg",
+    "kind": "real_capture_cropped",
+    "transform": "EXIF-upright crop box (573, 122, 1740, 952) (fractional 0.28-0.85 x / 0.08-0.62 y) of the source image, longest side resized to 1200px, JPEG q90. Deterministic -- same box every run.",
+    "notes": "the source photo has real red hand-drawn skin marks on the pig's flank/back (visible in the cropped region) resembling a lesion/marking close-up -- not a synthetic overlay."
+  },
+  "reference": {
+    "provided": false,
+    "physical_length_cm": null
+  },
+  "expected_outcome": {
+    "view": "health_only",
+    "weight_branch": {
+      "expect_number": false,
+      "expected_failure_reason": "view_not_dorsal"
+    },
+    "health_branch": {
+      "expect_assessed": true
+    }
+  },
+  "notes": "Confirmed by task 1's phase-4 run (observed_phase4 below): view resolves health_only (confidence 0.9682) as hypothesized, but the live weight-branch reason is view_not_dorsal, not weight_needs_reference_object -- the latter is a dead WeightEligibilityChecker reason (finding 5) that the live pipeline never emits.",
+  "observed_phase4": {
+    "date": "2026-09-11",
+    "method": "test/support/native_harness.dart directly (not through the permanent Tier B test file, which is written in task 4), INSTAHAM_NATIVE_TESTS=1, Windows host build from build/windows-host/Release/, no cm_per_px supplied for any fixture (see note per fixture).",
+    "run_ok": true,
+    "elapsed_ms": 97,
+    "envelope": {
+      "construction": {
+        "reason": "not_required_for_route",
+        "status": "skipped"
+      },
+      "cutter": {
+        "reason": "view_not_dorsal",
+        "status": "skipped"
+      },
+      "features": {
+        "reason": "view_not_dorsal",
+        "status": "skipped"
+      },
+      "health": {
+        "class_map_sha256": "b514707c89260b69b8ee77175e3ce2866cf57a6a360f46ee9cad2f27f5c6a6a0",
+        "confidence": 0.6251624226570129,
+        "input_degraded": false,
+        "input_protocol_applied": "full_frame",
+        "input_protocol_requested": "full_frame",
+        "label": "Infected_Environmental_Sunburn",
+        "probabilities": {
+          "Healthy": 0.1643037497997284,
+          "Infected_Bacterial_Erysipelas": 0.010774979367852211,
+          "Infected_Bacterial_Greasy_Pig_Disease": 0.10216391831636429,
+          "Infected_Environmental_Dermatitis": 0.003160241525620222,
+          "Infected_Environmental_Sunburn": 0.6251624226570129,
+          "Infected_Fungal_Pityriasis_Rosea": 0.003820602549239993,
+          "Infected_Fungal_Ringworm": 0.052207306027412415,
+          "Infected_Parasitic_Mange": 0.011534751392900944,
+          "Infected_Viral_Foot_and_Mouth_Disease": 0.02002871222794056,
+          "Infected_Viral_Swinepox": 0.006843247916549444
+        },
+        "protocol_version": "health_v1",
+        "region_source": "none",
+        "status": "ok"
+      },
+      "pipeline_protocol": "instaham_pipeline_v4",
+      "scale": {
+        "reason": "view_not_dorsal",
+        "status": "skipped"
+      },
+      "segmentation": {
+        "reason": "not_required_for_route",
+        "status": "skipped"
+      },
+      "status": "ok",
+      "view": {
+        "class_map_sha256": "fe2f46bcc1d54e8e1b9a4362d8e39ebd1c3c0ec9ff3d0c0bf3806718313e17d1",
+        "confidence": 0.9682455062866211,
+        "label": "health_only",
+        "probabilities": {
+          "dorsal_valid": 0.025172332301735878,
+          "health_only": 0.9682455062866211,
+          "reject": 0.006582191213965416
+        },
+        "protocol_version": "view_v2",
+        "status": "ok"
+      },
+      "weight": {
+        "reason": "view_not_dorsal",
+        "status": "skipped"
+      }
+    }
+  }
+}

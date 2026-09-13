@@ -1,0 +1,95 @@
+{
+  "scenario_id": 9,
+  "title": "Partially cropped pig -> truncation behaviour (gate is off as shipped)",
+  "image_file": "image.jpg",
+  "source": {
+    "origin": "health_pigs/VBYvVvwj.jpg",
+    "kind": "real_capture_cropped",
+    "transform": "EXIF-upright crop box (583, 0, 1536, 2048) of the 1536x2048 source, removing the pig's head/snout region that extended past x=583. Longest side resized to 1600px, JPEG q90. Deterministic.",
+    "notes": "real photo of a pig against a wall; crop removes the head/snout."
+  },
+  "reference": {
+    "provided": false,
+    "physical_length_cm": null
+  },
+  "expected_outcome": {
+    "view": "health_only",
+    "weight_branch": {
+      "expect_number": false,
+      "expected_failure_reason": "view_not_dorsal"
+    },
+    "health_branch": {
+      "expect_assessed": true
+    }
+  },
+  "notes": "docs/metrics-plan.md finding 6: capabilities.weight.quality_gates.truncation is false in the shipped manifest, so truncation_gate_rejected cannot fire as shipped -- confirmed by task 1's run: this fixture resolves health_only (view classifier, not the truncation gate) and never reaches segmentation, so the gate is never exercised either way on this fixture as currently framed. With the default manifest the weight branch is withheld for reason view_not_dorsal, not a truncation reason. Task 4 must additionally run this fixture with a test copy of the manifest that has the truncation gate flipped on, and record that second outcome here, before asserting truncation_gate_rejected can fire at all.",
+  "observed_phase4": {
+    "date": "2026-09-11",
+    "method": "test/support/native_harness.dart directly (not through the permanent Tier B test file, which is written in task 4), INSTAHAM_NATIVE_TESTS=1, Windows host build from build/windows-host/Release/, no cm_per_px supplied for any fixture (see note per fixture).",
+    "run_ok": true,
+    "elapsed_ms": 73,
+    "envelope": {
+      "construction": {
+        "reason": "not_required_for_route",
+        "status": "skipped"
+      },
+      "cutter": {
+        "reason": "view_not_dorsal",
+        "status": "skipped"
+      },
+      "features": {
+        "reason": "view_not_dorsal",
+        "status": "skipped"
+      },
+      "health": {
+        "class_map_sha256": "b514707c89260b69b8ee77175e3ce2866cf57a6a360f46ee9cad2f27f5c6a6a0",
+        "confidence": 0.9636152386665344,
+        "input_degraded": false,
+        "input_protocol_applied": "full_frame",
+        "input_protocol_requested": "full_frame",
+        "label": "Healthy",
+        "probabilities": {
+          "Healthy": 0.9636152386665344,
+          "Infected_Bacterial_Erysipelas": 0.001012088032439351,
+          "Infected_Bacterial_Greasy_Pig_Disease": 0.0005907709710299969,
+          "Infected_Environmental_Dermatitis": 0.002700306009501219,
+          "Infected_Environmental_Sunburn": 0.02387322299182415,
+          "Infected_Fungal_Pityriasis_Rosea": 0.0037563384976238012,
+          "Infected_Fungal_Ringworm": 0.0011557379039004445,
+          "Infected_Parasitic_Mange": 0.002230805577710271,
+          "Infected_Viral_Foot_and_Mouth_Disease": 4.810772952623665e-05,
+          "Infected_Viral_Swinepox": 0.0010172860929742455
+        },
+        "protocol_version": "health_v1",
+        "region_source": "none",
+        "status": "ok"
+      },
+      "pipeline_protocol": "instaham_pipeline_v4",
+      "scale": {
+        "reason": "view_not_dorsal",
+        "status": "skipped"
+      },
+      "segmentation": {
+        "reason": "not_required_for_route",
+        "status": "skipped"
+      },
+      "status": "ok",
+      "view": {
+        "class_map_sha256": "fe2f46bcc1d54e8e1b9a4362d8e39ebd1c3c0ec9ff3d0c0bf3806718313e17d1",
+        "confidence": 0.9263709783554077,
+        "label": "health_only",
+        "probabilities": {
+          "dorsal_valid": 0.0024041745346039534,
+          "health_only": 0.9263709783554077,
+          "reject": 0.07122484594583511
+        },
+        "protocol_version": "view_v2",
+        "status": "ok"
+      },
+      "weight": {
+        "reason": "view_not_dorsal",
+        "status": "skipped"
+      }
+    }
+  }
+}

@@ -1,0 +1,193 @@
+{
+  "scenario_id": 11,
+  "title": "HEIC / JPEG / PNG inputs supported and processed accurately",
+  "image_files": {
+    "heic": "image.heic",
+    "jpeg": "image.jpg",
+    "png": "image.png"
+  },
+  "source": {
+    "origin": ".pig_pictures/75kg_pig_meter_stick.HEIC",
+    "kind": "real_capture_transcoded",
+    "transform": "EXIF-upright, longest side resized to 900px once, then the SAME resized RGB pixel buffer re-encoded three ways (HEIF q85, JPEG q90, PNG lossless) so the three files carry equivalent content and only the container differs. Same source as scenario 3."
+  },
+  "reference": {
+    "provided": true,
+    "physical_length_cm": 100.0,
+    "pixel_endpoints": null,
+    "pixel_endpoints_note": "same meter tape visible in all three containers -- not yet hand-marked, see scenario 1's note."
+  },
+  "expected_outcome": {
+    "view": "dorsal_valid",
+    "weight_branch": {
+      "expect_number": true,
+      "expected_failure_reason": null
+    },
+    "health_branch": {
+      "expect_assessed": true
+    },
+    "cross_container_agreement": "all three files must decode to the same view label, health label, and (AGENTS.md rule 5) EXIF-corrected orientation."
+  },
+  "notes": "The source image's orientation was already upright after exif_transpose in this script; no additional orientation tag is embedded in the derivatives, so this fixture does NOT exercise a rotated-EXIF case on its own -- only cross-container decode agreement. A rotated-EXIF case remains open for phase 4 to add if the decode path needs that coverage.",
+  "observed_phase4": {
+    "date": "2026-09-11",
+    "method": "test/support/native_harness.dart directly (not through the permanent Tier B test file, which is written in task 4), INSTAHAM_NATIVE_TESTS=1, Windows host build from build/windows-host/Release/, no cm_per_px supplied for any fixture (see note per fixture).",
+    "run_ok": true,
+    "elapsed_ms": 21040,
+    "envelope_note": "run against the jpeg container only (canonical); heic/png not separately exercised in this pass -- cross-container agreement is task 4's job, not task 1's.",
+    "envelope": {
+      "construction": {
+        "bbox": [
+          282,
+          169,
+          360,
+          585
+        ],
+        "mask_area_px": 108256,
+        "mask_diagonal_fraction": 0.6105735008989499,
+        "mask_protocol": "original_coordinate_polygon_v1",
+        "status": "ok"
+      },
+      "cutter": {
+        "head_removal_applied": true,
+        "kept_fraction": 0.9095015518770322,
+        "protocol_implemented": true,
+        "protocol_version": "v176_strict_nonprimary_break1_region_meet_v144_fixed_center_bilateral_circle_v1",
+        "removed_fraction": 0.09049844812296781,
+        "status": "cut_applied"
+      },
+      "features": {
+        "family": "chen16_noheight",
+        "gated": [
+          "mask_area",
+          "convex_hull_area",
+          "difference",
+          "perimeter",
+          "longest",
+          "shortest"
+        ],
+        "measured_on": "uncut_mask_unnormalized",
+        "order": [
+          "mask_area",
+          "convex_hull_area",
+          "difference",
+          "dif_mask",
+          "body_curve",
+          "perimeter",
+          "outline_curve",
+          "longest",
+          "shortest",
+          "Hu_1",
+          "Hu_2",
+          "Hu_3",
+          "Hu_4",
+          "Hu_5",
+          "Hu_6",
+          "Hu_7"
+        ],
+        "status": "provisional",
+        "values": {
+          "Hu_1": 0.24504458167617077,
+          "Hu_2": 0.033860463689335804,
+          "Hu_3": 3.6407387053071484e-05,
+          "Hu_4": 6.38986441683627e-06,
+          "Hu_5": 6.519211079999629e-11,
+          "Hu_6": 4.7146757318036646e-07,
+          "Hu_7": 7.244787486684474e-11,
+          "body_curve": 177.5451872804675,
+          "convex_hull_area": 101312.0,
+          "dif_mask": 0.028976528301120262,
+          "difference": 2853.0,
+          "longest": 544.8008191773358,
+          "mask_area": 98459.0,
+          "outline_curve": 0.023547822103847538,
+          "perimeter": 1389.6092952489853,
+          "shortest": 197.76995433281817
+        }
+      },
+      "health": {
+        "class_map_sha256": "b514707c89260b69b8ee77175e3ce2866cf57a6a360f46ee9cad2f27f5c6a6a0",
+        "confidence": 0.8982183933258057,
+        "input_degraded": false,
+        "input_protocol_applied": "full_frame",
+        "input_protocol_requested": "full_frame",
+        "label": "Healthy",
+        "probabilities": {
+          "Healthy": 0.8982183933258057,
+          "Infected_Bacterial_Erysipelas": 0.00042767493869177997,
+          "Infected_Bacterial_Greasy_Pig_Disease": 6.362254498526454e-05,
+          "Infected_Environmental_Dermatitis": 3.166104943375103e-05,
+          "Infected_Environmental_Sunburn": 0.10000986605882645,
+          "Infected_Fungal_Pityriasis_Rosea": 5.3047922847326845e-05,
+          "Infected_Fungal_Ringworm": 0.000651169044431299,
+          "Infected_Parasitic_Mange": 0.00035720973392017186,
+          "Infected_Viral_Foot_and_Mouth_Disease": 1.1180889487150125e-05,
+          "Infected_Viral_Swinepox": 0.00017636478878557682
+        },
+        "protocol_version": "health_v1",
+        "region_source": "mask",
+        "status": "ok"
+      },
+      "pipeline_protocol": "instaham_pipeline_v4",
+      "scale": {
+        "reason": "reference_object_not_confirmed",
+        "status": "unavailable"
+      },
+      "segmentation": {
+        "candidates_kept": 1,
+        "clamped_to_letterbox": false,
+        "confidence": 0.7118918299674988,
+        "content_scale": 0.7111111283302307,
+        "input_cm_per_px_used": 0.0,
+        "instances_found": 1,
+        "ladder_rung": 0,
+        "rungs_tried": [
+          {
+            "candidates_kept": 1,
+            "clamped_to_letterbox": false,
+            "conf_threshold_used": 0.25,
+            "content_scale": 0.7111111283302307,
+            "input_cm_per_px_used": 0.0,
+            "mask_diagonal_fraction": 0.6105735008989499,
+            "multiplier": 0.0,
+            "result": "ok",
+            "rung": 0
+          }
+        ],
+        "runner_up_mask_area_proto": 0,
+        "selected_box_frame_fraction": 0.3514178693294525,
+        "selected_box_orig": [
+          275.9167175292969,
+          167.4232177734375,
+          643.2298583984375,
+          748.6339721679688
+        ],
+        "selected_mask_area_proto": 3425,
+        "status": "ok"
+      },
+      "status": "ok",
+      "view": {
+        "class_map_sha256": "fe2f46bcc1d54e8e1b9a4362d8e39ebd1c3c0ec9ff3d0c0bf3806718313e17d1",
+        "confidence": 0.9966670870780945,
+        "label": "dorsal_valid",
+        "probabilities": {
+          "dorsal_valid": 0.9966670870780945,
+          "health_only": 0.0031409140210598707,
+          "reject": 0.00019200067617930472
+        },
+        "protocol_version": "view_v2",
+        "status": "ok"
+      },
+      "weight": {
+        "capture_contract": {
+          "camera_height_is_xgboost_feature": false,
+          "feature_space": "fixed_camera_pixels",
+          "training_camera_height_m": 1.88
+        },
+        "reason": "reference_object_not_confirmed",
+        "status": "unavailable",
+        "user_message_key": "weight_needs_reference_object"
+      }
+    }
+  }
+}

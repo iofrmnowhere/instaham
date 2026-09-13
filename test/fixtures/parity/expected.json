@@ -1,0 +1,267 @@
+{
+  "01_valid_dorsal_100cm_reference": {
+    "features": {
+      "Hu_1": 0.28420545678887266,
+      "Hu_2": 0.051998999234725146,
+      "Hu_3": 0.000723122644427526,
+      "Hu_4": 0.0002469384914512744,
+      "Hu_5": 9.856760685255887e-08,
+      "Hu_6": 4.944124175776493e-05,
+      "Hu_7": -3.425178208008154e-08,
+      "body_curve": 172.1661212367655,
+      "convex_hull_area": 53789.0,
+      "dif_mask": 0.09460724460724461,
+      "difference": 4649.0,
+      "longest": 407.5585448211539,
+      "mask_area": 49140.0,
+      "outline_curve": 0.03925080487806476,
+      "perimeter": 1021.9970356225967,
+      "shortest": 120.0
+    },
+    "health": {
+      "probabilities": {
+        "Healthy": 0.6998062133789062,
+        "Infected_Bacterial_Erysipelas": 0.005390523932874203,
+        "Infected_Bacterial_Greasy_Pig_Disease": 9.470905206399038e-05,
+        "Infected_Environmental_Dermatitis": 0.004208958242088556,
+        "Infected_Environmental_Sunburn": 0.26124200224876404,
+        "Infected_Fungal_Pityriasis_Rosea": 0.0005843160906806588,
+        "Infected_Fungal_Ringworm": 0.014981315471231937,
+        "Infected_Parasitic_Mange": 0.0011969017796218395,
+        "Infected_Viral_Foot_and_Mouth_Disease": 0.005197054706513882,
+        "Infected_Viral_Swinepox": 0.007298100274056196
+      }
+    },
+    "view": {
+      "probabilities": {
+        "dorsal_valid": 0.9999831914901733,
+        "health_only": 8.211156199422476e-08,
+        "reject": 1.6731422874727286e-05
+      }
+    },
+    "weight": {
+      "estimated_kg": 98.14047241210938
+    }
+  },
+  "02_valid_dorsal_131cm_porac_reference": {
+    "features": {
+      "Hu_1": 0.26165662418866364,
+      "Hu_2": 0.041276181692854574,
+      "Hu_3": 1.7944926903745187e-05,
+      "Hu_4": 5.725739964491706e-06,
+      "Hu_5": 5.147880035333201e-11,
+      "Hu_6": 7.546161385995579e-07,
+      "Hu_7": -2.6803603163725616e-11,
+      "body_curve": 175.27798122351592,
+      "convex_hull_area": 49117.0,
+      "dif_mask": 0.08538660420303626,
+      "difference": 3864.0,
+      "longest": 376.7232730096114,
+      "mask_area": 45253.0,
+      "outline_curve": 0.044868812836816825,
+      "perimeter": 958.8670928478241,
+      "shortest": 119.0
+    },
+    "health": {
+      "probabilities": {
+        "Healthy": 0.9729413390159607,
+        "Infected_Bacterial_Erysipelas": 0.002389207249507308,
+        "Infected_Bacterial_Greasy_Pig_Disease": 5.7495935834595e-06,
+        "Infected_Environmental_Dermatitis": 1.2968923329026438e-05,
+        "Infected_Environmental_Sunburn": 0.020398227497935295,
+        "Infected_Fungal_Pityriasis_Rosea": 9.512263932265341e-05,
+        "Infected_Fungal_Ringworm": 0.0039316508919000626,
+        "Infected_Parasitic_Mange": 0.00012333379709161818,
+        "Infected_Viral_Foot_and_Mouth_Disease": 7.020542398095131e-05,
+        "Infected_Viral_Swinepox": 3.220236612833105e-05
+      }
+    },
+    "view": {
+      "probabilities": {
+        "dorsal_valid": 0.9816546440124512,
+        "health_only": 2.7483947633299977e-05,
+        "reject": 0.01831786334514618
+      }
+    },
+    "weight": {
+      "estimated_kg": 91.90313720703125
+    }
+  },
+  "03_valid_dorsal_custom_reference": {
+    "features": {
+      "Hu_1": 0.26274680587682,
+      "Hu_2": 0.04262209254110111,
+      "Hu_3": 0.00021861540475682362,
+      "Hu_4": 6.644409050237002e-05,
+      "Hu_5": 7.880911807222797e-09,
+      "Hu_6": 1.3026841286017906e-05,
+      "Hu_7": 1.4211074637881718e-09,
+      "body_curve": 178.71132709825213,
+      "convex_hull_area": 49509.0,
+      "dif_mask": 0.03339664781147592,
+      "difference": 1600.0,
+      "longest": 392.68159804361164,
+      "mask_area": 47909.0,
+      "outline_curve": 0.0428517800513832,
+      "perimeter": 998.0458060503006,
+      "shortest": 129.4447881471327
+    },
+    "health": {
+      "probabilities": {
+        "Healthy": 0.904552161693573,
+        "Infected_Bacterial_Erysipelas": 0.0004863202921114862,
+        "Infected_Bacterial_Greasy_Pig_Disease": 6.931460666237399e-05,
+        "Infected_Environmental_Dermatitis": 3.5221695725340396e-05,
+        "Infected_Environmental_Sunburn": 0.09348825365304947,
+        "Infected_Fungal_Pityriasis_Rosea": 6.117494194768369e-05,
+        "Infected_Fungal_Ringworm": 0.0007109956350177526,
+        "Infected_Parasitic_Mange": 0.000395964365452528,
+        "Infected_Viral_Foot_and_Mouth_Disease": 1.2437525583663955e-05,
+        "Infected_Viral_Swinepox": 0.00018830598855856806
+      }
+    },
+    "view": {
+      "probabilities": {
+        "dorsal_valid": 0.9956948757171631,
+        "health_only": 0.003935543354600668,
+        "reject": 0.00036956919939257205
+      }
+    },
+    "weight": {
+      "estimated_kg": 96.94554901123047
+    }
+  },
+  "05_offdorsal_view": {
+    "health": {
+      "probabilities": {
+        "Healthy": 0.932169497013092,
+        "Infected_Bacterial_Erysipelas": 0.0001006770326057449,
+        "Infected_Bacterial_Greasy_Pig_Disease": 2.337490332138259e-05,
+        "Infected_Environmental_Dermatitis": 1.5752530089230277e-05,
+        "Infected_Environmental_Sunburn": 0.06750655919313431,
+        "Infected_Fungal_Pityriasis_Rosea": 2.4471541109960526e-05,
+        "Infected_Fungal_Ringworm": 6.39395511825569e-05,
+        "Infected_Parasitic_Mange": 9.127170051215217e-05,
+        "Infected_Viral_Foot_and_Mouth_Disease": 1.3860911849405966e-06,
+        "Infected_Viral_Swinepox": 3.0596997930842917e-06
+      }
+    },
+    "view": {
+      "probabilities": {
+        "dorsal_valid": 5.009982942283386e-06,
+        "health_only": 0.004442065022885799,
+        "reject": 0.9955529570579529
+      }
+    }
+  },
+  "06_lesion_closeup": {
+    "health": {
+      "probabilities": {
+        "Healthy": 0.1406102031469345,
+        "Infected_Bacterial_Erysipelas": 0.01109071634709835,
+        "Infected_Bacterial_Greasy_Pig_Disease": 0.1109316349029541,
+        "Infected_Environmental_Dermatitis": 0.0031590729486197233,
+        "Infected_Environmental_Sunburn": 0.6498331427574158,
+        "Infected_Fungal_Pityriasis_Rosea": 0.003302323631942272,
+        "Infected_Fungal_Ringworm": 0.042959410697221756,
+        "Infected_Parasitic_Mange": 0.012917048297822475,
+        "Infected_Viral_Foot_and_Mouth_Disease": 0.01836930774152279,
+        "Infected_Viral_Swinepox": 0.006827151402831078
+      }
+    },
+    "view": {
+      "probabilities": {
+        "dorsal_valid": 0.019209284335374832,
+        "health_only": 0.9765415191650391,
+        "reject": 0.00424920441582799
+      }
+    }
+  },
+  "08_blurry": {
+    "health": {
+      "probabilities": {
+        "Healthy": 0.004555705469101667,
+        "Infected_Bacterial_Erysipelas": 0.00010524544632062316,
+        "Infected_Bacterial_Greasy_Pig_Disease": 4.249244011589326e-05,
+        "Infected_Environmental_Dermatitis": 0.0001935625186888501,
+        "Infected_Environmental_Sunburn": 9.65440267464146e-05,
+        "Infected_Fungal_Pityriasis_Rosea": 4.235397227603244e-06,
+        "Infected_Fungal_Ringworm": 1.276067791877722e-06,
+        "Infected_Parasitic_Mange": 7.067482511047274e-05,
+        "Infected_Viral_Foot_and_Mouth_Disease": 0.9945594668388367,
+        "Infected_Viral_Swinepox": 0.0003707831201609224
+      }
+    },
+    "view": {
+      "probabilities": {
+        "dorsal_valid": 1.93916567746671e-15,
+        "health_only": 0.9999997615814209,
+        "reject": 1.8973716464643076e-07
+      }
+    }
+  },
+  "09_truncated_pig": {
+    "health": {
+      "probabilities": {
+        "Healthy": 0.9637027978897095,
+        "Infected_Bacterial_Erysipelas": 0.0010128868743777275,
+        "Infected_Bacterial_Greasy_Pig_Disease": 0.0005983475712127984,
+        "Infected_Environmental_Dermatitis": 0.002788607496768236,
+        "Infected_Environmental_Sunburn": 0.02352013997733593,
+        "Infected_Fungal_Pityriasis_Rosea": 0.004064631182700396,
+        "Infected_Fungal_Ringworm": 0.0011784420348703861,
+        "Infected_Parasitic_Mange": 0.002148874569684267,
+        "Infected_Viral_Foot_and_Mouth_Disease": 4.586455543176271e-05,
+        "Infected_Viral_Swinepox": 0.0009393423679284751
+      }
+    },
+    "view": {
+      "probabilities": {
+        "dorsal_valid": 0.002010154537856579,
+        "health_only": 0.9428430199623108,
+        "reject": 0.05514684319496155
+      }
+    }
+  },
+  "11_container_formats": {
+    "features": {
+      "Hu_1": 0.24504458167617077,
+      "Hu_2": 0.033860463689335804,
+      "Hu_3": 3.6407387053071484e-05,
+      "Hu_4": 6.38986441683627e-06,
+      "Hu_5": 6.519211079999629e-11,
+      "Hu_6": 4.7146757318036646e-07,
+      "Hu_7": 7.244787486684474e-11,
+      "body_curve": 177.5451872804675,
+      "convex_hull_area": 101312.0,
+      "dif_mask": 0.028976528301120262,
+      "difference": 2853.0,
+      "longest": 544.8008191773358,
+      "mask_area": 98459.0,
+      "outline_curve": 0.023547822103847538,
+      "perimeter": 1389.6092952489853,
+      "shortest": 197.76995433281817
+    },
+    "health": {
+      "probabilities": {
+        "Healthy": 0.8972697257995605,
+        "Infected_Bacterial_Erysipelas": 0.0004311085504014045,
+        "Infected_Bacterial_Greasy_Pig_Disease": 6.160665361676365e-05,
+        "Infected_Environmental_Dermatitis": 3.018655661435332e-05,
+        "Infected_Environmental_Sunburn": 0.10099923610687256,
+        "Infected_Fungal_Pityriasis_Rosea": 5.341067662811838e-05,
+        "Infected_Fungal_Ringworm": 0.000628476613201201,
+        "Infected_Parasitic_Mange": 0.00035026323166675866,
+        "Infected_Viral_Foot_and_Mouth_Disease": 1.0637312698236201e-05,
+        "Infected_Viral_Swinepox": 0.00016549525025766343
+      }
+    },
+    "view": {
+      "probabilities": {
+        "dorsal_valid": 0.9964470267295837,
+        "health_only": 0.003224746324121952,
+        "reject": 0.00032817694591358304
+      }
+    }
+  }
+}

@@ -17,9 +17,9 @@ that list instead of five hardcoded names. The shipped manifest declares `chen16
 `--enable-for-testing` (`docs/fix-2.md` F42) so the branch can be exercised on a device.
 Estimates therefore ship, and each is real inference carrying the envelope's provisional
 `note` — but the calibration behind them is still unvalidated. `cm_per_px_target` reads
-**0.35**, restored from the 0.3289 experiment after the host sweep measured both against the
-shipped models and the real cutter (`../scale-constant-sweep-results.md`). It is an empirical
-fit, not a derived constant, and phase 5 still owes a re-derivation from post-cut field masks.
+**0.3289473684210526** (`100 / 304`, the PIGRGB floor-plane baseline), replacing the fitted
+0.35 and unmeasured on the post-F55 path, so `../scale-constant-sweep-results.md` now describes
+a superseded path and a value that no longer ships ([ADR-011](../adr/011-derived-scale-target.md)).
 Treat a returned number as provisional — and below roughly 85 kg as systematically high, per
 [ADR-010](../adr/010-regressor-training-domain-floor.md). ADR-005's +16.6% mean bias is
 superseded: it was measured by feature substitution before the cutter was ported.
@@ -69,12 +69,13 @@ cutter-decline message in `run_and_persist_pipeline_use_case.dart:411`.
 
 ## Scale normalization
 
-`k = cm_per_px_actual / weight.cm_per_px_target` (target read from the manifest, currently
-0.35 cm/px — see the calibration note above). The mask is resampled by
-`k` with `scale_mask_to_training_space()` into the pixel space the regressor's features were
-measured in, so the cutter's thresholds and RA's denominator both operate in the training
-space. Nearest-neighbour, matching construction's own unletterbox resize — the mask stays
-binary. A non-finite or non-positive `k` returns an empty mask, never an unscaled copy.
+`k = cm_per_px_actual / weight.cm_per_px_target` (target from the manifest, currently
+0.3289473684210526 cm/px — see the calibration note above). The mask reaches training space in
+**one** resampling, composed straight from the 640×640 mask by
+`transform_mask_to_training_space()`; capture resolution is never visited. Mechanics, and why
+the chain it replaced amplified marking jitter (F55): [segmentation-2.md](segmentation-2.md). The
+cutter's thresholds and RA's denominator still operate in the training space; a non-finite or
+non-positive `k` returns an empty mask, never an unscaled copy.
 
 `k` alone conflates camera height with capture resolution: the training frame is a fixed
 720×720 while a live capture is typically 1280 px wide and a gallery import up to 3000. The
@@ -89,12 +90,13 @@ Accepted range is `height_ratio` in `[0.25, 4.0]`. Bounding raw `k` instead once
 perfectly framed 3000 px photo taken at exactly 1.88 m purely for its pixel count.
 
 `envelope["scale"]` reports `cm_per_px_actual`, `cm_per_px_target`, `k`, `height_ratio`,
-`implied_camera_height_m`, `training_frame_px`, and `source: user_confirmed_reference`.
+`implied_camera_height_m`, `training_frame_px`, `source: user_confirmed_reference`; the composed
+transform's own numbers land under `envelope["construction"]["composed_transform"]`.
 
 `k` is the highest-gain constant in the pipeline: area scales with `k²` and the regressor is
 effectively univariate in its area term (`RA` on baseline5, `mask_area` on chen16 — the same
-quantity un-normalized), so a 1% scale error becomes a 2.8–4.0% weight error. The value
-itself measures within ~3% of correct — see [prediction-2.md](prediction-2.md) and
+quantity un-normalized), so a 1% scale error becomes a 2.8–4.0% weight error. The value itself
+measures within ~3% of correct — see [prediction-2.md](prediction-2.md) and
 [ADR-005](../adr/005-identity-cutter-is-the-dominant-error.md).
 
 ## Feature calculation — selected by `feature_family`

@@ -15,8 +15,8 @@ class CaptureGuidanceScreen extends StatelessWidget {
     const tips = [
       'Photograph one pig from directly above.',
       'Keep the complete head, body, and tail inside the frame.',
-      'Place a known straight reference flat beside the pig (or set camera height).',
-      'Keep both reference endpoints visible when using a reference object.',
+      'Place a known straight reference flat beside the pig.',
+      'Keep both reference endpoints visible.',
       'Keep the phone parallel to the ground and avoid blur.',
     ];
 

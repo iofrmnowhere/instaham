@@ -1,0 +1,33 @@
+{
+  "chen16_exact": [
+    "convex_hull_area",
+    "dif_mask",
+    "difference",
+    "mask_area"
+  ],
+  "chen16_rel_loose": [
+    "Hu_1",
+    "Hu_2",
+    "Hu_3",
+    "Hu_4",
+    "Hu_5",
+    "Hu_6",
+    "Hu_7"
+  ],
+  "chen16_rel_loose_tol": 1e-06,
+  "chen16_rel_tight": [
+    "body_curve",
+    "longest",
+    "outline_curve",
+    "perimeter",
+    "shortest"
+  ],
+  "chen16_rel_tight_tol": 0.001,
+  "feature_relative_fallback": 0.005,
+  "health_probability_abs": 0.03,
+  "segmentation_bbox_iou_min": 0.9,
+  "segmentation_confidence_abs": 0.01,
+  "segmentation_mask_area_rel": 0.02,
+  "view_probability_abs": 0.02,
+  "weight_kg_abs": 0.1
+}

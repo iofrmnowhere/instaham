@@ -117,8 +117,26 @@ if(INSTAHAM_ML_WITH_ORT)
     endif()
     add_library(onnxruntime SHARED IMPORTED)
     set_target_properties(onnxruntime PROPERTIES IMPORTED_LOCATION "${_ORT_LIB}")
+  elseif(WIN32)
+    # docs/metrics-plan.md phase 1: host Windows build of instaham_ml.dll so `flutter test`
+    # (Dart VM on Windows) can DynamicLibrary.open() the real native pipeline instead of
+    # leaving the scenario/parity tests skipped. fetch_deps.sh only stages the Android .so;
+    # ONNX Runtime ships no Windows import library in third_party/, so one is generated from
+    # the pip onnxruntime.dll's export table and staged into lib/windows/ by
+    # scripts/stage_windows_ort.py -- the same recipe proven in ML/host_scale_test/README.md.
+    set(_ORT_WIN_DIR "${_ORT_ROOT}/lib/windows")
+    if(NOT EXISTS "${_ORT_WIN_DIR}/onnxruntime.lib" OR NOT EXISTS "${_ORT_WIN_DIR}/onnxruntime.dll")
+      message(FATAL_ERROR
+        "Windows onnxruntime not staged. Run:\n"
+        "  python packages/instaham_ml_ffi/scripts/stage_windows_ort.py\n"
+        "(expected ${_ORT_WIN_DIR}/onnxruntime.dll and onnxruntime.lib)")
+    endif()
+    add_library(onnxruntime SHARED IMPORTED)
+    set_target_properties(onnxruntime PROPERTIES
+      IMPORTED_LOCATION "${_ORT_WIN_DIR}/onnxruntime.dll"
+      IMPORTED_IMPLIB   "${_ORT_WIN_DIR}/onnxruntime.lib")
   else()
-    message(FATAL_ERROR "INSTAHAM_ML_WITH_ORT is only wired for Android in this pass; iOS lands with the xcframework at slice 5 iOS bring-up")
+    message(FATAL_ERROR "INSTAHAM_ML_WITH_ORT is wired for Android and the Windows host build; iOS lands with the xcframework at slice 5 iOS bring-up")
   endif()
   target_include_directories(instaham_ml PRIVATE "${_ORT_ROOT}/include")
   target_link_libraries(instaham_ml PRIVATE onnxruntime)
@@ -190,6 +208,24 @@ set_target_properties(instaham_ml PROPERTIES
 target_link_options(instaham_ml PRIVATE
   "$<$<PLATFORM_ID:Android>:-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/instaham_ml.map>"
   "$<$<PLATFORM_ID:Android>:-Wl,--gc-sections>")
+
+# ---- Windows host: stage runtime DLLs next to instaham_ml.dll -------------------
+# docs/metrics-plan.md phase 1. On Android the app bundle carries libonnxruntime.so and the
+# OpenCV runtime is static; on the Windows host build nothing packages the dependent DLLs,
+# so a bare DynamicLibrary.open('instaham_ml.dll') from `flutter test` would fail to resolve
+# onnxruntime.dll / the vcpkg OpenCV DLLs. Copy them beside the output so the build dir is
+# self-contained. NOTE (ML/host_scale_test/README.md "stray System32 onnxruntime.dll"):
+# a mismatched C:\Windows\System32\onnxruntime.dll can be picked up first and crash inside
+# OrtGetApiBase's version dispatch -- always load instaham_ml.dll from this build dir.
+if(WIN32 AND INSTAHAM_ML_WITH_ORT)
+  add_custom_command(TARGET instaham_ml POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${_ORT_WIN_DIR}/onnxruntime.dll" "$<TARGET_FILE_DIR:instaham_ml>/"
+    COMMAND ${CMAKE_COMMAND} -E $<IF:$<BOOL:$<TARGET_RUNTIME_DLLS:instaham_ml>>,copy_if_different,true>
+            $<TARGET_RUNTIME_DLLS:instaham_ml> "$<TARGET_FILE_DIR:instaham_ml>/"
+    COMMAND_EXPAND_LISTS
+    VERBATIM)
+endif()
 
 # ---- tests ---------------------------------------------------------------
 if(INSTAHAM_ML_BUILD_TESTS)

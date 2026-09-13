@@ -6,7 +6,6 @@ abstract final class CapturePreferences {
   static const _keyRefType = 'cap_ref_type';
   static const _keyRefName = 'cap_ref_name';
   static const _keyRefLengthCm = 'cap_ref_length_cm';
-  static const _keyHeightCm = 'cap_height_cm';
   static const _keyUnit = 'cap_length_unit';
 
   static Future<void> saveReference(ReferenceSelection reference) async {
@@ -24,20 +23,6 @@ abstract final class CapturePreferences {
 
     if (type != null && name != null && lengthCm != null && lengthCm > 0) {
       return ReferenceSelection(type: type, name: name, lengthCm: lengthCm);
-    }
-    return null;
-  }
-
-  static Future<void> saveHeight(double heightCm) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble(_keyHeightCm, heightCm);
-  }
-
-  static Future<double?> loadHeight() async {
-    final prefs = await SharedPreferences.getInstance();
-    final heightCm = prefs.getDouble(_keyHeightCm);
-    if (heightCm != null && heightCm > 0) {
-      return heightCm;
     }
     return null;
   }

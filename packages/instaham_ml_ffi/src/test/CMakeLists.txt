@@ -46,6 +46,18 @@ add_executable(test_feature_domain ../manifest.cpp ../util/sha256.cpp test_featu
 target_include_directories(test_feature_domain PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
 add_test(NAME test_feature_domain COMMAND test_feature_domain)
 
+# docs/metrics-plan.md phase 4 task 3: pins the live values behind the §7 eligibility-check
+# audit against the REAL shipped assets/ml/manifest.json, not a synthetic fixture. Pure JSON
+# parsing like test_feature_domain above, so this builds unconditionally too. The path is
+# baked in at configure time as an absolute path so the test runs correctly regardless of
+# ctest's working directory.
+get_filename_component(INSTAHAM_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../.." ABSOLUTE)
+add_executable(test_shipped_manifest ../manifest.cpp ../util/sha256.cpp test_shipped_manifest.cpp)
+target_include_directories(test_shipped_manifest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_compile_definitions(test_shipped_manifest PRIVATE
+  INSTAHAM_SHIPPED_MANIFEST_PATH="${INSTAHAM_REPO_ROOT}/assets/ml/manifest.json")
+add_test(NAME test_shipped_manifest COMMAND test_shipped_manifest)
+
 # ref_fix.md F12: stages/mask_geometry.h's proto_box_bounds() + cropped_mask_area() -- the
 # load-bearing regression test for the mask-selection fix. Header-only, pure array math, no
 # OpenCV/ORT dependency, so this builds unconditionally too.
@@ -86,6 +98,18 @@ if(INSTAHAM_ML_WITH_OPENCV)
     ${CMAKE_CURRENT_SOURCE_DIR}/../vendor/instaham_v176/include)
   target_link_libraries(test_scale_normalization PRIVATE opencv_imgproc opencv_core)
   add_test(NAME test_scale_normalization COMMAND test_scale_normalization)
+
+  # docs/fix-3.md (round 7), phase 2: transform_mask_to_training_space() -- the single
+  # composed 640 -> training-space transform. construction.cpp is pure OpenCV array math
+  # (no vendor Chen16 / cutter sources needed here), so this target is lighter than
+  # test_scale_normalization above.
+  add_executable(test_mask_transform
+    ../stages/construction.cpp
+    test_mask_transform.cpp
+  )
+  target_include_directories(test_mask_transform PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+  target_link_libraries(test_mask_transform PRIVATE opencv_imgproc opencv_core)
+  add_test(NAME test_mask_transform COMMAND test_mask_transform)
 
   # docs/plan-phase/2-native-cutter-chen16.md, "Add the feature-port gate test": a CLI
   # (not a ctest assertion) driven by ML/parity/chen16_feature_port_gate.py, which is the

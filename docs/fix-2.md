@@ -1,5 +1,11 @@
 # Fix (round 6): the weight branch freezes the app after "Confirm analysis"
 
+> **Phases 2.1 and 3 are superseded by [`docs/fix-3.md`](fix-3.md) as of 2026-09-10.** Both
+> were attempts at the same defect — the weight branch rasterizing the mask twice — which
+> round 7 fixes at its source. Their measurements are retained and round 7 is validated
+> against them. Phases 1, 1.1 and 2 are closed and unaffected. Nothing here should be worked
+> further; new work on this defect belongs in round 7.
+
 Second active fix document, opened as **round 6**. It is deliberately separate from
 `docs/fix.md`, which is still mid-round-5 with its phase 7 open. Round 6's phase 1 has to be
 worked before that phase 7 finishes, so appending here would have produced a document whose
@@ -30,8 +36,8 @@ them before anything is changed.
 | 1 | The freeze: unscaled mask into the cutter | closed — F42–F45, F52 | [fix-phase-2/1-cutter-freeze.md](fix-phase-2/1-cutter-freeze.md) |
 | 1.1 | The rebuilt manifest lost the segmentation scale ladder | F50 fixed (hand edit); F51 fixed (build_manifest key-loss guard) | [fix-phase-2/1.1-manifest-input-scale-regression.md](fix-phase-2/1.1-manifest-input-scale-regression.md) |
 | 2 | The scale target: 0.35 cm/px against the spec's 304 px/m | **closed 2026-09-09** — F46, F49, F38 resolved; 0.35 kept on the host sweep, applied and shipped (ADR-010) | [fix-phase-2/2-scale-target-conflict.md](fix-phase-2/2-scale-target-conflict.md) |
-| 2.1 | One pixel of reference marking moves the estimate by 5% | measured — F53, all three photos on device with the shipped cutter (bands 5.2% / 12.0% / 12.6%); fix still open | [fix-phase-2/2.1-reference-length-sensitivity.md](fix-phase-2/2.1-reference-length-sensitivity.md) |
-| 3 | Normalization order: resize the image, not the mask | not started | [fix-phase-2/3-normalization-order.md](fix-phase-2/3-normalization-order.md) |
+| 2.1 | One pixel of reference marking moves the estimate by 5% | **superseded 2026-09-10 by `docs/fix-3.md`** — measurement retained (F53, bands 5.2% / 12.0% / 12.6%, and the rejected `INTER_AREA` candidate); the fix itself moves to round 7 | [fix-phase-2/2.1-reference-length-sensitivity.md](fix-phase-2/2.1-reference-length-sensitivity.md) |
+| 3 | Normalization order: resize the image, not the mask | **superseded 2026-09-10 by `docs/fix-3.md`** — never started; F48 is the same defect round 7 fixes properly | [fix-phase-2/3-normalization-order.md](fix-phase-2/3-normalization-order.md) |
 
 **Work phase 1 first, and it is a hard dependency, not a preference.** Phases 2 and 3 are both
 measured against real predictions from the three `.pig_pictures/` field photos, and the app

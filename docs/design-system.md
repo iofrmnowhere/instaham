@@ -99,9 +99,8 @@ enum ResultStatus { success, uncertain, blocked }
 Home / Records
     |
     v
-Camera: Reference Mode | Height Mode
-    |-- Reference Mode -> choose known reference preset/custom length
-    |-- Height Mode -> input camera height
+Camera: Reference Mode (only mode; docs/metrics-plan.md phase 4 task 5 withdrew height mode)
+    |-- choose known reference preset/custom length
     v
 Dominant centered shutter
     v
@@ -116,10 +115,7 @@ label decides which screen comes next. Routes on argmax; no threshold.
     |-- health_only -> analyze directly. Reference marking is SKIPPED: it exists
     |                  only to scale a weight, and there is no weight branch here.
     |
-    `-- dorsal_valid
-            |-- Reference Mode -> verify or manually mark reference endpoints
-            |                      -> Confirm & analyze
-            `-- Height Mode ------> analyze
+    `-- dorsal_valid -> verify or manually mark reference endpoints -> Confirm & analyze
     v
 Independent weight and visual-health results
     v
@@ -132,13 +128,16 @@ model graph behind "analyze".
 
 ### Camera control hierarchy
 
-- The only top-level capture modes are `Reference Mode` and `Height Mode`.
-- The mode selector stays at the top of the camera and persists for the scan session.
+- Reference Mode is the only capture mode. Height mode was withdrawn (docs/metrics-plan.md
+  phase 4 task 5, finding 9): it required a height-calibrated model that was never
+  available, and the capture flow now requires a marked reference object for every weight
+  capture. `measurementMode`/`camera_height_cm` stay in the Drift schema (no migration, no
+  behavioural gain) and still render on scans captured before this change (results screen);
+  the capture UI simply no longer offers a way to produce a new one.
 - A 76dp circular shutter is the dominant bottom control.
-- Reference configuration is a status/action chip in Reference Mode.
+- Reference configuration is a status/action chip in the camera header.
 - Reference selection displays as a 70% height modal bottom sheet. Custom reference configuration happens in-place to preserve container size.
 - Weight guidance must say dorsal/top-down; never use side-on or broadside wording.
-- Height mode will estimate scale from phone height and alignment (pending future model).
 - Guidance is contextual in the camera; the full guidance screen is optional help, not a required recurring gate.
 
 ### Reference object review

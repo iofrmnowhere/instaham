@@ -1,0 +1,48 @@
+{
+  "scenario_id": 5,
+  "title": "Side-view image -> view rejected (weight and health both withheld)",
+  "image_file": "image.jpg",
+  "source": {
+    "origin": "health_pigs/IMG_9520.HEIC",
+    "kind": "real_field_capture",
+    "transform": "EXIF-upright, longest side resized to 1600px, re-encoded as JPEG q90",
+    "notes": "real lateral/side-on capture -- not a dorsal stand-in. Closes the round-14 gap where no genuine off-dorsal photo existed in the corpus."
+  },
+  "reference": {
+    "provided": false,
+    "physical_length_cm": null
+  },
+  "expected_outcome": {
+    "view": "reject",
+    "weight_branch": {
+      "expect_number": false,
+      "expected_failure_reason": "view_rejected"
+    },
+    "health_branch": {
+      "expect_assessed": false
+    }
+  },
+  "notes": "docs/metrics-plan.md phase 4 task 2: the original hypothesis (side-on framing routes health_only) was wrong. observed_phase4 below shows the view classifier itself rejects this frame (label reject, confidence 0.9968) before either branch runs -- envelope status stopped, reason view_rejected. This is the view stage rejecting upstream of both branches, not the weight-branch-failure/health-independence case in AGENTS.md rule 4.",
+  "observed_phase4": {
+    "date": "2026-09-11",
+    "method": "test/support/native_harness.dart directly (not through the permanent Tier B test file, which is written in task 4), INSTAHAM_NATIVE_TESTS=1, Windows host build from build/windows-host/Release/, no cm_per_px supplied for any fixture (see note per fixture).",
+    "run_ok": true,
+    "elapsed_ms": 70,
+    "envelope": {
+      "reason": "view_rejected",
+      "status": "stopped",
+      "view": {
+        "class_map_sha256": "fe2f46bcc1d54e8e1b9a4362d8e39ebd1c3c0ec9ff3d0c0bf3806718313e17d1",
+        "confidence": 0.9967898726463318,
+        "label": "reject",
+        "probabilities": {
+          "dorsal_valid": 6.734349426551489e-06,
+          "health_only": 0.0032033156603574753,
+          "reject": 0.9967898726463318
+        },
+        "protocol_version": "view_v2",
+        "status": "ok"
+      }
+    }
+  }
+}

@@ -1,0 +1,95 @@
+{
+  "scenario_id": 8,
+  "title": "Blurry image -> health_only (radius-8 blur does not trigger reject)",
+  "image_file": "image.jpg",
+  "source": {
+    "origin": "health_pigs/kARi2pdr.jpg",
+    "kind": "synthetic_degradation",
+    "transform": "PIL ImageFilter.GaussianBlur(radius=8) applied to the full frame, re-encoded as JPEG q85. Deterministic.",
+    "notes": "no genuinely blurry photo exists in the corpus, so this stays a deliberate synthetic degradation of a real capture -- the only remaining synthetic fixture after the 3.1 rebuild."
+  },
+  "reference": {
+    "provided": false,
+    "physical_length_cm": null
+  },
+  "expected_outcome": {
+    "view": "health_only",
+    "weight_branch": {
+      "expect_number": false,
+      "expected_failure_reason": "view_not_dorsal"
+    },
+    "health_branch": {
+      "expect_assessed": true
+    }
+  },
+  "notes": "docs/metrics-plan.md phase 4 task 2, user decision 2026-09-12: the original hypothesis (radius-8 Gaussian blur pushes the view classifier to reject) was wrong -- observed_phase4 below shows health_only at 0.9999998 confidence. Asserting the honest observed outcome rather than regenerating with a stronger blur to force reject, since the user's stated position is that the app does not rely on a reject state for this kind of degraded input. This fixture no longer exercises §14's blurry-image bullet as a reject case; it documents that the shipped view classifier tolerates this blur level and still routes to health_only.",
+  "observed_phase4": {
+    "date": "2026-09-11",
+    "method": "test/support/native_harness.dart directly (not through the permanent Tier B test file, which is written in task 4), INSTAHAM_NATIVE_TESTS=1, Windows host build from build/windows-host/Release/, no cm_per_px supplied for any fixture (see note per fixture).",
+    "run_ok": true,
+    "elapsed_ms": 103,
+    "envelope": {
+      "construction": {
+        "reason": "not_required_for_route",
+        "status": "skipped"
+      },
+      "cutter": {
+        "reason": "view_not_dorsal",
+        "status": "skipped"
+      },
+      "features": {
+        "reason": "view_not_dorsal",
+        "status": "skipped"
+      },
+      "health": {
+        "class_map_sha256": "b514707c89260b69b8ee77175e3ce2866cf57a6a360f46ee9cad2f27f5c6a6a0",
+        "confidence": 0.9947965741157532,
+        "input_degraded": false,
+        "input_protocol_applied": "full_frame",
+        "input_protocol_requested": "full_frame",
+        "label": "Infected_Viral_Foot_and_Mouth_Disease",
+        "probabilities": {
+          "Healthy": 0.00435890257358551,
+          "Infected_Bacterial_Erysipelas": 0.00010237625247100368,
+          "Infected_Bacterial_Greasy_Pig_Disease": 4.0288658055942506e-05,
+          "Infected_Environmental_Dermatitis": 0.00017806018877308816,
+          "Infected_Environmental_Sunburn": 9.050704829860479e-05,
+          "Infected_Fungal_Pityriasis_Rosea": 4.079399786860449e-06,
+          "Infected_Fungal_Ringworm": 1.286213546336512e-06,
+          "Infected_Parasitic_Mange": 6.518735608551651e-05,
+          "Infected_Viral_Foot_and_Mouth_Disease": 0.9947965741157532,
+          "Infected_Viral_Swinepox": 0.0003627945843618363
+        },
+        "protocol_version": "health_v1",
+        "region_source": "none",
+        "status": "ok"
+      },
+      "pipeline_protocol": "instaham_pipeline_v4",
+      "scale": {
+        "reason": "view_not_dorsal",
+        "status": "skipped"
+      },
+      "segmentation": {
+        "reason": "not_required_for_route",
+        "status": "skipped"
+      },
+      "status": "ok",
+      "view": {
+        "class_map_sha256": "fe2f46bcc1d54e8e1b9a4362d8e39ebd1c3c0ec9ff3d0c0bf3806718313e17d1",
+        "confidence": 0.9999997615814209,
+        "label": "health_only",
+        "probabilities": {
+          "dorsal_valid": 2.5333686073280215e-15,
+          "health_only": 0.9999997615814209,
+          "reject": 2.2154424073050905e-07
+        },
+        "protocol_version": "view_v2",
+        "status": "ok"
+      },
+      "weight": {
+        "reason": "view_not_dorsal",
+        "status": "skipped"
+      }
+    }
+  }
+}

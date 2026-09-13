@@ -324,11 +324,18 @@ int main(int argc, char** argv) {
   }
 
   // ---- step 6: resample into the regressor's training pixel space ---------------------
+  // docs/fix-3.md (round 7) F55: pipeline.cpp now composes one transform straight from the
+  // 640 binary mask -- transform_mask_to_training_space(seg_output, k) -- instead of
+  // scale_mask_to_training_space(pig_mask, k) on top of construct_pig_mask's unletterbox.
+  // Mirrored here so this harness still measures the same arithmetic the app runs
+  // (docs/fix-phase-3/4 validates the jitter change against jitter_sweep.py's baselines).
+  // The no-reference cap path stays on scale_mask_to_training_space (F58: no `k`, no
+  // calibrated target space to compose into -- it is a size cap, not a calibration).
   constexpr int kUnscaledCutterMaxDimPx = 2880;
   stages::PigMask scaled_mask;
   const stages::PigMask* mask_for_cutter = &pig_mask;
   if (scale_ok) {
-    scaled_mask = stages::scale_mask_to_training_space(pig_mask, k);
+    scaled_mask = stages::transform_mask_to_training_space(seg_output, k);
     if (!scaled_mask.empty()) {
       mask_for_cutter = &scaled_mask;
     } else {
@@ -351,6 +358,7 @@ int main(int argc, char** argv) {
   envelope["scaled_w"] = mask_for_cutter->width;
   envelope["scaled_h"] = mask_for_cutter->height;
   envelope["scaled_area_px"] = mask_for_cutter->area_px;
+  envelope["composed_transform_used"] = scale_ok;
 
   // ---- step 7: quality gates -- manifest currently ships both false; reproduced but ---
   // inert. Not enforced even when true (see file header): recorded only.

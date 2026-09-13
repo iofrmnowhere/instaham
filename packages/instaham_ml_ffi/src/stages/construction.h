@@ -38,7 +38,37 @@ PigMask construct_pig_mask(const SegmentationOutput& seg);
 // mask throughout, never a soft/antialiased one. Returns an empty PigMask (never an
 // unscaled copy of `mask`) when `k` is not finite and strictly positive -- there is no
 // implicit k = 1.0 fallback (AGENTS.md rule 8).
+//
+// docs/fix-3.md (round 7): this two-step chain (construct_pig_mask ->
+// scale_mask_to_training_space) rasterizes the mask twice and is what F55 replaces on the
+// weight path. It is retained for the no-reference fallback (pipeline.cpp bounds an unscaled
+// mask by kUnscaledCutterMaxDimPx through this), which has no calibrated target space to
+// compose a transform into -- see docs/fix-phase-3/3-pipeline-rewire.md F58.
 PigMask scale_mask_to_training_space(const PigMask& mask, double k);
+
+// docs/fix-3.md (round 7), phase 2. Maps the 640x640 binary segmentation mask DIRECTLY into
+// the weight regressor's training pixel space in ONE resampling operation, replacing the
+// construct_pig_mask -> scale_mask_to_training_space chain that rasterized it twice (F55: the
+// first, nearest-neighbour resize to full capture resolution turned the 640-px contour into
+// staircase blocks; the second could only average that staircase, and both grid-snapped in a
+// way that depended on `k` and therefore on one pixel of reference marking).
+//
+// Composes letterbox-padding removal + undo-YOLO-resize + the reference/camera scale
+// `k = cm_per_px_actual / cm_per_px_target` into a single crop-and-scale. The crop is exact
+// -- letterbox pads are integer pixel counts and the crop width equals letterbox()'s own
+// new_w -- so the only resampling is one cv::resize (INTER_AREA shrinking, INTER_LINEAR
+// enlarging, then re-thresholded to strict 0/255). This is
+// INSTAHAM_CORRECTED_SEGMENTATION_XGBOOST_PIPELINE.md sections 4-5 and 10;
+// `x_final = (x_640 - padX) * (k / r)` with `r = seg.letterbox_scale` read verbatim, NOT
+// recomputed as min(640/W, 640/H) (docs/fix-3.md F57 -- the two differ whenever the canvas
+// was composed scale-aware).
+//
+// Returns an empty PigMask -- never an unscaled copy -- when `k` is not finite and strictly
+// positive (AGENTS.md rule 8), when `seg.has_detection` is false, or when the composed output
+// dimensions would be non-positive. construct_pig_mask() is unchanged and stays the input to
+// the posture/truncation gates, which must remain in original capture coordinates
+// (docs/fix-phase-3/3-pipeline-rewire.md).
+PigMask transform_mask_to_training_space(const SegmentationOutput& seg, double k);
 
 // clean_binary_mask() / largest_component_fill(): ports of
 // ML.pipeline.construction.clean_binary_mask / _largest_component_fill. Used by

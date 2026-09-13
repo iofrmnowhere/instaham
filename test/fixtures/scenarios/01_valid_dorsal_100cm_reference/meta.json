@@ -1,0 +1,214 @@
+{
+  "scenario_id": 1,
+  "title": "Valid dorsal image with 100 cm reference stick",
+  "image_file": "image.jpg",
+  "source": {
+    "origin": ".pig_pictures/92kg_pig_meter_stick.HEIC",
+    "kind": "real_field_capture",
+    "transform": "EXIF-upright, longest side resized to 1600px, re-encoded as JPEG q90",
+    "recorded_weight_kg": 92.0,
+    "notes": "real photo of a real yellow tailor's meter tape laid beside the pig; visible in the lower-left of the frame."
+  },
+  "reference": {
+    "provided": true,
+    "physical_length_cm": 100.0,
+    "pixel_endpoints": {
+      "app_space_span_px": 1547.0,
+      "fixture_space_span_px": 825.07,
+      "cm_per_px": 0.12120232708468004
+    },
+    "pixel_endpoints_note": "Endpoints measured by the user directly in the app on the picked image (image_picker's maxWidth/maxHeight=3000 box on the 3024x4032 original, constrained by height -> app-space scale 0.74405), 2026-09-12. Converted to this fixture's 1600px-longest-side space by the exact ratio 1600/3000 (fixture and app caps are both height-constrained on this photo, so the ratio is exact, not an approximation)."
+  },
+  "expected_outcome": {
+    "view": "dorsal_valid",
+    "weight_branch": {
+      "expect_number": true,
+      "expected_failure_reason": null
+    },
+    "health_branch": {
+      "expect_assessed": true
+    }
+  },
+  "notes": "92 kg is comfortably above the ~73 kg XGBoost regressor floor (ADR-010).",
+  "observed_phase4": {
+    "date": "2026-09-12",
+    "method": "test/support/native_harness.dart directly, INSTAHAM_NATIVE_TESTS=1, Windows host build from build/windows-host/Release/, cm_per_px supplied from reference.pixel_endpoints.cm_per_px (endpoints measured by the user in the app, converted to fixture-image pixel space).",
+    "run_ok": true,
+    "status": "MlStatus.ok",
+    "elapsed_ms": 8439,
+    "envelope": {
+      "construction": {
+        "bbox": [
+          601,
+          119,
+          436,
+          1191
+        ],
+        "composed_transform": {
+          "k": 0.36845507433742736,
+          "letterbox_scale": 0.11018393188714981,
+          "out_area_px": 52448,
+          "out_h": 590,
+          "out_w": 442
+        },
+        "mask_area_px": 385424,
+        "mask_diagonal_fraction": 0.6341484447666808,
+        "mask_protocol": "original_coordinate_polygon_v1",
+        "status": "ok"
+      },
+      "cutter": {
+        "head_removal_applied": true,
+        "kept_fraction": 0.936928004881025,
+        "protocol_implemented": true,
+        "protocol_version": "v176_strict_nonprimary_break1_region_meet_v144_fixed_center_bilateral_circle_v1",
+        "removed_fraction": 0.06307199511897499,
+        "status": "cut_applied"
+      },
+      "features": {
+        "family": "chen16_noheight",
+        "gated": [
+          "mask_area",
+          "convex_hull_area",
+          "difference",
+          "perimeter",
+          "longest",
+          "shortest"
+        ],
+        "measured_on": "training_normalized_mask",
+        "order": [
+          "mask_area",
+          "convex_hull_area",
+          "difference",
+          "dif_mask",
+          "body_curve",
+          "perimeter",
+          "outline_curve",
+          "longest",
+          "shortest",
+          "Hu_1",
+          "Hu_2",
+          "Hu_3",
+          "Hu_4",
+          "Hu_5",
+          "Hu_6",
+          "Hu_7"
+        ],
+        "status": "provisional",
+        "values": {
+          "Hu_1": 0.28420545678887266,
+          "Hu_2": 0.051998999234725146,
+          "Hu_3": 0.000723122644427526,
+          "Hu_4": 0.0002469384914512744,
+          "Hu_5": 9.856760685255887e-08,
+          "Hu_6": 4.944124175776493e-05,
+          "Hu_7": -3.425178208008154e-08,
+          "body_curve": 172.1661212367655,
+          "convex_hull_area": 53789.0,
+          "dif_mask": 0.09460724460724461,
+          "difference": 4649.0,
+          "longest": 407.5585448211539,
+          "mask_area": 49140.0,
+          "outline_curve": 0.03925080487806476,
+          "perimeter": 1021.9970356225967,
+          "shortest": 120.0
+        }
+      },
+      "health": {
+        "class_map_sha256": "b514707c89260b69b8ee77175e3ce2866cf57a6a360f46ee9cad2f27f5c6a6a0",
+        "confidence": 0.6758187413215637,
+        "input_degraded": false,
+        "input_protocol_applied": "full_frame",
+        "input_protocol_requested": "full_frame",
+        "label": "Healthy",
+        "probabilities": {
+          "Healthy": 0.6758187413215637,
+          "Infected_Bacterial_Erysipelas": 0.0065406556241214275,
+          "Infected_Bacterial_Greasy_Pig_Disease": 0.00010700598795665428,
+          "Infected_Environmental_Dermatitis": 0.0052686273120343685,
+          "Infected_Environmental_Sunburn": 0.2775667905807495,
+          "Infected_Fungal_Pityriasis_Rosea": 0.0006726454594172537,
+          "Infected_Fungal_Ringworm": 0.01775047555565834,
+          "Infected_Parasitic_Mange": 0.0014254137640818954,
+          "Infected_Viral_Foot_and_Mouth_Disease": 0.0063256691209971905,
+          "Infected_Viral_Swinepox": 0.008524096570909023
+        },
+        "protocol_version": "health_v1",
+        "region_source": "mask",
+        "status": "ok"
+      },
+      "pipeline_protocol": "instaham_pipeline_v4",
+      "scale": {
+        "cm_per_px_actual": 0.12120232708468004,
+        "cm_per_px_target": 0.3289473684210526,
+        "height_ratio": 0.7090921211766575,
+        "implied_camera_height_m": 1.3330931878121162,
+        "k": 0.36845507433742736,
+        "source": "user_confirmed_reference",
+        "status": "ok",
+        "training_frame_px": [
+          720,
+          720
+        ]
+      },
+      "segmentation": {
+        "candidates_kept": 1,
+        "clamped_to_letterbox": false,
+        "confidence": 0.9188882112503052,
+        "content_scale": 0.11018393188714981,
+        "input_cm_per_px_used": 1.1,
+        "instances_found": 1,
+        "ladder_rung": 0,
+        "rungs_tried": [
+          {
+            "candidates_kept": 1,
+            "clamped_to_letterbox": false,
+            "conf_threshold_used": 0.25,
+            "content_scale": 0.11018393188714981,
+            "input_cm_per_px_used": 1.1,
+            "mask_diagonal_fraction": 0.6341484447666808,
+            "multiplier": 1.0,
+            "result": "ok",
+            "rung": 0
+          }
+        ],
+        "runner_up_mask_area_proto": 0,
+        "selected_box_frame_fraction": 0.287039190530777,
+        "selected_box_orig": [
+          564.0914306640625,
+          99.03816986083984,
+          1022.0968627929688,
+          1302.332275390625
+        ],
+        "selected_mask_area_proto": 291,
+        "status": "ok"
+      },
+      "status": "ok",
+      "view": {
+        "class_map_sha256": "fe2f46bcc1d54e8e1b9a4362d8e39ebd1c3c0ec9ff3d0c0bf3806718313e17d1",
+        "confidence": 0.9999934434890747,
+        "label": "dorsal_valid",
+        "probabilities": {
+          "dorsal_valid": 0.9999934434890747,
+          "health_only": 1.7488773096374644e-08,
+          "reject": 6.547046268678969e-06
+        },
+        "protocol_version": "view_v2",
+        "status": "ok"
+      },
+      "weight": {
+        "capture_contract": {
+          "camera_height_is_xgboost_feature": false,
+          "feature_space": "fixed_camera_pixels",
+          "training_camera_height_m": 1.88
+        },
+        "estimated_kg": 98.14047241210938,
+        "extrapolated": false,
+        "extrapolated_features": [],
+        "note": "TEST OVERRIDE: weight.available is a manual flag for on-device verification -- cm_per_px_target and its calibration uncertainty are not yet field-validated (phase 5); treat estimated_kg as provisional.",
+        "protocol_implemented": true,
+        "status": "ok"
+      }
+    },
+    "note": "Supersedes the earlier 2026-09-11 stall entry for this fixture. With a real cm_per_px supplied, this fixture takes the SCALED cutter route (mask resampled toward the ~720x720 training frame before the cutter runs) and completes without stalling -- this is the first direct confirmation that the scaled route avoids the applyJiDuan kernel-sizing defect (docs/metrics-plan.md finding 9) that the unscaled route hits on this same photo."
+  }
+}

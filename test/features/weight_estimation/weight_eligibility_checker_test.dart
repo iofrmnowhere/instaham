@@ -1,6 +1,16 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:instaham/features/weight_estimation/domain/use_cases/weight_eligibility_checker.dart';
 
+// docs/metrics-plan.md phase 4 task 3's audit: this file pins WeightEligibilityChecker's OWN
+// isolated contract only. The class is grep-confirmed unreferenced anywhere else in lib/, so
+// none of these 9 checks (or their reason strings, e.g. multiple_pigs, pig_truncated,
+// endpoints_too_close) currently fire in the live app. The live pipeline enforces a
+// different subset today, with different reason codes -- see the §7 audit table in
+// docs/metrics-plan.md and packages/instaham_ml_ffi/src/test/test_shipped_manifest.cpp for
+// what actually ships. Checks 7 and 8 (endpoint validity, reference coplanarity) have no
+// native equivalent and are the strongest argument for keeping this class; deciding its
+// final wired shape is still open product work (docs/handoff.md decision 1).
+
 void main() {
   group('WeightEligibilityChecker §7 checks tests', () {
     const checker = WeightEligibilityChecker();

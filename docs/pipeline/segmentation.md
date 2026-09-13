@@ -60,7 +60,8 @@ With no confirmed reference, or with an older manifest whose `input_cm_per_px` i
 is exactly one attempt using the plain letterbox.
 
 Observed so far: every real device scan has selected **rung 0** — default multiplier, no
-retry — including a photo the offline harness fails to detect at that rung at all (below).
+retry — including a photo the offline harness fails to detect at that rung at all
+([segmentation-2.md](segmentation-2.md)).
 Three scans from one session is far too small a sample to call the ladder unnecessary;
 `ladder_rung` is persisted so the distribution can be watched as scans accumulate. A spread
 across rungs, or frequent falls through to the `retry_conf_threshold` pass, is evidence for
@@ -96,39 +97,22 @@ and the letterbox parameters **verbatim** — `letterbox_scale`, `letterbox_pad_
 Recomputing the pad would duplicate `letterbox()`'s own rounding and could drift by a pixel
 if the two were edited out of step.
 
-## Construction
+## Construction — one decode, two branches
 
-`construct_pig_mask()` mirrors ultralytics' `process_mask`, in this order:
+Steps 1–3 are the shared `decode_binary_640()` helper; both branches start from its mask:
 
 1. Decode `coefficients × prototype` at proto resolution and apply a sigmoid.
 2. Zero everything outside `proto_box_bounds()` — crop **before** the upsample.
 3. Bilinear upsample to 640×640, then threshold at 0.5 — ultralytics thresholds after.
-4. Unletterbox: remove the carried pad, nearest-neighbour resize to `orig_w × orig_h`.
 
-No cleanup is applied; this reproduces the Python reference's raw output, which is what the
-IoU ≥ 0.95 parity gate compares. An empty crop yields an empty `PigMask`, never a crash.
-The result carries its own nonzero-pixel `area_px` and bounding box.
+`construct_pig_mask()` adds step 4 — unletterbox: remove the carried pad, nearest-neighbour
+resize to `orig_w × orig_h` — and since round 7 serves the **gate branch only**, because the
+truncation and posture gates must see original capture coordinates. No cleanup is applied, so
+it matches the Python reference's raw output, which the IoU ≥ 0.95 parity gate compares; an
+empty crop yields an empty `PigMask` (never a crash) carrying its own `area_px` and bbox.
 
-`scale_mask_to_training_space()` lives in the same file but belongs to the weight branch —
-see [prediction.md](prediction.md).
-
-## Reproducing this stage offline
-
-`ML/tools/replicate_native_weight_branch.py` re-implements this stage and the weight branch in
-Python against the same manifest and `.onnx` files — seconds rather than an APK cycle. Its
-fidelity is not uniform across the stage, and the difference matters:
-
-- **Measurement is faithful.** Given a mask, the harness's five features land within 2% of the
-  native pipeline's on the same photo, and the regressor agrees exactly (see
-  [prediction-2.md](prediction-2.md)).
-- **Detection is not.** The harness reports no detection at all on a field photo that the
-  device segments at confidence 0.92 on the same rung. Its own image loading re-encodes
-  through a JPEG round-trip at quality 92 and caps the long edge at 3000 px before the
-  segmenter sees anything, which the native decode path does not do.
-
-So a harness result about *what the mask measures* is usable evidence; a harness result about
-*whether a pig is detected*, or which rung detects it, is not. Confirm detection behaviour
-against persisted `rungs_tried` from a real device scan instead.
+The **weight branch** never takes step 4: it composes its own transform from the same decoded
+640 mask straight into training pixel space — see [segmentation-2.md](segmentation-2.md).
 
 ## Envelope fields
 
@@ -146,3 +130,6 @@ On failure: `{"status":"error","reason":<seg error>|"no_instance_above_conf"|"em
 "rungs_tried":[...]}`, and `envelope["construction"]` reports `skipped` with the matching
 reason. `envelope["construction"]` on success carries `mask_protocol`
 (`original_coordinate_polygon_v1`), `mask_area_px`, `bbox`, and `mask_diagonal_fraction`.
+
+> Continued in segmentation-2.md — the weight branch's composed mask transform, and
+> reproducing this stage offline.

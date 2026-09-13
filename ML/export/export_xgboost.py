@@ -238,9 +238,10 @@ def export(
     weight_block: dict = {"available": bool(enable_for_testing), "stability": "temporary"}
     if enable_for_testing:
         weight_block["note"] = (
-            "TEST OVERRIDE: cm_per_px_target is an empirical fit awaiting phase 5's field "
-            "re-derivation, and the regressor cannot predict below ~73 kg (ADR-010), so a "
-            "pig under ~85 kg reads high; estimated_kg is not trustworthy."
+            "TEST OVERRIDE: cm_per_px_target is the derived PIGRGB floor-plane value "
+            "(ADR-011), unmeasured on the current pipeline, and the regressor cannot predict "
+            "below ~73 kg (ADR-010), so a pig under ~85 kg reads high; estimated_kg is not "
+            "trustworthy."
         )
     else:
         weight_block["unavailable_reason"] = "weight_pending_field_validation"
@@ -288,20 +289,21 @@ def export(
                 "camera_height_is_xgboost_feature": False,
                 # 720x720 recovered exactly: mask_area / RA == 518400 on all 1821 rows.
                 "training_frame_px": [720, 720],
-                # cm_per_px_target and its uncertainty are re-derived from post-cut field
-                # masks in phase 5 (plan open question 1). Phase 2 (docs/fix-phase-2/
-                # 2-scale-target-conflict.md) swept the specification's theoretical 304 px/m
-                # (0.3289 cm/px) against 0.35 using ML/host_scale_test/ over the real V176/V144
-                # cutter and the shipped models against five PIGRGB images with known true
-                # weights (docs/scale-constant-sweep-results.md). 0.35 won on MAE (11.5% vs
-                # 19.0%) and on every image individually. 304 px/m is retracted per
-                # INSTAHAM_CAMERA_SCALE_NORMALIZATION.md section 24, which says to replace it
-                # once empirical calibration exists. 0.35 is an empirical fit, not a derived
-                # constant, and its F21 provenance under the identity-stub cutter is still
-                # contaminated -- it wins on measurement, not on derivation.
-                "cm_per_px_target": 0.35,
+                # cm_per_px_target ships as the derived PIGRGB floor-plane value: 100 / 304
+                # from INSTAHAM_CAMERA_SCALE_NORMALIZATION.md section 1 (docs/adr/
+                # 011-derived-scale-target.md). It replaced the fitted 0.35 that the
+                # docs/fix-phase-2/2-scale-target-conflict.md sweep had favoured
+                # (docs/scale-constant-sweep-results.md: 0.35 beat 0.3289 on MAE, 11.5% vs
+                # 19.0%) -- but that sweep predates round 7's composed
+                # transform_mask_to_training_space() and measures a code path the weight
+                # branch no longer runs. No accuracy figure supports either value on the
+                # current pipeline; a re-run of ML/host_scale_test/ is owed before one is
+                # quoted. cm_per_px_target_uncertainty stays 1.30 -- a derivation is not a
+                # field calibration.
+                "cm_per_px_target": 0.3289473684210526,
                 "cm_per_px_target_source": (
-                    "host_scale_sweep_round6_f49_empirical_fit_not_derived"
+                    "pigrgb_floor_plane_304ppm_theoretical_geometry_"
+                    "INSTAHAM_CAMERA_SCALE_NORMALIZATION_md"
                 ),
                 "cm_per_px_target_uncertainty": 1.30,
             },

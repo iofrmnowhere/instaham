@@ -69,10 +69,14 @@ packages/instaham_ml_ffi/android/.cxx
 packages/instaham_ml_ffi/src/build/
 android/build/
 model_and_cutter/
-.pig_pictures/
 # export toolchain venv (dev only, never bundled)
 .venv-export/
-Instaham/
+# Root-anchored: the unqualified "Instaham/" pattern also matched
+# android/app/src/androidTest/kotlin/com/instaham/instaham/ (case-insensitively, on
+# Windows' core.ignorecase default), silently excluding MainActivityTest.kt from every
+# commit. Anchoring to the repo root keeps the 9.6 GB PIGRGB-Weight dataset ignored
+# without swallowing the Android package path.
+/Instaham/
 
 # docs/test-plan-phase/1-host-toolchain.md: host_scale_test's CMake build dir and the
 # generated ONNX Runtime DLL/import-lib (copied from the pip install, regenerable via

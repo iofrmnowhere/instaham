@@ -14,6 +14,41 @@ since fixed in the exporter; see the bottom of this file. The segmenter's `input
 during phase 1 and was restored (F50); the values below match the manifest again and never
 needed changing here.
 
+Re-checked on 2026-09-13. One legitimate change to the contract and **two open mismatches**.
+The change: `capture_contract.cm_per_px_target` moved **0.35 → 0.3289473684210526**, with
+`cm_per_px_target_source` now
+`pigrgb_floor_plane_304ppm_theoretical_geometry_INSTAHAM_CAMERA_SCALE_NORMALIZATION_md`. The
+constant is again the derived `100 / 304` PIGRGB floor-plane value, which reverses what the
+2026-09-09 entry below settled; the reasoning is in
+`docs/adr/011-derived-scale-target.md`, and no accuracy measurement supports the new value yet
+— the host sweep that favoured 0.35 was run before round 7's composed transform and therefore
+measured a code path the weight branch no longer runs. Everything else verified unchanged: all
+six declared sha256 digests still match the files on disk, every model asset is still dated
+2026-09-09, `feature_order.json`'s 16 names equal the manifest's `feature_order`,
+`feature_order_sha256` and `meta_sha256` both match, `n_estimators` 600 / base score
+121.669174 / `reg:squarederror` / `chen16_noheight` unchanged, the segmenter's `input_scale`
+(1.10, ladder `[1.0, 1.32, 1.68, 0.77]`, retry 0.10) and `postprocess` (conf 0.25, iou 0.70)
+unchanged, both quality gates still `false`, `min_mask_diagonal_fraction` still 0.35, and the
+view/health input and output contracts unchanged.
+
+**Mismatch 1 — resolved 2026-09-13.** `capabilities.weight.note` used to read
+*"cm_per_px_target is an empirical fit awaiting phase 5's field re-derivation,"* which described
+0.35, not the derived value that ships — the same defect class as the mismatch resolved
+2026-09-09 at the bottom of this file, a wrong justification attached to a warning whose second
+clause (the ~73 kg floor) is still true. It now names the derived PIGRGB floor-plane value and
+ADR-011, and states that the value is unmeasured on the current pipeline. Fixed in both places:
+`ML/export/export_xgboost.py:241` writes the new text, and `assets/ml/manifest.json` was
+hand-edited to match so the shipped asset did not have to wait for a re-export. Descriptive
+text only — nothing in `manifest.cpp` or Dart reads it — and no model digest changed.
+
+**Mismatch 2 — resolved 2026-09-13.** The exporter previously hardcoded `"cm_per_px_target":
+0.35` with the `host_scale_sweep_round6_f49_empirical_fit_not_derived` source tag
+(`ML/export/export_xgboost.py:302-306`), which would have silently reverted the constant on
+the next re-export. It now writes `0.3289473684210526` with the
+`pigrgb_floor_plane_304ppm_theoretical_geometry_INSTAHAM_CAMERA_SCALE_NORMALIZATION_md` source
+tag, matching the hand-edited manifest. Generator and shipped asset agree on this field; a
+re-export today would not change `cm_per_px_target`.
+
 Re-checked again on 2026-09-09 after `docs/fix-2.md` phase 2 was decided and applied. One
 legitimate change: `capture_contract.cm_per_px_target` moved back **0.3289 → 0.35** by
 re-export, with its `_source` tag now
@@ -146,9 +181,9 @@ layer or the Dart layer names a feature.
   retained `baseline5` rollback family only, not the shipped one.)
 - Features are measured on the **final V176/V144 cut mask** — the head/neck-removed mask the
   model was trained on — after the mask is resampled into the regressor's training pixel
-  space by `k = cm_per_px_actual / cm_per_px_target` (**target currently 0.35 cm/px**, see
-  the calibration note below — 0.3289 was shipped 2026-09-08 for one round of measurement and
-  reverted; 720×720 training frame). `cm_per_px` comes **only** from the user-confirmed
+  space by `k = cm_per_px_actual / cm_per_px_target` (**target currently 0.3289473684210526
+  cm/px**, the derived `100 / 304` PIGRGB floor-plane value — see the calibration note below;
+  720×720 training frame). `cm_per_px` comes **only** from the user-confirmed
   reference object; there is no
   implicit `k = 1.0`. `chen16_noheight` values are raw pixel counts and lengths on that
   mask — there is no `RA`-style frame denominator and no additional linear scaling.
@@ -188,29 +223,23 @@ layer or the Dart layer names a feature.
   (`docs/fix-phase-2/1-cutter-freeze.md` F42). Estimates therefore ship, and every one of them
   is real inference carrying the envelope's explicit provisional-calibration `note`, never a
   fabricated value. The calibration itself is still unvalidated. `cm_per_px_target` now reads
-  **0.35** with `cm_per_px_target_source:
-  host_scale_sweep_round6_f49_empirical_fit_not_derived`, restored by re-export on 2026-09-09
-  after the host sweep settled the question the 0.3289 experiment was opened to answer. The
-  evidence, in `docs/scale-constant-sweep-results.md`: measured on this machine against the
-  shipped models and the **real** V176/V144 cutter over five PIGRGB images with known true
-  weights, 0.35 beat 0.3289 on MAE (11.5% vs 19.0%) and on every image individually. The
-  earlier three-photo device sweep (round 3 in `docs/logs/recorded.md`) pointed the other way
-  on one photo; the host sweep supersedes it, being a larger sample against ground truth rather
-  than field photos of unknown geometry.
-- **0.35 is an empirical fit, not a derived constant, and the source tag says so.** Three
-  things keep it provisional. Its F21 provenance is contaminated — it was fitted while the
-  cutter was an identity stub, i.e. partly to absorb head-and-neck area that is now actually
-  being cut (it still wins, which is evidence the head was never what it was absorbing, but the
-  fit was never re-derived). The sweep's three criteria disagree: minimum MAE at 0.35, minimum
-  |bias| at 0.38, minimum spread at 0.30 — no single scalar satisfies all three, which is what
-  you expect when the constant is not the dominant error term. And plan phase 5 still owes the
-  re-derivation from post-cut field masks.
-- **The specification's 304 px/m (0.3289) is retracted as the shipped value.**
-  `docs/INSTAHAM_CAMERA_SCALE_NORMALIZATION.md` §24 states it is a *theoretical* floor-plane
-  baseline from reported rig geometry, never measured against a pig in a released image, and
-  directs that it be replaced if empirical calibration is ever obtained. That calibration now
-  exists and 304 lost. `baseline5` remains the documented rollback family; 0.3289 does not
-  remain a documented rollback constant.
+  **0.3289473684210526** with `cm_per_px_target_source:
+  pigrgb_floor_plane_304ppm_theoretical_geometry_INSTAHAM_CAMERA_SCALE_NORMALIZATION_md` —
+  the derived `100 / 304` floor-plane value from
+  `docs/INSTAHAM_CAMERA_SCALE_NORMALIZATION.md` §1, applied 2026-09-13 by hand-editing the
+  manifest (`docs/adr/011-derived-scale-target.md`).
+- **The shipped constant is derived, and its accuracy is unmeasured.** The one measurement that
+  ever compared the two candidates — `docs/scale-constant-sweep-results.md`, five PIGRGB images
+  with known true weights through the shipped models and the real V176/V144 cutter, where 0.35
+  beat 0.3289 on MAE 11.5% vs 19.0% and on every image individually — was run on 2026-09-09,
+  before round 7's composed `transform_mask_to_training_space()` replaced the two-step
+  resample. It therefore describes a code path the weight branch no longer runs. **No accuracy
+  figure may be quoted against the shipped constant until that sweep is re-run.** The sweep's
+  three criteria also disagreed with each other (minimum MAE at 0.35, minimum |bias| at 0.38,
+  minimum spread at 0.30), which is what you expect when the constant is not the dominant error
+  term, and 0.35's own provenance was contaminated: F21 fitted it while the cutter was an
+  identity stub. Plan phase 5 still owes a re-derivation from post-cut field masks, and
+  `cm_per_px_target_uncertainty` stays 1.30 because a derivation is not a field calibration.
 - **A larger error term sits below the constant.** The same sweep found the regressor cannot
   emit a prediction below roughly 73 kg: both light test pigs fell under the trained minimum on
   every gated size feature, so the ensemble answers from its floor leaf and no value of
@@ -279,4 +308,4 @@ now reads `weight_pending_field_validation`, matching what the native side actua
 Nothing in `manifest.cpp` or Dart reads either field, so this was descriptive text only, with
 no behaviour change.
 
-## Last verified against code: 2026-09-09
+## Last verified against code: 2026-09-13

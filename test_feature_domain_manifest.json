@@ -1,0 +1,17 @@
+{
+    "schema_version": 1,
+    "capabilities": {
+      "weight": {
+        "available": true,
+        "regressor": {"path": "weight/xgboost.onnx", "sha256": ""},
+        "feature_extractor": {"names": ["RA", "LC", "BL", "BW", "E"]},
+        "capture_contract": {
+          "training_camera_height_m": 1.88,
+          "camera_height_is_xgboost_feature": false,
+          "cm_per_px_target": 0.26,
+          "training_frame_px": [720, 720]
+        },
+        "feature_domain": {"RA": {"min": 0.076, "max": 0.2042, "upper_multiplier": 1.0, "lower_multiplier": 0.9}}
+      }
+    }
+  }

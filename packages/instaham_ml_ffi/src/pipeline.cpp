@@ -667,9 +667,27 @@ bool run_pipeline(const PipelineRunners& runners, const Manifest& manifest,
     stages::PigMask scaled_mask;
     const stages::PigMask* mask_for_cutter = &pig_mask;
     if (scale_ok) {
-      scaled_mask = stages::scale_mask_to_training_space(pig_mask, k);
+      // docs/fix-3.md (round 7) F55: one composed transform straight from the 640x640 binary
+      // mask into training pixel space, instead of construct_pig_mask's unletterbox-to-
+      // capture-resolution followed by scale_mask_to_training_space -- two nearest-neighbour
+      // rasterizations whose grid alignment depended on `k`, so one pixel of reference
+      // marking moved the estimate by up to ~13% (docs/fix-phase-2/2.1). `seg_output` is the
+      // ladder-selected attempt; transform_mask_to_training_space re-decodes its 640 mask
+      // through the shared decode_binary_640 helper (pipeline.cpp stays OpenCV-free -- see
+      // docs/fix-phase-3/2 Outcome). construct_pig_mask's output (pig_mask) is unchanged and
+      // still feeds the quality gates above, in original capture coordinates.
+      scaled_mask = stages::transform_mask_to_training_space(seg_output, k);
       if (!scaled_mask.empty()) {
         mask_for_cutter = &scaled_mask;
+        if (envelope["construction"].is_object()) {
+          envelope["construction"]["composed_transform"] = json{
+              {"letterbox_scale", seg_output.letterbox_scale},
+              {"k", k},
+              {"out_w", scaled_mask.width},
+              {"out_h", scaled_mask.height},
+              {"out_area_px", scaled_mask.area_px},
+          };
+        }
       } else {
         scale_ok = false;
         scale_failure_reason = "scale_resample_failed";
