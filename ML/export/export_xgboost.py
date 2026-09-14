@@ -238,8 +238,10 @@ def export(
     weight_block: dict = {"available": bool(enable_for_testing), "stability": "temporary"}
     if enable_for_testing:
         weight_block["note"] = (
-            "TEST OVERRIDE: cm_per_px_target is the derived PIGRGB floor-plane value "
-            "(ADR-011), unmeasured on the current pipeline, and the regressor cannot predict "
+            "TEST OVERRIDE: cm_per_px_target is the round-28 host sweep's measured MAE "
+            "minimum (0.34), superseding ADR-011's derived value per ADR-012; it is a "
+            "seven-row host measurement, not a field calibration, and a ~5% residual error "
+            "remains with scaling contributing nothing. The regressor also cannot predict "
             "below ~73 kg (ADR-010), so a pig under ~85 kg reads high; estimated_kg is not "
             "trustworthy."
         )
@@ -289,21 +291,21 @@ def export(
                 "camera_height_is_xgboost_feature": False,
                 # 720x720 recovered exactly: mask_area / RA == 518400 on all 1821 rows.
                 "training_frame_px": [720, 720],
-                # cm_per_px_target ships as the derived PIGRGB floor-plane value: 100 / 304
-                # from INSTAHAM_CAMERA_SCALE_NORMALIZATION.md section 1 (docs/adr/
-                # 011-derived-scale-target.md). It replaced the fitted 0.35 that the
-                # docs/fix-phase-2/2-scale-target-conflict.md sweep had favoured
-                # (docs/scale-constant-sweep-results.md: 0.35 beat 0.3289 on MAE, 11.5% vs
-                # 19.0%) -- but that sweep predates round 7's composed
-                # transform_mask_to_training_space() and measures a code path the weight
-                # branch no longer runs. No accuracy figure supports either value on the
-                # current pipeline; a re-run of ML/host_scale_test/ is owed before one is
-                # quoted. cm_per_px_target_uncertainty stays 1.30 -- a derivation is not a
-                # field calibration.
-                "cm_per_px_target": 0.3289473684210526,
+                # cm_per_px_target ships as 0.34 -- the measured MAE minimum on both host
+                # sweep corpora independently (docs/scale-constant-sweep-results-2.md),
+                # superseding the derived PIGRGB floor-plane value 0.3289473684210526
+                # (docs/adr/011-derived-scale-target.md) that this same field carried
+                # through round 7-27. The 0.34 vs 0.3289/0.35 margin is inside corpus A's
+                # hand-marking jitter band and smaller on corpus B than the residual error
+                # the sweep's k=1.0 arm shows exists independent of scaling (5.42% MAE with
+                # the resample step proven a no-op) -- see the results doc's "k = 1.0
+                # result" section before re-deriving this constant again.
+                # cm_per_px_target_uncertainty stays 1.30 pending a device-side
+                # (Route 1) re-derivation; the host sweep is a Route-2 approximation.
+                "cm_per_px_target": 0.34,
                 "cm_per_px_target_source": (
-                    "pigrgb_floor_plane_304ppm_theoretical_geometry_"
-                    "INSTAHAM_CAMERA_SCALE_NORMALIZATION_md"
+                    "host_scale_sweep_round28_f59_measured_mae_minimum_"
+                    "scale_constant_sweep_results_2_md"
                 ),
                 "cm_per_px_target_uncertainty": 1.30,
             },

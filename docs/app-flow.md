@@ -104,15 +104,25 @@ Collapsing these into one "Unavailable" is a regression that has already happene
 | Health | ok | label + confidence; `uncertain` badge below 0.60 |
 | Health | Unavailable | classifier failed — never blocked by the weight branch |
 | Weight | **Skipped** | routing outcome: not a dorsal photo. Not a failure. |
-| Weight | **Unavailable** | genuinely no number: no pig detected, segmentation failed, or the cutter stub gates it |
+| Weight | **Unavailable** | genuinely no number: no pig detected, segmentation failed, no confirmed reference scale, or an eligibility/domain check rejected the features |
 | Weight | ok | a kg value |
 
 Never display an invented score, and never show a completed state for a branch that did not
 produce one.
 
-Why a weight number is normally unavailable at all — the `weight.available` manifest flag — is
+Why a weight number is or is not available at all — the `weight.available` manifest flag — is
 in [pipeline/prediction.md](pipeline/prediction.md). The blocking reason is no longer the cutter
 identity stub: that was ported ([adr/009-cutter-ported-after-all.md](adr/009-cutter-ported-after-all.md),
-superseding [adr/001](adr/001-cutter-identity-stub.md)), and the gate is now
-`weight_pending_field_validation` — `cm_per_px_target` still owes its re-derivation from
-post-cut field masks.
+superseding [adr/001](adr/001-cutter-identity-stub.md)). The shipped manifest currently sets
+`weight.available: true` under the `--enable-for-testing` export override, with
+`stability: temporary`, so numbers do reach this card; the `else` branch's
+`weight_pending_field_validation` is what a non-override build would carry.
+
+**Every kg value this card shows is provisional, and the UI must keep saying so.** The
+`cm_per_px_target` behind it is 0.34, a seven-row host measurement rather than a field
+calibration ([adr/012-measured-scale-target.md](adr/012-measured-scale-target.md)), and the same
+round measured a ~5% residual error that persists with scaling contributing nothing at all. Below
+roughly 85 kg the number is systematically high, because the regressor cannot emit a value under
+about 73 kg ([adr/010-regressor-training-domain-floor.md](adr/010-regressor-training-domain-floor.md)).
+The manifest's `weight.note` carries this and the envelope passes it through — surface it rather
+than presenting a bare figure, and never round it into a confident-looking result.

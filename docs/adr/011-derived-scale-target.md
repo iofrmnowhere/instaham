@@ -1,6 +1,9 @@
 # ADR-011: `cm_per_px_target` returns to the derived PIGRGB floor-plane value
 
-Status: Accepted — validation outstanding
+Status: Superseded by [012](012-measured-scale-target.md) — the validation this ADR left
+outstanding was run on 2026-09-14 and ranked this constant last of three candidates on both
+corpora. ADR-012 supersedes the constant choice below only; the reasoning about the pre-F55
+sweep's obsolescence stands.
 
 Context: [ADR-010](010-regressor-training-domain-floor.md) decided that
 `weight.cm_per_px_target` would stay at **0.35** as an empirical fit, and explicitly retracted

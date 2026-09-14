@@ -1,3 +1,14 @@
+> **Superseded.** This document measured the pre-F55 double-rasterisation path
+> (`construct_pig_mask` → `scale_mask_to_training_space`, `INTER_NEAREST`, grid-snapped and
+> dependent on the swept `k`) over the now-retired `sub_1.78/` corpus, and both are gone: F55
+> replaced the scale step with a single composed transform, and the corpus was retired in favour
+> of `sub_1.88/` (no 1.78→1.88 m rescaling assumption). Its numbers describe code and images that
+> no longer exist. Superseded by
+> [`scale-constant-sweep-results-2.md`](scale-constant-sweep-results-2.md), which re-ran the same
+> comparison on the current pipeline against `sub_1.88/` and `.pig_pictures/`. The body below is
+> kept as the historical record of the pre-F55 measurement; do not quote its MAE or bias figures
+> against the current pipeline.
+
 # `cm_per_px_target` sweep — host results (2026-09-09)
 
 Measured on the **current pipeline, with the real V176/V144 cutter running** — not the

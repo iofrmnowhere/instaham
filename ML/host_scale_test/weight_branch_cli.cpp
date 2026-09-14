@@ -106,6 +106,33 @@ std::map<std::string, double> chen16_values(const std::vector<std::string>& orde
   return out;
 }
 
+// docs/sweep-phase/1-harness-rebuild.md: reproduced verbatim from pipeline.cpp's anonymous
+// namespace (ref_fix.md F22) -- is `value` outside the regressor's own [min, max] from the
+// training/eval CSV, UNWIDENED by feature_domain's upper_multiplier/lower_multiplier? Those
+// multipliers exist to admit an uncut mask past the (inert, in this CLI) domain gate, but a
+// vector past the raw max is answered from the edge leaf, not interpolated. domain.max <=
+// 0.0 (no manifest data for this feature) means "not extrapolated" for it, matching
+// feature_in_domain's own "gate disabled" convention.
+bool feature_extrapolated(double value, const WeightCapability::FeatureDomain& domain) {
+  if (domain.max <= 0.0) return false;
+  return !std::isfinite(value) || value < domain.min || value > domain.max;
+}
+
+// ref_fix.md F22, generalized: which GATED features (the ones a regressor could plausibly
+// have "pinned" at an edge leaf, matching run_feature_domain_gate's own eligibility set)
+// fell outside the regressor's raw trained [min, max], unwidened by any multiplier.
+json extrapolated_feature_names(const std::vector<std::string>& feature_order,
+                                 const std::map<std::string, WeightCapability::FeatureDomain>& domains,
+                                 const std::map<std::string, double>& values) {
+  json out = json::array();
+  for (const auto& name : feature_order) {
+    auto domain_it = domains.find(name);
+    if (domain_it == domains.end() || !domain_it->second.gate) continue;
+    if (feature_extrapolated(values.at(name), domain_it->second)) out.push_back(name);
+  }
+  return out;
+}
+
 std::vector<float> ordered_feature_vector(const std::vector<std::string>& order,
                                            const std::map<std::string, double>& values) {
   std::vector<float> out;
@@ -429,6 +456,15 @@ int main(int argc, char** argv) {
     gates_would_have_withheld = true;
     gates_would_have_withheld_reasons.push_back("feature_domain_violation");
   }
+
+  // ---- step 11.5: extrapolation telemetry (docs/sweep-phase/1-harness-rebuild.md) -----
+  // Computed unconditionally, like every other gate this CLI records rather than enforces
+  // (see file header): the app only surfaces this when the domain gate above passed AND
+  // predict_weight succeeded, but this harness always predicts, so it always reports it.
+  json extrapolated_features = extrapolated_feature_names(
+      manifest.weight.feature_order, manifest.weight.feature_domain, feature_values);
+  envelope["extrapolated"] = !extrapolated_features.empty();
+  envelope["extrapolated_features"] = extrapolated_features;
 
   // ---- step 12: predict -- always, regardless of any gate above (see file header) -----
   const std::vector<float> feature_vector =

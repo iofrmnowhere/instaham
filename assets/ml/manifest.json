@@ -1,5 +1,5 @@
 {
-  "bundle_id": "instaham-ml-e13b1f4",
+  "bundle_id": "instaham-ml-db13bbc",
   "capabilities": {
     "health": {
       "available": true,
@@ -176,8 +176,8 @@
       },
       "capture_contract": {
         "camera_height_is_xgboost_feature": false,
-        "cm_per_px_target": 0.3289473684210526,
-        "cm_per_px_target_source": "pigrgb_floor_plane_304ppm_theoretical_geometry_INSTAHAM_CAMERA_SCALE_NORMALIZATION_md",
+        "cm_per_px_target": 0.34,
+        "cm_per_px_target_source": "host_scale_sweep_round28_f59_measured_mae_minimum_scale_constant_sweep_results_2_md",
         "cm_per_px_target_uncertainty": 1.3,
         "feature_space": "fixed_camera_pixels",
         "training_camera_height_m": 1.88,
@@ -358,7 +358,7 @@
         "Hu_7"
       ],
       "min_mask_diagonal_fraction": 0.35,
-      "note": "TEST OVERRIDE: cm_per_px_target is the derived PIGRGB floor-plane value (ADR-011), unmeasured on the current pipeline, and the regressor cannot predict below ~73 kg (ADR-010), so a pig under ~85 kg reads high; estimated_kg is not trustworthy.",
+      "note": "TEST OVERRIDE: cm_per_px_target is the round-28 host sweep's measured MAE minimum (0.34), superseding ADR-011's derived value per ADR-012; it is a seven-row host measurement, not a field calibration, and a ~5% residual error remains with scaling contributing nothing. The regressor also cannot predict below ~73 kg (ADR-010), so a pig under ~85 kg reads high; estimated_kg is not trustworthy.",
       "quality_gates": {
         "posture": false,
         "posture_max_bend_deg": 40.0,
@@ -374,12 +374,12 @@
         "meta_sha256": "baaf4e0d6986d56e8e13a38843af09e3af906cb4d429933d9a50e8954fccf8bf",
         "objective": "reg:squarederror",
         "path": "weight/xgboost.onnx",
-        "sha256": "79ac216ceee553761cf43125cf1185fbf1b5dde9f9f14f882e7caff49edab543"
+        "sha256": "f7d870c16c05d4f15f03e8aadd9cbdd5639d0e2dd322595c13d0fef8719601cd"
       },
       "stability": "temporary"
     }
   },
-  "reference_commit": "e13b1f4",
+  "reference_commit": "db13bbc",
   "runtime": {
     "engine": "onnxruntime",
     "min_abi_version": 1

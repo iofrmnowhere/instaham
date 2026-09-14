@@ -123,12 +123,15 @@ this plan's scope.
 
 ## Open questions
 
-1. **`cm_per_px_target`.** The shipped `0.35` was fitted with the identity cutter in the loop
-   and knowingly absorbs its inflation. Phase 5 re-derives it from the post-cut field masks.
-   F38 already puts the correction at x0.99 to x1.03 on two of three photos, implying `0.35`
-   is close to right even post-cut — but that was measured through `RA`, and the Chen16
-   vector is dominated by `mask_area`, which is the same quantity un-normalized. Decide from
-   measurement, not inheritance.
+1. **~~`cm_per_px_target`~~ — answered by `docs/scale-constant-sweep-results-2.md`.** A host
+   sweep on the current (post-F55) pipeline, over `sub_1.88/` and `.pig_pictures/`, plus a
+   `k = 1.0` self-consistency arm, found: neither the shipped `0.3289473684210526` (ADR-011) nor
+   the previously-fitted `0.35` is the empirical optimum on either corpus — `0.34` is,
+   independently, on both, inside the 0.32–0.36 equivalence band `docs/fix-phase/1-diagnosis.md`
+   already flagged. The `k = 1.0` arm shows roughly 5% MAE on corpus B with scaling contributing
+   nothing at all, bounding how much any constant choice can fix. This round's decision was to
+   ship `0.34`, which contradicts ADR-011 and is flagged for `pipeline-docs` to resolve with a
+   new or superseding ADR; it has not yet been written to `assets/ml/manifest.json`.
 2. **Domain bounds are test-split only.** `fixed_test_predictions.csv` is 1821 held-out rows;
    the full training range is wider. Either widen the derived bounds by a stated margin or
    accept a gate slightly stricter than the model's true competence. Recommendation: derive

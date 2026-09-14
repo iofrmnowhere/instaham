@@ -78,6 +78,11 @@ model_and_cutter/
 # without swallowing the Android package path.
 /Instaham/
 
+# Research capture images kept locally for manual inspection. AGENTS.md's database rules
+# forbid retaining or uploading research images without explicit consent, so they stay out
+# of the repository; root-anchored for the same reason as the dataset above.
+/health_pigs/
+
 # docs/test-plan-phase/1-host-toolchain.md: host_scale_test's CMake build dir and the
 # generated ONNX Runtime DLL/import-lib (copied from the pip install, regenerable via
 # ML/host_scale_test/third_party/make_ort_lib.py) -- not sources, not results.

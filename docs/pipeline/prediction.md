@@ -16,10 +16,11 @@ that list instead of five hardcoded names. The shipped manifest declares `chen16
 `weight.available` is **now `true`**, set deliberately by re-exporting with
 `--enable-for-testing` (`docs/fix-2.md` F42) so the branch can be exercised on a device.
 Estimates therefore ship, and each is real inference carrying the envelope's provisional
-`note` — but the calibration behind them is still unvalidated. `cm_per_px_target` reads
-**0.3289473684210526** (`100 / 304`, the PIGRGB floor-plane baseline), replacing the fitted
-0.35 and unmeasured on the post-F55 path, so `../scale-constant-sweep-results.md` now describes
-a superseded path and a value that no longer ships ([ADR-011](../adr/011-derived-scale-target.md)).
+`note` — but the calibration behind them is a host measurement, not a field calibration.
+`cm_per_px_target` reads **0.34**, the MAE minimum measured independently on both host sweep
+corpora on the current post-F55 path ([ADR-012](../adr/012-measured-scale-target.md)); it
+replaced ADR-011's derived `0.3289473684210526`, which that sweep ranked last of three.
+Figures and the residual error the constant cannot fix: [prediction-4.md](prediction-4.md).
 Treat a returned number as provisional — and below roughly 85 kg as systematically high, per
 [ADR-010](../adr/010-regressor-training-domain-floor.md). ADR-005's +16.6% mean bias is
 superseded: it was measured by feature substitution before the cutter was ported.
@@ -70,7 +71,7 @@ cutter-decline message in `run_and_persist_pipeline_use_case.dart:411`.
 ## Scale normalization
 
 `k = cm_per_px_actual / weight.cm_per_px_target` (target from the manifest, currently
-0.3289473684210526 cm/px — see the calibration note above). The mask reaches training space in
+0.34 cm/px — see the calibration note above). The mask reaches training space in
 **one** resampling, composed straight from the 640×640 mask by
 `transform_mask_to_training_space()`; capture resolution is never visited. Mechanics, and why
 the chain it replaced amplified marking jitter (F55): [segmentation-2.md](segmentation-2.md). The

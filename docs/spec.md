@@ -14,6 +14,31 @@ since fixed in the exporter; see the bottom of this file. The segmenter's `input
 during phase 1 and was restored (F50); the values below match the manifest again and never
 needed changing here.
 
+Re-checked on 2026-09-14. **One legitimate change, no open mismatches.**
+`capture_contract.cm_per_px_target` moved **0.3289473684210526 → 0.34**, with
+`cm_per_px_target_source` now
+`host_scale_sweep_round28_f59_measured_mae_minimum_scale_constant_sweep_results_2_md`. This is
+the first time the constant has shipped with an accuracy measurement on the current post-F55
+path behind it: round 28's host sweep re-ran the question the 2026-09-13 entry below left open,
+and both corpora minimize MAE independently at 0.34 (corpus B 2.1%, corpus A 4.0%) against
+4.1%/7.4% at the fitted 0.35 and 5.4%/7.7% at the derived value that was shipping
+(`docs/scale-constant-sweep-results-2.md`, `docs/adr/012-measured-scale-target.md`, which
+supersedes ADR-011's constant choice). `capabilities.weight.note` was updated in the same pass
+to name ADR-012 and to state the residual error rather than the superseded ADR-011 rationale.
+
+Manifest and exporter moved **together this time** — `ML/export/export_xgboost.py:304` writes
+0.34 and the new note, `assets/ml/manifest.json` was produced by re-running that exporter and
+`ML.export.build_manifest` rather than hand-edited, and the fragment's `capture_contract` and
+`note` were verified byte-equal to the shipped manifest's. A re-export today changes nothing.
+`weight.regressor`'s sha256 changed with the re-export (same model, re-serialised) and the
+manifest records the new digest; `build_manifest --check` passes and all six declared digests
+match the files on disk. Everything else verified unchanged: 16-name `feature_order`,
+`chen16_noheight`, `n_estimators` 600 / base score 121.669 / `reg:squarederror`,
+`training_frame_px` [720, 720], `training_camera_height_m` 1.88, `feature_space`
+`fixed_camera_pixels`, `cm_per_px_target_uncertainty` 1.30, `min_mask_diagonal_fraction` 0.35,
+both quality gates `false`, the segmenter's `input_scale` (1.10, ladder `[1.0, 1.32, 1.68,
+0.77]`, retry 0.10) and `postprocess` (conf 0.25, iou 0.70), and the view/health contracts.
+
 Re-checked on 2026-09-13. One legitimate change to the contract and **two open mismatches**.
 The change: `capture_contract.cm_per_px_target` moved **0.35 → 0.3289473684210526**, with
 `cm_per_px_target_source` now
@@ -181,8 +206,8 @@ layer or the Dart layer names a feature.
   retained `baseline5` rollback family only, not the shipped one.)
 - Features are measured on the **final V176/V144 cut mask** — the head/neck-removed mask the
   model was trained on — after the mask is resampled into the regressor's training pixel
-  space by `k = cm_per_px_actual / cm_per_px_target` (**target currently 0.3289473684210526
-  cm/px**, the derived `100 / 304` PIGRGB floor-plane value — see the calibration note below;
+  space by `k = cm_per_px_actual / cm_per_px_target` (**target currently 0.34 cm/px**, round
+  28's measured MAE minimum on both host sweep corpora — see the calibration note below;
   720×720 training frame). `cm_per_px` comes **only** from the user-confirmed
   reference object; there is no
   implicit `k = 1.0`. `chen16_noheight` values are raw pixel counts and lengths on that
@@ -222,28 +247,33 @@ layer or the Dart layer names a feature.
   re-exporting with `--enable-for-testing` for on-device verification
   (`docs/fix-phase-2/1-cutter-freeze.md` F42). Estimates therefore ship, and every one of them
   is real inference carrying the envelope's explicit provisional-calibration `note`, never a
-  fabricated value. The calibration itself is still unvalidated. `cm_per_px_target` now reads
-  **0.3289473684210526** with `cm_per_px_target_source:
-  pigrgb_floor_plane_304ppm_theoretical_geometry_INSTAHAM_CAMERA_SCALE_NORMALIZATION_md` —
-  the derived `100 / 304` floor-plane value from
-  `docs/INSTAHAM_CAMERA_SCALE_NORMALIZATION.md` §1, applied 2026-09-13 by hand-editing the
-  manifest (`docs/adr/011-derived-scale-target.md`).
-- **The shipped constant is derived, and its accuracy is unmeasured.** The one measurement that
-  ever compared the two candidates — `docs/scale-constant-sweep-results.md`, five PIGRGB images
-  with known true weights through the shipped models and the real V176/V144 cutter, where 0.35
-  beat 0.3289 on MAE 11.5% vs 19.0% and on every image individually — was run on 2026-09-09,
-  before round 7's composed `transform_mask_to_training_space()` replaced the two-step
-  resample. It therefore describes a code path the weight branch no longer runs. **No accuracy
-  figure may be quoted against the shipped constant until that sweep is re-run.** The sweep's
-  three criteria also disagreed with each other (minimum MAE at 0.35, minimum |bias| at 0.38,
-  minimum spread at 0.30), which is what you expect when the constant is not the dominant error
-  term, and 0.35's own provenance was contaminated: F21 fitted it while the cutter was an
-  identity stub. Plan phase 5 still owes a re-derivation from post-cut field masks, and
-  `cm_per_px_target_uncertainty` stays 1.30 because a derivation is not a field calibration.
-- **A larger error term sits below the constant.** The same sweep found the regressor cannot
+  fabricated value. The calibration is a host measurement, not a field calibration.
+  `cm_per_px_target` now reads **0.34** with `cm_per_px_target_source:
+  host_scale_sweep_round28_f59_measured_mae_minimum_scale_constant_sweep_results_2_md`, applied
+  2026-09-14 by re-running the exporter and `ML.export.build_manifest`, not by hand-editing
+  (`docs/adr/012-measured-scale-target.md`).
+- **The shipped constant is measured on the current path, within a plateau.** Round 28's sweep
+  (`docs/scale-constant-sweep-results-2.md`, 2026-09-14) re-ran the comparison on the post-F55
+  composed `transform_mask_to_training_space()` over two corpora reported separately —
+  `PIGRGB-Weight/sub_1.88/` (4 informative rows) and `.pig_pictures/` (3) — and both minimize
+  MAE at **0.34**: 2.1% with +0.2% bias, and 4.0%. The response through 0.32–0.36 is a shallow
+  bowl, so the *band* is the durable finding and the exact minimum is not, at seven rows.
+  **Quote these only as host figures, corpora separate, never as device numbers**; corpus B is
+  the regressor's own training distribution, so its agreement is partly memorisation. The
+  earlier `docs/scale-constant-sweep-results.md` (0.35 beating 0.3289 on MAE 11.5% vs 19.0%)
+  measured the pre-F55 double-rasterisation path over the retired `sub_1.78/` corpus and must
+  not be cited. `cm_per_px_target_uncertainty` stays 1.30 — a seven-row host sweep is not a
+  field calibration, and the 1.88 m calibration capture is still owed.
+- **Scaling is not the dominant error term, and this is now measured.** A `k = 1.0` arm — the
+  target set to corpus B's own `cm_per_px_actual`, making the resample a proven no-op with
+  `mask_area_px` unchanged rather than merely close — still leaves 5.42% MAE, +5.35% bias and
+  one image at +14.29%. That residual belongs to segmentation, the cutter, feature extraction,
+  the regressor or the 304 px/m geometry, and bounds what any value of this constant can
+  achieve. It is not an I/O contract term; it is named here and owned elsewhere.
+- **A second error term sits below the constant.** The 2026-09-09 sweep found the regressor cannot
   emit a prediction below roughly 73 kg: both light test pigs fell under the trained minimum on
   every gated size feature, so the ensemble answers from its floor leaf and no value of
-  `cm_per_px_target` moves those rows. The two in-domain pigs predicted within ±5% at 0.35, so
+  `cm_per_px_target` moves those rows. The two in-domain pigs predicted within ±5% at 0.35 then, so
   the geometry chain is sound and the gap is the regressor's training coverage at the low end.
   This is a model-coverage limit, not an I/O contract term, so it is named here and owned
   elsewhere. A returned number is provisional, and for a pig under about 85 kg it is
@@ -308,4 +338,4 @@ now reads `weight_pending_field_validation`, matching what the native side actua
 Nothing in `manifest.cpp` or Dart reads either field, so this was descriptive text only, with
 no behaviour change.
 
-## Last verified against code: 2026-09-13
+## Last verified against code: 2026-09-14

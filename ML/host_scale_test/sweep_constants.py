@@ -1,5 +1,5 @@
 """Sweep cm_per_px_target across a range and report per-image error, to answer whether ANY
-single scalar constant brings all five PIGRGB sub_1.78 images into agreement.
+single scalar constant brings all five PIGRGB sub_1.88 images into agreement.
 
 Extends docs/test-plan-phase/3-driver-sweep.md's two-arm sweep to N arms. Same method:
 patched manifest copies in assets/ml/, deleted afterward; the committed manifest is never
@@ -14,7 +14,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from run_sweep import (IMAGES_DIR, MANIFEST_PATH, CLI_PATH, REPO_ROOT, OUT_DIR,
                         cm_per_px_actual, parse_true_kg, run_cli)
 
-TARGETS = [0.28, 0.30, 0.3289, 0.35, 0.38, 0.42, 0.46, 0.50]
+# docs/sweep-phase/4-run-and-record.md Run 3: dense through the 0.32-0.36 equivalence band
+# docs/fix-phase/1-diagnosis.md identified, sparse outside it. 0.3289473684210526 is the
+# full-precision derived constant (ADR-011); a truncated 0.3289 would not land k == 1.0 in
+# run_sweep.py's derived arm -- see that driver's "Known hazards" for why.
+TARGETS = [0.28, 0.30, 0.3289473684210526, 0.34, 0.35, 0.36, 0.38, 0.42]
 
 
 def write_patched(target_value, idx):

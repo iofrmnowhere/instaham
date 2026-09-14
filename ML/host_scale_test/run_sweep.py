@@ -1,6 +1,6 @@
 """docs/test-plan-phase/3-driver-sweep.md: run weight_branch_cli.exe over the five
-PIGRGB sub_1.78 images x two cm_per_px_target constants (0.35, 0.3289), collecting one CSV
-plus ten per-image envelope JSON files under ML/host_scale_test/out/.
+PIGRGB sub_1.88 images x two cm_per_px_target constants (0.35, 0.3289473684210526),
+collecting one CSV plus ten per-image envelope JSON files under ML/host_scale_test/out/.
 
 Runs under the repository's own Python (no xgboost/onnxruntime needed -- the CLI owns all
 inference). Usage:  python run_sweep.py
@@ -14,21 +14,28 @@ import subprocess
 import sys
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-IMAGES_DIR = os.path.join(REPO_ROOT, "Instaham", "PIGRGB-Weight", "sub_1.78")
+IMAGES_DIR = os.path.join(REPO_ROOT, "Instaham", "PIGRGB-Weight", "sub_1.88")
 MANIFEST_PATH = os.path.join(REPO_ROOT, "assets", "ml", "manifest.json")
 CLI_PATH = os.path.join(os.path.dirname(__file__), "build", "weight_branch_cli.exe")
 OUT_DIR = os.path.join(os.path.dirname(__file__), "out")
 
 # ---- cm_per_px_actual, derived from acquisition geometry, not from the manifest --------
-# docs/INSTAHAM_CAMERA_SCALE_NORMALIZATION.md is the authority for the 304 px/m figure --
-# NOT assets/ml/manifest.json, which carries a fitted value under test here.
+# docs/INSTAHAM_CAMERA_SCALE_NORMALIZATION.md is the authority for the 304 px/m figure at
+# the 1.88 m baseline height -- NOT assets/ml/manifest.json, which carries a fitted value
+# under test here. sub_1.88 is shot AT the baseline height, so no 1.78/1.88 m rescaling is
+# needed (the retired sub_1.78 path multiplied by 1.88/1.78, an extra assumption on top of
+# a figure docs/INSTAHAM_CAMERA_SCALE_NORMALIZATION.md section 24 already calls theoretical).
 PIGRGB_TARGET_PPM_AT_188 = 304.0
-CAPTURE_HEIGHT_M = 1.78
-BASELINE_HEIGHT_M = 1.88
-ppm = PIGRGB_TARGET_PPM_AT_188 * BASELINE_HEIGHT_M / CAPTURE_HEIGHT_M   # 321.0787...
-cm_per_px_actual = 100.0 / ppm                                          # 0.3114504...
+# 100.0 / PIGRGB_TARGET_PPM_AT_188 is the derivation, but is written out as a literal because
+# it must be bit-identical to both the derived arm's target below and to the value already
+# committed in assets/ml/manifest.json's cm_per_px_target -- 100.0/304.0 as a live division
+# rounds to the adjacent double (0.32894736842105265, 1 ULP off), which left the k = 1.0 arm
+# at 1.0000000000000002 instead of exactly 1.0.
+assert 100.0 / PIGRGB_TARGET_PPM_AT_188 == 0.32894736842105265  # sanity: confirms the ULP gap
+cm_per_px_actual = 0.3289473684210526
 
-TARGETS = [("0350", 0.35), ("03289", 0.3289)]
+# The derived arm's target must be bit-identical to cm_per_px_actual, not a re-derived value.
+TARGETS = [("0350", 0.35), ("03289", cm_per_px_actual)]
 
 INVARIANT_FIELDS = ["canvas_mode", "ladder_rung", "seg_conf", "candidates_kept", "mask_w",
                      "mask_h", "mask_area_px"]
@@ -64,8 +71,10 @@ def write_patched_manifest(target_value, suffix):
 
 
 def run_cli(manifest_path, image_path):
+    # repr()/%.17g round-trips the double exactly; %.10f truncated it and made the k = 1.0
+    # arm land at 0.9999999999360001 instead of 1.0 -- see phase 3 hazard notes.
     result = subprocess.run(
-        [CLI_PATH, manifest_path, image_path, "%.10f" % cm_per_px_actual],
+        [CLI_PATH, manifest_path, image_path, repr(cm_per_px_actual)],
         capture_output=True, text=True,
     )
     if result.returncode != 0:
@@ -123,6 +132,15 @@ def main():
         print("expected 5 images in %s, found %d" % (IMAGES_DIR, len(images)), file=sys.stderr)
         return 2
 
+    # cm_per_px_actual above is only correct at the resolution the 304 px/m baseline was
+    # quoted for -- assert it before running rather than silently mis-scaling.
+    from PIL import Image
+    for image_name in images:
+        with Image.open(os.path.join(IMAGES_DIR, image_name)) as im:
+            if im.size != (960, 540):
+                print("expected 960x540, got %s for %s" % (im.size, image_name), file=sys.stderr)
+                return 2
+
     patched_paths = {}
     rows = []
     invariants_by_image = {}
@@ -148,6 +166,14 @@ def main():
                 invariants_by_image.setdefault(image_name, {})[suffix] = inv
                 if suffix == "03289":
                     baseline_envelope_by_image[image_name] = envelope
+                    # k = 1.0 arm: cm_per_px_actual == cm_per_px_target exactly at sub_1.88,
+                    # so the resample step must be a genuine no-op. A silent near-1.0 would
+                    # make this arm look like it proved something it did not.
+                    k = envelope.get("k")
+                    if k != 1.0:
+                        print("K != 1.0 CHECK FAILED for %s: k=%r target=%.16f actual=%.16f" % (
+                            image_name, k, target_value, cm_per_px_actual), file=sys.stderr)
+                        return 1
 
                 print("%s @ %s: predicted=%s cutter=%s kept_fraction=%s" % (
                     image_name, target_value, envelope.get("predicted_kg"),

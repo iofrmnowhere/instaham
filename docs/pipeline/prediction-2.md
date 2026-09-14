@@ -75,8 +75,9 @@ constant, on medians (`../logs/recorded.md` rounds 2 and 3):
 
 Every separation exceeds its photo's jitter band, so the constant does move the answer
 measurably — but it moves all three photos from undershooting to overshooting without landing on
-any of them, and 0.3289 was the *worse* of the two on two of three. Both arms predate round 7's
-composed transform, and 0.3289 is what ships now ([ADR-011](../adr/011-derived-scale-target.md)).
+any of them. Both arms predate round 7's composed transform; round 28 re-ran it on the post-F55
+path, neither won, and **0.34** ships now ([ADR-012](../adr/012-measured-scale-target.md)) —
+figures and the bounding `k = 1.0` arm in [prediction-4.md](prediction-4.md).
 
 ## F53 — the pipeline amplifies reference-marking noise
 
@@ -117,8 +118,8 @@ smallest term, and the term the host could not run is the one that dominates.
 Full derivation and per-scan data:
 [2.1](../fix-phase-2/2.1-reference-length-sensitivity.md), [logs](../logs/recorded.md).
 
-**Consequence for calibration work:** a single scan per photo is not a measurement. The
-0.35-vs-0.3289 comparison was run under this constraint and cleared it — see F46 above.
+**Consequence for calibration work:** a single scan per photo is not a measurement; the
+0.35-vs-0.3289 comparison was run under this constraint and cleared it (F46 above).
 
 ## The cutter now ships, and the bias figures predate it
 
