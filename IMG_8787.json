@@ -1,0 +1,28 @@
+{
+  "version": "7.5.0",
+  "flags": {},
+  "shapes": [
+    {
+      "label": "porac",
+      "points": [
+        [
+          2208.385542168676,
+          1000.337349397591
+        ],
+        [
+          1991.5180722891575,
+          3703.9518072289166
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "line",
+      "flags": {},
+      "mask": null
+    }
+  ],
+  "imagePath": "IMG_8787.jpg",
+  "imageData": null,
+  "imageHeight": 4032,
+  "imageWidth": 3024
+}

@@ -222,6 +222,13 @@ bool load_segmentation(const json& j, const std::string& base_dir, SegmentationC
       }
     }
     out->retry_conf_threshold = input_scale.value("retry_conf_threshold", 0.0f);
+
+    // docs/fix-phase-4/1-normalize-before-segment.md (F60): absent, or any value other than
+    // "normalize_first", keeps the shipped canvas_scale behaviour -- never silently opts a
+    // manifest into the new path on a typo.
+    const std::string mode = input_scale.value("mode", std::string("canvas_scale"));
+    out->input_scale_mode = (mode == "normalize_first") ? SegmentationInputScaleMode::kNormalizeFirst
+                                                          : SegmentationInputScaleMode::kCanvasScale;
   }
 
   if (!verify_hash(out->model_path, out->model_sha256, error)) {

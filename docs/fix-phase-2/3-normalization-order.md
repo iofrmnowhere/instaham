@@ -84,10 +84,19 @@ field measurement taken since, so it must not happen before phase 2's constant i
 
 ## Steps
 
-- [ ] **F49 — decide the specification's standing, and record the decision.** Three honest
-      outcomes: adopt it and reorder; adopt its constant but keep the current order with the
-      reason stated; or supersede it. Any of the three is defensible. Leaving it unanswered is
-      not, which is what produced this phase.
+- [ ] **F49 — decide the specification's standing, and record the decision.** **Reopened
+      2026-09-19.** It was marked closed on 2026-09-18 by `fix-4.md` phase 2 as "measured,
+      reject, supersede it." The user overruled that verdict: phase 2 was a gate this project's
+      own plan invented, and it was not entitled to discard
+      `INSTAHAM_APP_WEIGHT_PIPELINE_SCALING_ROTATION_FIX_README.md`, which the user had
+      designated as the basis for the work. **Nothing is superseded.** The answer to this item
+      is now the README's order — normalize the photograph to `cm_per_px_target` before
+      segmentation — settled by instruction rather than by measurement, and implemented by
+      `fix-4.md` phases 1.1 and 4.
+      The phase 2 numbers stand as observations and are a recorded counter-indication on corpus
+      B; see [`../fix-phase-4-2-results.md`](../fix-phase-4-2-results.md). This item closes when
+      the app actually runs that order, not before. Of the three honest options it named, the
+      outcome is **adopt it.**
 - [ ] **F48 — quantify the resampling cost before reordering anything.** Take the post-cut
       field masks, compute the sixteen features once from a mask resampled by `k` and once from
       a mask segmented at the normalized resolution, and compare feature by feature. If the

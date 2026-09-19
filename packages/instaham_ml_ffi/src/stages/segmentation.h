@@ -63,6 +63,25 @@ struct SegmentationOutput {
   double input_cm_per_px_used = 0.0;
   float content_scale = 1.0f;
   bool clamped_to_letterbox = false;
+
+  // docs/fix-phase-4/1-normalize-before-segment.md (F60/F61): set only when `cap` declares
+  // input_scale_mode == kNormalizeFirst. `used_normalize_first` says which composition
+  // actually ran this call (mirrors `cap.input_scale_mode`, but on the output rather than
+  // the input, so a caller reading only SegmentationOutput can tell). `orig_w`/`orig_h`
+  // above are, on this path, the ROTATED normalized content's dimensions -- not the
+  // captured photo's -- because that is the coordinate space construct_pig_mask() /
+  // transform_mask_to_training_space() crop back into unchanged (see run_segmentation's doc
+  // comment); `was_rotated_clockwise` says a caller must rotate the resulting PigMask 90
+  // degrees counter-clockwise (stages::rotate_pig_mask_90_ccw) to undo that before the mask
+  // matches the normalized image's own (un-rotated) orientation. `canvas_w`/`canvas_h` are
+  // the canvas actually used; `canvas_w_requested`/`canvas_h_requested` (always 960x540 for
+  // now) are what the README specifies, so an oversize canvas (F61) is visible in the
+  // envelope without a code read, the way `clamped_to_letterbox` already is for the other
+  // path.
+  bool used_normalize_first = false;
+  bool was_rotated_clockwise = false;
+  int canvas_w = 0, canvas_h = 0;
+  int canvas_w_requested = 0, canvas_h_requested = 0;
 };
 
 // Runs the segmenter over `image_path`, decodes it, composes the 640x640 canvas, runs the
@@ -85,6 +104,14 @@ struct SegmentationOutput {
 // `conf_threshold_override`: > 0 uses this instead of `cap.conf_threshold` -- ref_fix.md
 // F19's retry pass at a lower confidence after every scale-ladder rung has failed at the
 // manifest's normal threshold. <= 0 (the default) uses `cap.conf_threshold` unchanged.
+//
+// docs/fix-phase-4/1-normalize-before-segment.md (F60): when `cap.input_scale_mode ==
+// kNormalizeFirst`, `input_cm_per_px` is instead read as `cm_per_px_target` (the weight
+// regressor's training scale, WeightCapability::cm_per_px_target) -- the caller passes
+// whichever value belongs to the active mode; the parameter is not duplicated because
+// exactly one of the two modes ever runs per call. `cm_per_px_actual` keeps its one meaning
+// (the user-confirmed reference object's measured cm/pixel) across both modes. See
+// SegmentationOutput::used_normalize_first for what this path additionally records.
 bool run_segmentation(OnnxRunner* runner, const SegmentationCapability& cap,
                       const std::string& image_path, double cm_per_px_actual,
                       double input_cm_per_px, float conf_threshold_override,

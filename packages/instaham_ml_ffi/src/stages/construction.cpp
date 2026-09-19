@@ -248,6 +248,16 @@ PigMask scale_mask_to_training_space(const PigMask& mask, double k) {
   return out;
 }
 
+PigMask rotate_pig_mask_90_ccw(const PigMask& mask, bool was_rotated_clockwise) {
+  if (!was_rotated_clockwise || mask.empty()) return mask;
+  PigMask out;
+  out.width = mask.height;
+  out.height = mask.width;
+  out.pixels = rotate90_ccw(mask.pixels, mask.width, mask.height);
+  fill_bbox_area(out);
+  return out;
+}
+
 std::vector<uint8_t> largest_component_fill(const std::vector<uint8_t>& mask, int w, int h) {
   cv::Mat binary(h, w, CV_8UC1, const_cast<uint8_t*>(mask.data()));
   cv::Mat thresholded;

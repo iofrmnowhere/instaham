@@ -41,6 +41,29 @@ RgbImage letterbox(const RgbImage& src, int dst_w, int dst_h, uint8_t pad_color,
 RgbImage place_at_scale(const RgbImage& src, int dst_w, int dst_h, uint8_t pad_color, float scale,
                          int* pad_left_out, int* pad_top_out);
 
+// docs/fix-phase-4/1-normalize-before-segment.md (F60): resizes `src` uniformly (both axes
+// by the same `factor`, no letterboxing) so it is `cm_per_px_target` cm/pixel -- the first
+// step of SegmentationInputScaleMode::kNormalizeFirst, before rotation or canvas placement.
+// Uses a box filter (INTER_AREA's equivalent for this project's stb_image_resize2-based
+// resizer -- there is no OpenCV dependency in this file, unlike stages/construction.cpp)
+// when shrinking (`factor` < 1) and a triangle/bilinear filter when enlarging, matching the
+// README's INTER_AREA/INTER_LINEAR split. `factor` must be finite and > 0.
+RgbImage resize_uniform(const RgbImage& src, float factor);
+
+// docs/fix-phase-4/1-normalize-before-segment.md (F60): rotates `src` 90 degrees clockwise.
+// The output is height x width (dimensions swapped). Used before canvas placement when the
+// normalized image is portrait -- see stages/canvas_scale.h's
+// decide_normalize_first_composition().
+RgbImage rotate90_cw(const RgbImage& src);
+
+// docs/fix-phase-4/1-normalize-before-segment.md (F60): centers `src` on a `dst_w` x `dst_h`
+// canvas filled with `pad_color`, at the caller-supplied `x_offset`/`y_offset` -- unlike
+// place_at_scale() above, this never resizes `src`. Used to place the already-normalized,
+// already-rotated content onto the (possibly oversized, F61) canvas at the offset
+// decide_normalize_first_composition() computed.
+RgbImage place_at_offset(const RgbImage& src, int dst_w, int dst_h, uint8_t pad_color, int x_offset,
+                          int y_offset);
+
 }  // namespace instaham_ml
 
 #endif  // INSTAHAM_ML_UTIL_IMAGE_IO_H

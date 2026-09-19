@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 #include "stages/canvas_scale.h"
 #include "stages/mask_geometry.h"
@@ -71,35 +72,80 @@ bool run_segmentation(OnnxRunner* runner, const SegmentationCapability& cap,
   out->orig_w = img.width;
   out->orig_h = img.height;
 
-  // ref_fix.md F18: compose the canvas at a scale derived from the user-confirmed
-  // reference object, not from the image's own dimensions, when both are available and
-  // the requested scale fits the canvas -- see this function's doc comment (segmentation.h)
-  // and ref_fix.md section 2/F18 for why a plain whole-frame fit makes a typical phone
-  // photo's pig too small for the model to detect reliably.
   float scale;
   int pad_left, pad_top;
-  const CanvasScaleDecision canvas_decision =
-      decide_canvas_scale(img.width, img.height, cm_per_px_actual, input_cm_per_px, cap.imgsz);
-  if (canvas_decision.use_scale_aware) {
-    out->input_cm_per_px_used = input_cm_per_px;
-  } else if (cm_per_px_actual > 0.0 && input_cm_per_px > 0.0) {
-    // A scale was requested but would have overflowed the canvas -- fall back, and say so
-    // (ref_fix.md F18), rather than silently reverting to the plain letterbox.
-    out->clamped_to_letterbox = true;
-  }
-
   RgbImage lb;
-  if (canvas_decision.use_scale_aware) {
-    scale = canvas_decision.scale;
-    lb = place_at_scale(img, cap.imgsz, cap.imgsz, cap.letterbox_color, scale, &pad_left, &pad_top);
+
+  if (cap.input_scale_mode == SegmentationInputScaleMode::kNormalizeFirst) {
+    // docs/fix-phase-4/1-normalize-before-segment.md (F60): normalize the photograph to
+    // `input_cm_per_px` (here meaning cm_per_px_target -- see run_segmentation's doc
+    // comment) BEFORE the canvas is composed, instead of resampling the mask afterwards.
+    // decide_normalize_first_composition() is the pure arithmetic (offsets, rotation, the
+    // F61 oversize fallback); this just executes it.
+    const NormalizeFirstComposition comp =
+        decide_normalize_first_composition(img.width, img.height, cm_per_px_actual, input_cm_per_px);
+    if (!comp.valid) {
+      if (error) *error = "normalize_first: missing or non-finite cm_per_px_actual/cm_per_px_target";
+      return false;
+    }
+    RgbImage normalized = resize_uniform(img, float(comp.resize_factor));
+    RgbImage content = comp.rotated_clockwise ? rotate90_cw(normalized) : std::move(normalized);
+    RgbImage canvas = place_at_offset(content, comp.canvas_w, comp.canvas_h, cap.letterbox_color,
+                                       comp.x_offset, comp.y_offset);
+
+    // The canvas is already at the target physical scale, so it only needs a plain
+    // whole-frame fit into the model's imgsz x imgsz input -- composing that fit with the
+    // content's offset on the canvas collapses to one scale + one translated pad, exactly
+    // the affine construct_pig_mask() / transform_mask_to_training_space() already expect
+    // (they read `letterbox_scale`/`letterbox_pad_left`/`letterbox_pad_top`/`orig_w`/
+    // `orig_h` generically): model_x = canvas_scale * (x_offset + content_x) + canvas_pad
+    //                               = canvas_scale * content_x + (canvas_scale * x_offset + canvas_pad)
+    float canvas_scale;
+    int canvas_pad_left, canvas_pad_top;
+    lb = letterbox(canvas, cap.imgsz, cap.imgsz, cap.letterbox_color, &canvas_scale, &canvas_pad_left,
+                    &canvas_pad_top);
+    scale = canvas_scale;
+    pad_left = int(std::round(canvas_scale * comp.x_offset)) + canvas_pad_left;
+    pad_top = int(std::round(canvas_scale * comp.y_offset)) + canvas_pad_top;
+
+    out->orig_w = content.width;
+    out->orig_h = content.height;
+    out->used_normalize_first = true;
+    out->was_rotated_clockwise = comp.rotated_clockwise;
+    out->canvas_w = comp.canvas_w;
+    out->canvas_h = comp.canvas_h;
+    out->canvas_w_requested = comp.canvas_w_requested;
+    out->canvas_h_requested = comp.canvas_h_requested;
+    out->input_cm_per_px_used = input_cm_per_px;
+    out->content_scale = float(comp.resize_factor);
   } else {
-    lb = letterbox(img, cap.imgsz, cap.imgsz, cap.letterbox_color, &scale, &pad_left, &pad_top);
+    // ref_fix.md F18: compose the canvas at a scale derived from the user-confirmed
+    // reference object, not from the image's own dimensions, when both are available and
+    // the requested scale fits the canvas -- see this function's doc comment
+    // (segmentation.h) and ref_fix.md section 2/F18 for why a plain whole-frame fit makes a
+    // typical phone photo's pig too small for the model to detect reliably.
+    const CanvasScaleDecision canvas_decision =
+        decide_canvas_scale(img.width, img.height, cm_per_px_actual, input_cm_per_px, cap.imgsz);
+    if (canvas_decision.use_scale_aware) {
+      out->input_cm_per_px_used = input_cm_per_px;
+    } else if (cm_per_px_actual > 0.0 && input_cm_per_px > 0.0) {
+      // A scale was requested but would have overflowed the canvas -- fall back, and say so
+      // (ref_fix.md F18), rather than silently reverting to the plain letterbox.
+      out->clamped_to_letterbox = true;
+    }
+
+    if (canvas_decision.use_scale_aware) {
+      scale = canvas_decision.scale;
+      lb = place_at_scale(img, cap.imgsz, cap.imgsz, cap.letterbox_color, scale, &pad_left, &pad_top);
+    } else {
+      lb = letterbox(img, cap.imgsz, cap.imgsz, cap.letterbox_color, &scale, &pad_left, &pad_top);
+    }
+    out->content_scale = scale;
   }
   out->letterbox_scale = scale;
   out->letterbox_pad_left = pad_left;
   out->letterbox_pad_top = pad_top;
   out->model_imgsz = cap.imgsz;
-  out->content_scale = scale;
 
   const float conf_threshold = conf_threshold_override > 0.0f ? conf_threshold_override
                                                                 : cap.conf_threshold;

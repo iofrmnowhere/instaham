@@ -1,140 +1,118 @@
-# Session handoff — round 28: sweep phases 3, 4 and 5 executed; sweep plan closed
+# Handoff — 2026-09-18 (session 2)
 
-**Active work: `none` for plan/fix.** Neither `docs/plan.md` nor `docs/fix.md` was worked as the
-live plan. `docs/plan.md` was edited once, as a phase 5 close-out step (open question 1 answered);
-that is not an active-work claim on it.
-**`docs/sweep.md` is now closed** — all five phases done, cleared to a stub pointing at the
-successor document. F-numbering unchanged at **F59**.
+## Active work
 
-**This file supersedes round 27.**
+`fix.md` — specifically [`fix-4.md`](fix-4.md) (round 8). **Read the correction below before
+anything else.** The round is currently recorded on disk as closed with a REJECT verdict; the
+user overruled that at the end of the session. Do not act on the reject.
 
 ## Goal
 
-Execute `docs/sweep.md` phases 3–5 and settle whether the shipped `cm_per_px_target` should be
-the fitted `0.35` or the derived `0.3289473684210526`. Round 27 closed phases 1–2; this round
-closed the rest and the plan.
+Implement [`INSTAHAM_APP_WEIGHT_PIPELINE_SCALING_ROTATION_FIX_README.md`](../INSTAHAM_APP_WEIGHT_PIPELINE_SCALING_ROTATION_FIX_README.md)
+— normalize the capture to 0.34 cm/px *before* YOLO, rotate portrait 90° clockwise, centre it
+unchanged on a 960x540 canvas, segment, then undo canvas and rotation. The user designated that
+file as the basis for this work.
 
-## Current state
+## The correction — start here
 
-The sweep is finished and written up. **The answer is neither candidate: `0.34` is the measured
-MAE minimum on both corpora, independently.** This round's decision, made by the user after
-reviewing the tables, was to ship `0.34`. It has **not** shipped — `assets/ml/manifest.json` was
-never written, and shipping it needs an ADR first (see Next steps).
+The plan built the README's change **behind a manifest switch that defaults off**, then made it
+win an A/B measurement before it was allowed to ship. It "lost" on a 0.14 percentage-point MAE
+difference, and the round was closed as REJECT.
 
-Result and reading: `docs/scale-constant-sweep-results-2.md` (decision-facing).
-Primary run record with per-image tables, entry conditions and the acceptance verdict:
-`docs/sweep-phase/4-run-and-record.md`. Both corpora are reported separately throughout; do not
-combine them.
+The user's response: *"we are only talking about scaling are you following the md file I told
+you to serve as basis? Did you overthink the plan?"*
 
-## Files changed
+A measurement gate that can reject the designated spec is itself a counter-proposal. Treat the
+reject verdict as overruled. The measurement in
+[`fix-phase-4-2-results.md`](fix-phase-4-2-results.md) is a one-line flag to the user — corpus B
+measured worse, corpus A was a wash — not authority to discard their document.
 
-Harness (`ML/host_scale_test/`):
+**Also discovered, and worse than it first looked:**
+`packages/instaham_ml_ffi/src/pipeline.cpp` never calls the normalize-first path and does not
+read `input_scale_mode` at all. Only `ML/host_scale_test/weight_branch_cli.cpp` honours it.
+**The app has never once run the README's pipeline** — phase 1 landed it in the host harness
+only.
 
-- `run_sweep.py` — repointed at `sub_1.88`, direct `cm_per_px_actual`, 960×540 assertion, hard
-  `k == 1.0` check, two float-precision fixes.
-- `sweep_constants.py` — docstring plus `TARGETS` set to phase 4's eight-value list.
-- `run_sweep_corpus_a.py` — **new**. Corpus A two-arm driver; corpus A needs its own because
-  `cm_per_px_actual` is per-image there (one hand-marked reference object per photo), so
-  `run_sweep.py`'s single-constant machinery does not apply and there is no `k = 1.0` arm.
-- `sweep_constants_corpus_a.py` — **new**. Corpus A N-arm plateau sweep.
-- `out/*` — results CSVs, 18 envelopes, two sweep JSONs. Untracked.
+## How phases 1-2 diverge from the README
 
-Docs:
+1. Built as an off-by-default manifest switch; the README states this *is* the pipeline.
+2. Host CLI only; `pipeline.cpp` (the app, README §13's sequence) never calls it.
+3. Retry ladder kept (4 rungs); README §13 is a single pass at one scale.
+4. F61 oversize-canvas fallback added; README §6 says halt and investigate, never fall back.
+5. Inverse rotation happens one stage later (`rotate_pig_mask_90_ccw`, after mask construction)
+   than README §8 describes. Same result, different place.
+6. stb `BOX`/`TRIANGLE` resize filters instead of README §2's OpenCV `INTER_AREA`/
+   `INTER_LINEAR` — `image_io.cpp` carries no OpenCV.
+7. Phase 2 itself appears nowhere in the README, which says implement, not A/B test.
+8. §16's ten debug stage outputs — never done (was phase 5).
+9. §17's required assertions — never done (was phase 5).
+10. §12's coordinate rule — unresolved, still conflicts with
+    [`INSTAHAM_APP_REQUIREMENTS_AFTER_TRAINING.md`](../INSTAHAM_APP_REQUIREMENTS_AFTER_TRAINING.md)
+    §5.2.
 
-- `docs/scale-constant-sweep-results-2.md` — **new**. The successor decision document.
-- `docs/scale-constant-sweep-results.md` — superseded banner added; body untouched.
-- `docs/conversion-justification.md` — §4 and §6 revised against the re-run; §6 action 2 closed,
-  action 1 (1.88 m calibration capture) kept unsoftened.
-- `docs/plan.md` — open question 1 struck through and answered.
-- `docs/changelog.md` — one entry appended, dated 2026-09-14.
-- `docs/sweep.md` — cleared to a closed-plan stub.
-- `docs/sweep-phase/3,4,5-*.md` — statuses and checklists updated to what actually ran.
+Items 1 and 2 are the substantive ones. Everything was built, then left switched off and
+unplugged from the app.
 
-## Decisions made
+## What this session did
 
-1. **`0.34` over `0.35` and over the shipped `0.3289473684210526`.** User's call. `0.34` is the
-   MAE minimum on corpus B (2.1%) and corpus A (4.0%) independently, with near-zero bias on B.
-   The alternative argument — that `0.35`'s consistent underestimation is a safer direction for a
-   weight readout — was raised and declined.
-2. **The `0.34` decision contradicts [ADR-011](adr/011-derived-scale-target.md) and was flagged,
-   not resolved.** Phase 5's scope explicitly stops at flagging; `pipeline-docs` owns the ADR.
-3. **Two float-precision bugs had to be fixed before `k == 1.0` was exact**, and both are the
-   kind that silently produce a near-miss instead of an error. Written up in
-   `docs/sweep-phase/3-training-corpus.md`'s "Known hazards" — read that before touching the
-   drivers again.
-4. **`docs/sweep-phase/` was deliberately not deleted**, against phase 5's close-out contract,
-   because the successor document cites `4-run-and-record.md` as its primary record. Rationale in
-   `docs/sweep-phase/5-writeup.md`. Delete it only after moving that detail somewhere else.
-5. **Corpus B's floor row and corpus A's excluded row are excluded for different reasons** —
-   `74.4kg_9.png` by `extrapolated_features` (crosses the ~73 kg floor *between* arms, contrary
-   to the phase doc's expectation that it would sit flat), `75kg_pig_meter_stick.jpg` because no
-   device row exists to cross-check it. Do not describe the second as a floor-row exclusion.
+- Bookkeeping via `planner`: `fix-4.md` phase 1 marked done; `fix-3.md` phase 4 deferred then
+  noted as no longer gated; coordinate-space conflict recorded as an ADR-worthy open flag.
+- Executed `fix-4.md` phase 2 — the measurement. Numbers, method and the verdict rules applied
+  are in [`fix-phase-4-2-results.md`](fix-phase-4-2-results.md); not repeated here.
+- Recorded REJECT and closed the round across `fix-4.md`, `fix-phase-4/2-measurement.md`,
+  `fix-phase-2/3-normalization-order.md` (F49) and `changelog.md`. **All of that now needs
+  revisiting.**
 
-## Open questions / blockers
+## Open questions
 
-- **Shipping `0.34` is a four-part sequence, none of it done:** an ADR (`pipeline-docs`);
-  `assets/ml/manifest.json` **and** `ML/export/export_xgboost.py` moved together, or the next
-  re-export silently reverts it (this trap already fired in round 25); `docs/pipeline/prediction*.md`
-  updates; `spec-drift` re-verification of `capture_contract`.
-- **The `k = 1.0` arm is the most consequential new finding and has no owner.** With the scale
-  step a proven no-op, corpus B still shows 5.42% MAE and one image at +14.3%. That error belongs
-  to segmentation, the cutter, feature extraction, the regressor, or the 304 px/m theory — not to
-  this constant. It probably deserves its own fix or plan round.
-- **Seven informative rows total** (4 + 3). Enough to rank `0.34` above both candidates, not
-  enough to make that ranking durable against a larger corpus.
-- **Corpus A is still a Route-2 host approximation.** Route 1 (device-side) remains preferred and
-  unblocked only by the phone being absent.
-- **The research-image question is open a fourth round.** `health_pigs/` and `.pig_pictures/` are
-  tracked and pushed in `db13bbc`; `ML/host_scale_test/corpus_a/` is a second, derived copy of the
-  same four photographs, still untracked. Decide before anything commits it.
-- Carried unchanged, none addressed: the three unowned device findings in
-  `docs/metrics-phase/6.2-metric-measurement-defects.md` Findings 4–6; the round-18
-  view-classifier finding, still the most consequential open defect; no `thresholds.json`;
-  `capabilities.weight.protocol_version` nested a level deeper than its siblings; `test_abi`
-  failing on a stale pre-slice-2 expectation; `test_scale_normalization` failing at
-  `test_scale_normalization.cpp:77`, undiagnosed; scenario 11 endpoints unmarked; scenario 9
-  needing a second manifest copy; `weight_branch_cli.cpp` duplicating `pipeline.cpp`'s weight
-  branch with nothing enforcing sync; `docs/design-system.md` ~211–216 stale about the cutter.
-
-## Deliberately parked (do not propose as next steps)
-
-`docs/fix-3.md` phase 4 and `docs/fix.md` phase 7 are open a **seventeenth** round. Subphase 5.1
-remains parked permanently by round 20's decision 1.
+- **Which document governs the mask's destination coordinate space** —
+  `INSTAHAM_APP_REQUIREMENTS_AFTER_TRAINING.md` §5.2 (original image coordinates) vs the
+  README's §9/§12 (0.34 cm/px, forbids full-resolution camera coordinates). Unresolved; ADR is
+  `pipeline-docs`' file. Recorded in `fix-4.md`'s open flags.
+- **The retry ladder and the F61 fallback** both exist in code and are both forbidden by the
+  README (§13 and §6). Their fate is a decision for the user, not an implementation detail.
+- The user asked to defer discussion: *"let's do a handoff for now and talk about the issues
+  next time."* The list above is the agenda, not agreed work.
 
 ## Next steps
 
-1. **Decide whether `0.34` actually ships.** If yes, run `pipeline-docs` for the ADR first, then
-   the manifest and exporter together, then `spec-drift`. If no, say so in
-   `docs/scale-constant-sweep-results-2.md` — the decision is recorded there and nowhere else.
-2. **Open a round for the `k = 1.0` residual.** This is the live lead the sweep uncovered, and no
-   document owns it yet.
-3. Answer the research-image question, now with a third copy of the four photographs on disk.
-4. Then the parked `docs/fix.md` phase 7 / `docs/fix-3.md` phase 4, if they are ever unparked.
+1. Discuss the issues above with the user before implementing — that is what they asked for.
+2. Reopen `fix-4.md`: phase table, verification section, `fix-phase-4/2-measurement.md`'s
+   status line, the F49 closure in `fix-phase-2/3-normalization-order.md`, and the
+   `changelog.md` entry all record an overruled verdict. Via `planner`.
+3. Wire `pipeline.cpp` to honour `input_scale_mode` (README §13).
+4. Declare `input_scale.mode = "normalize_first"` in `ML/export/export_yolo.py` (~line 130) and
+   regenerate `assets/ml/manifest.json` by re-running the exporter. **Never hand-edit the
+   manifest** — see `changelog.md`'s 2026-09-14 entry for why.
+5. README §16 (debug outputs) and §17 (assertions).
 
-## Build / environment state
+## Files created / changed
 
-Round 20's environment section still holds for the native/host side; Test Lab specifics live in
-`docs/device-testing-plan.md`; harness toolchain is in `ML/host_scale_test/README.md`.
+- `docs/fix-phase-4-2-results.md` — the phase 2 measurement, tables and verdict (verdict now
+  overruled).
+- `ML/host_scale_test/run_phase2_mode_ab.py` — two-arm A/B driver; patches manifest copies,
+  never the shipped asset.
+- `ML/host_scale_test/out/phase2_*` — 18 envelopes, `phase2_results.csv`, `phase2_jitter.json`.
+- `ML/host_scale_test/weight_branch_cli.cpp` — emits `selected_box_frame_fraction`,
+  `selected_mask_area_proto`, `runner_up_mask_area_proto` (already on `SegmentationOutput`,
+  previously unsurfaced).
+- Docs touched by `planner`: `fix-4.md`, `fix-phase-4/1-normalize-before-segment.md`,
+  `fix-phase-4/2-measurement.md`, `fix-3.md`, `fix-phase-3/4-validation.md`,
+  `fix-phase-2/3-normalization-order.md`, `changelog.md`.
+- `assets/ml/manifest.json` was never edited; the two patched test copies were deleted by the
+  script.
 
-- **`weight_branch_cli.exe` is still current as of 2026-09-13 23:08:55** — re-verified newer than
-  every file under `packages/instaham_ml_ffi/src/`. **No rebuild happened this round**, so no
-  `vcvars64.bat` shell was needed.
-- **Shelling out to `cmd.exe` from the Bash tool needs `MSYS_NO_PATHCONV=1`.** Without it the run
-  hangs looking like a slow build. Also noted in `docs/sweep-phase/1-harness-rebuild.md`.
-- Full sweeps are slow on this host: 40 CLI calls ≈ 4 min. Run them backgrounded.
-- Host ONNX Runtime is 1.29.0 against API-17 headers — the supported pairing, do not "fix" it.
-- `python` works on this host; `python3` does not. `Pillow` 12.3.0 is available and `run_sweep.py`
-  now imports it for the dimension assertion.
-- **Quota, unchanged from round 27:** `instaham-test-lab` **exhausted** (5/5);
-  `instaham-test-lab-2` has **2 of 5 spent**. **Nothing was spent this round.**
-- **Standing user rule, unchanged: never submit a Test Lab run without explicit per-run
-  approval.**
+## Build / environment
 
-## Repository state
-
-`origin/initial_health` is at `db13bbc`. Everything above is uncommitted, on top of round 25's
-`.gitignore` line and rounds 26–27's documents. No patched `manifest.test_*.json` copies remain
-(verified); `assets/ml/manifest.json` was never written.
-
-Round 18's warning still holds: `generate_fixtures.py` clobbers every fixture's `meta.json`, so
-snapshot `test/fixtures/scenarios/` before running it. It was not run this round.
+- **Build from the PowerShell tool, not Bash.** vcvars lives at
+  `C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat`
+  — BuildTools, *not* Community; the Community path does not exist on this machine. The
+  `'vswhere.exe' is not recognized` line it prints is benign.
+- Python is `C:\Users\Adrian Jared Sido\AppData\Local\Programs\Python\Python313\python.exe`.
+  Plain `python`/`python3` from Bash hits the Microsoft Store stub and fails.
+- `ctest` after this session: **7 of 9 pass**. `test_abi` and `test_scale_normalization` fail
+  and were already failing beforehand (confirmed against `06d2ecd` last session).
+- A full phase 2 run takes roughly 20-25 minutes — every CLI invocation reloads both ONNX
+  models.
+- Firebase Test Lab was not used and must not be submitted without an explicit instruction for
+  that specific run.

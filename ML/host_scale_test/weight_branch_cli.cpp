@@ -249,36 +249,77 @@ int main(int argc, char** argv) {
   bool gates_would_have_withheld = false;
   json gates_would_have_withheld_reasons = json::array();
 
-  // ---- step 3: segmentation with the retry ladder, plus the letterbox fallback --------
+  // ---- step 3: segmentation -- either the canvas_scale retry ladder + letterbox fallback,
+  // or (docs/fix-phase-4/1-normalize-before-segment.md) a single normalize_first attempt --
+  // selected by the manifest, not this CLI, so this harness runs exactly what the manifest
+  // declares.
+  const bool normalize_first = manifest.segmentation.input_scale_mode ==
+                                SegmentationInputScaleMode::kNormalizeFirst;
   const bool scale_aware_requested =
-      std::isfinite(cm_per_px_actual) && cm_per_px_actual > 0.0 &&
+      !normalize_first && std::isfinite(cm_per_px_actual) && cm_per_px_actual > 0.0 &&
       manifest.segmentation.input_cm_per_px > 0.0;
 
-  std::vector<Attempt> attempts;
-  if (scale_aware_requested) {
-    for (double m : manifest.segmentation.scale_ladder_multipliers) attempts.push_back({m, 0.0f});
-    if (manifest.segmentation.retry_conf_threshold > 0.0f) {
-      for (double m : manifest.segmentation.scale_ladder_multipliers) {
-        attempts.push_back({m, manifest.segmentation.retry_conf_threshold});
+  LadderResult ladder;
+  std::string canvas_mode;
+  bool force_k_one = false;
+
+  if (normalize_first) {
+    // F60: one attempt -- the physical scale is fixed at manifest.weight.cm_per_px_target
+    // by construction, so there is no ladder rung to try (docs/fix-phase-4/1's "the retry
+    // ladder ... does not apply to the pig's physical scale" -- widening the ladder to the
+    // canvas-size decision instead is deferred past this phase).
+    canvas_mode = "normalize_first";
+    if (!std::isfinite(cm_per_px_actual) || cm_per_px_actual <= 0.0 ||
+        manifest.weight.cm_per_px_target <= 0.0) {
+      ladder.last_error = "normalize_first requires cm_per_px_actual and manifest.weight.cm_per_px_target";
+    } else {
+      stages::SegmentationOutput seg;
+      std::string seg_error;
+      const bool ok = stages::run_segmentation(&seg_runner, manifest.segmentation, image_path,
+                                                cm_per_px_actual, manifest.weight.cm_per_px_target,
+                                                /*conf_threshold_override=*/0.0f, &seg, &seg_error);
+      if (!ok) {
+        ladder.last_error = seg_error;
+      } else if (seg.has_detection) {
+        ladder.any_detection = true;
+        stages::PigMask raw_mask = stages::construct_pig_mask(seg);
+        stages::PigMask mask = stages::rotate_pig_mask_90_ccw(raw_mask, seg.was_rotated_clockwise);
+        if (!mask.empty()) {
+          ladder.best_diag = mask_diagonal_fraction(mask);
+          ladder.selected_rung = 0;
+          ladder.seg_output = seg;
+          ladder.pig_mask = mask;
+          force_k_one = true;  // F60: the photograph was already normalized to cm_per_px_target
+        }
       }
     }
   } else {
-    attempts.push_back({0.0, 0.0f});
-  }
+    std::vector<Attempt> attempts;
+    if (scale_aware_requested) {
+      for (double m : manifest.segmentation.scale_ladder_multipliers) attempts.push_back({m, 0.0f});
+      if (manifest.segmentation.retry_conf_threshold > 0.0f) {
+        for (double m : manifest.segmentation.scale_ladder_multipliers) {
+          attempts.push_back({m, manifest.segmentation.retry_conf_threshold});
+        }
+      }
+    } else {
+      attempts.push_back({0.0, 0.0f});
+    }
 
-  LadderResult ladder = run_ladder(&seg_runner, manifest.segmentation, manifest.weight, image_path,
-                                    cm_per_px_actual, scale_aware_requested, attempts);
-  std::string canvas_mode = scale_aware_requested ? "scale_aware" : "letterbox_fallback";
-
-  // Phase 2 plan step 3: if scale-aware composition never got a detection at all, retry
-  // once with the plain whole-frame letterbox before giving up -- this is a deliberate
-  // deviation from pipeline.cpp (which has no such fallback), added because these 960x540
-  // PIGRGB images are smaller than the phone captures input_cm_per_px was tuned for.
-  if (scale_aware_requested && !ladder.any_detection) {
-    std::vector<Attempt> fallback_attempts = {{0.0, 0.0f}};
     ladder = run_ladder(&seg_runner, manifest.segmentation, manifest.weight, image_path,
-                         cm_per_px_actual, /*scale_aware=*/false, fallback_attempts);
-    canvas_mode = "letterbox_fallback";
+                         cm_per_px_actual, scale_aware_requested, attempts);
+    canvas_mode = scale_aware_requested ? "scale_aware" : "letterbox_fallback";
+
+    // Phase 2 plan step 3: if scale-aware composition never got a detection at all, retry
+    // once with the plain whole-frame letterbox before giving up -- this is a deliberate
+    // deviation from pipeline.cpp (which has no such fallback), added because these 960x540
+    // PIGRGB images are smaller than the phone captures input_cm_per_px was tuned for.
+    if (scale_aware_requested && !ladder.any_detection) {
+      std::vector<Attempt> fallback_attempts = {{0.0, 0.0f}};
+      ladder = run_ladder(&seg_runner, manifest.segmentation, manifest.weight, image_path,
+                           cm_per_px_actual, /*scale_aware=*/false, fallback_attempts);
+      canvas_mode = "letterbox_fallback";
+    }
   }
   envelope["canvas_mode"] = canvas_mode;
 
@@ -301,9 +342,24 @@ int main(int argc, char** argv) {
   envelope["clamped_to_letterbox"] = seg_output.clamped_to_letterbox;
   envelope["seg_conf"] = seg_output.box.conf;
   envelope["candidates_kept"] = seg_output.candidates_kept;
+  // docs/fix-phase-4/2-measurement.md: near-tie selection visibility, requested by the phase
+  // 2 measurement plan.
+  envelope["selected_box_frame_fraction"] = seg_output.selected_box_frame_fraction;
+  envelope["selected_mask_area_proto"] = seg_output.selected_mask_area_proto;
+  envelope["runner_up_mask_area_proto"] = seg_output.runner_up_mask_area_proto;
   envelope["mask_w"] = pig_mask.width;
   envelope["mask_h"] = pig_mask.height;
   envelope["mask_area_px"] = pig_mask.area_px;
+  // docs/fix-phase-4/1-normalize-before-segment.md (F61): the canvas actually used, so an
+  // oversize normalize_first canvas is visible in the envelope without a code read.
+  envelope["used_normalize_first"] = seg_output.used_normalize_first;
+  if (seg_output.used_normalize_first) {
+    envelope["was_rotated_clockwise"] = seg_output.was_rotated_clockwise;
+    envelope["canvas_w"] = seg_output.canvas_w;
+    envelope["canvas_h"] = seg_output.canvas_h;
+    envelope["canvas_w_requested"] = seg_output.canvas_w_requested;
+    envelope["canvas_h_requested"] = seg_output.canvas_h_requested;
+  }
 
   // ---- step 4: mask diagonal gate (recorded, not enforced -- see file header) ---------
   const double mask_diag_fraction = mask_diagonal_fraction(pig_mask);
@@ -325,7 +381,13 @@ int main(int argc, char** argv) {
   } else if (!std::isfinite(cm_per_px_actual) || cm_per_px_actual <= 0.0) {
     scale_failure_reason = "reference_object_not_confirmed";
   } else {
-    k = cm_per_px_actual / manifest.weight.cm_per_px_target;
+    // docs/fix-phase-4/1-normalize-before-segment.md (F60): on the normalize_first path the
+    // photograph was already resampled to manifest.weight.cm_per_px_target before the
+    // segmenter ran, so the mask is already in the training pixel space -- k is 1.0 by
+    // construction, not computed from cm_per_px_actual (which would double-apply the
+    // scale). transform_mask_to_training_space(seg_output, 1.0) then becomes the no-op
+    // crop-back construct_pig_mask() already did.
+    k = force_k_one ? 1.0 : cm_per_px_actual / manifest.weight.cm_per_px_target;
     const double capture_scale = std::sqrt(double(pig_mask.width) * double(pig_mask.height));
     const double training_scale = std::sqrt(double(manifest.weight.training_frame_w) *
                                              double(manifest.weight.training_frame_h));
@@ -363,6 +425,13 @@ int main(int argc, char** argv) {
   const stages::PigMask* mask_for_cutter = &pig_mask;
   if (scale_ok) {
     scaled_mask = stages::transform_mask_to_training_space(seg_output, k);
+    // F60: transform_mask_to_training_space crops back into seg_output's own coordinate
+    // space, which on the normalize_first path is still the ROTATED content (the same
+    // space construct_pig_mask() produced above) -- undo the rotation here too, exactly as
+    // `pig_mask` already was.
+    if (force_k_one) {
+      scaled_mask = stages::rotate_pig_mask_90_ccw(scaled_mask, seg_output.was_rotated_clockwise);
+    }
     if (!scaled_mask.empty()) {
       mask_for_cutter = &scaled_mask;
     } else {

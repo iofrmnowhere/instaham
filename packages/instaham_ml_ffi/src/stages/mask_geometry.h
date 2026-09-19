@@ -73,6 +73,34 @@ inline long long cropped_mask_area(const std::vector<float>& coeffs, const std::
   return area;
 }
 
+// docs/fix-phase-4/1-normalize-before-segment.md (F60): rotates a single-channel, row-major
+// uint8 raster (a PigMask's pixels, or any same-shaped array) 90 degrees. Used to undo the
+// normalize_first canvas path's pre-model rotation once the model's mask has been cropped
+// back into the normalized image's own coordinate space (which is still in the ROTATED
+// orientation at that point). Pure array math, OpenCV-free, matching this header's existing
+// pattern -- see test_segmentation_canvas.cpp's round-trip test. The output is
+// h x w (dimensions swapped), matching decide_normalize_first_composition()'s
+// normalized_w/normalized_h <-> content_w/content_h swap.
+inline std::vector<uint8_t> rotate90_cw(const std::vector<uint8_t>& src, int w, int h) {
+  std::vector<uint8_t> dst(size_t(w) * size_t(h));
+  for (int y = 0; y < h; ++y) {
+    for (int x = 0; x < w; ++x) {
+      dst[size_t(x) * h + (h - 1 - y)] = src[size_t(y) * w + x];
+    }
+  }
+  return dst;
+}
+
+inline std::vector<uint8_t> rotate90_ccw(const std::vector<uint8_t>& src, int w, int h) {
+  std::vector<uint8_t> dst(size_t(w) * size_t(h));
+  for (int y = 0; y < h; ++y) {
+    for (int x = 0; x < w; ++x) {
+      dst[size_t(w - 1 - x) * h + y] = src[size_t(y) * w + x];
+    }
+  }
+  return dst;
+}
+
 }  // namespace stages
 }  // namespace instaham_ml
 

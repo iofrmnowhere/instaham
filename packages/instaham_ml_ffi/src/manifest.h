@@ -29,6 +29,17 @@ struct ClassifierCapability {
   std::vector<std::string> class_names;  // index -> name, built from classes.json
 };
 
+// docs/fix-phase-4/1-normalize-before-segment.md (F60): which of the two ways
+// run_segmentation may compose the model's imgsz x imgsz input canvas. `kCanvasScale` is the
+// shipped round-4 behaviour (canvas_scale.h's decide_canvas_scale(), whole-frame letterbox on
+// fallback). `kNormalizeFirst` resizes the photograph to WeightCapability::cm_per_px_target
+// BEFORE the canvas is composed, per
+// INSTAHAM_APP_WEIGHT_PIPELINE_SCALING_ROTATION_FIX_README.md sections 2-8 -- see
+// normalize_first_scale.h's decide_normalize_first_composition(). Defaults to kCanvasScale so
+// an older manifest, or one that never declares `input_scale.mode`, segments exactly as it
+// always has.
+enum class SegmentationInputScaleMode { kCanvasScale, kNormalizeFirst };
+
 struct SegmentationCapability {
   bool available = false;
   std::string model_path;
@@ -59,6 +70,9 @@ struct SegmentationCapability {
   // plausible mask, retry the same ladder at this lower confidence. 0.0 (default) disables
   // the retry pass entirely rather than silently lowering the bar.
   float retry_conf_threshold = 0.0f;
+
+  // docs/fix-phase-4/1-normalize-before-segment.md: see SegmentationInputScaleMode above.
+  SegmentationInputScaleMode input_scale_mode = SegmentationInputScaleMode::kCanvasScale;
 };
 
 // ML_implementation_plan.md revision 7, section 8 / docs/plan-phase/3-manifest-pipeline.md:

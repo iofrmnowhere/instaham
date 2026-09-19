@@ -1,6 +1,14 @@
 # Phase 4 — Validation: jitter, parity, and the on-device rebuild
 
-Status: not started
+Status: deferred 2026-09-18, no longer gated
+
+Deferred, not abandoned. The off-device jitter measurement was taken in phase 3; what remains is
+the on-device F53 re-mark and the full per-image table. [`../fix-4.md`](../fix-4.md) phase 2 has
+since rejected its normalize-first composition path on host measurement
+([`../fix-phase-4-2-results.md`](../fix-phase-4-2-results.md)) without changing what ships, so
+the reason this phase deferred -- risk of spending device measurements on a path that might not
+survive that gate -- no longer applies. This phase is still deferred because it was left that
+way, not because anything still blocks it; resume it on its own terms.
 
 ## Symptom
 

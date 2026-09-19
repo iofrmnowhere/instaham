@@ -70,6 +70,16 @@ PigMask scale_mask_to_training_space(const PigMask& mask, double k);
 // (docs/fix-phase-3/3-pipeline-rewire.md).
 PigMask transform_mask_to_training_space(const SegmentationOutput& seg, double k);
 
+// docs/fix-phase-4/1-normalize-before-segment.md (F60): undoes the normalize_first canvas
+// path's pre-model 90-degree clockwise rotation (SegmentationOutput::was_rotated_clockwise),
+// once `mask` has already been cropped back into the normalized image's own coordinate
+// space by construct_pig_mask()/transform_mask_to_training_space() -- at that point it is a
+// mask of the ROTATED content, and this restores it to the un-rotated normalized image's
+// orientation (width/height swapped back). A no-op copy of `mask` when
+// `was_rotated_clockwise` is false. Uses mask_geometry.h's rotate90_ccw(), the tested
+// inverse of the rotate90_cw() applied to the RGB image before the model ran.
+PigMask rotate_pig_mask_90_ccw(const PigMask& mask, bool was_rotated_clockwise);
+
 // clean_binary_mask() / largest_component_fill(): ports of
 // ML.pipeline.construction.clean_binary_mask / _largest_component_fill. Used by
 // stages::cutter (internally, on later work) and stages::feature_calculation, exactly as
