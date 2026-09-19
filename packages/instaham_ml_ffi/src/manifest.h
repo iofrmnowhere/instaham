@@ -29,17 +29,6 @@ struct ClassifierCapability {
   std::vector<std::string> class_names;  // index -> name, built from classes.json
 };
 
-// docs/fix-phase-4/1-normalize-before-segment.md (F60): which of the two ways
-// run_segmentation may compose the model's imgsz x imgsz input canvas. `kCanvasScale` is the
-// shipped round-4 behaviour (canvas_scale.h's decide_canvas_scale(), whole-frame letterbox on
-// fallback). `kNormalizeFirst` resizes the photograph to WeightCapability::cm_per_px_target
-// BEFORE the canvas is composed, per
-// INSTAHAM_APP_WEIGHT_PIPELINE_SCALING_ROTATION_FIX_README.md sections 2-8 -- see
-// normalize_first_scale.h's decide_normalize_first_composition(). Defaults to kCanvasScale so
-// an older manifest, or one that never declares `input_scale.mode`, segments exactly as it
-// always has.
-enum class SegmentationInputScaleMode { kCanvasScale, kNormalizeFirst };
-
 struct SegmentationCapability {
   bool available = false;
   std::string model_path;
@@ -50,29 +39,24 @@ struct SegmentationCapability {
   float iou_threshold = 0.7f;
   std::string protocol_version;
 
-  // ref_fix.md F18: centimetres one 640x640-canvas pixel should span, measured against the
-  // three ground-truth photos in .pig_pictures/ (section 2, F18) -- the segmenter does not
-  // reliably detect a pig at the apparent size a plain whole-frame letterbox produces for a
-  // typical 2250x3000 phone capture (roughly 220x400px, well below what the model responds
-  // to; section 1.3/1.4). 0.0 (the default, and what an older manifest fragment carries)
-  // disables scale-aware composition and falls back to the plain fit-to-canvas letterbox
-  // this always used -- the only behaviour available when no cm_per_px_actual exists yet
-  // (health_only route, or no reference marked: AGENTS.md rule 7 forbids inventing one).
+  // ref_fix.md F18: centimetres one 640x640-canvas pixel should span. Round-4 legacy field,
+  // still read by pipeline.cpp's shipped (pre-phase-4) canvas_scale composition, which
+  // stages/segmentation.cpp no longer implements as of
+  // docs/fix-phase-4/1.1-readme-is-the-path.md -- pipeline.cpp's calls now run the
+  // normalize-first composition instead, with this value substituting for
+  // WeightCapability::cm_per_px_target until phase 4 rewires the call site. Do not build or
+  // sideload an APK from this state; phase 4 closes the gap.
   double input_cm_per_px = 0.0;
 
-  // ref_fix.md F19: multipliers of input_cm_per_px tried in order (by pipeline.cpp, not
-  // this file) until a mask meeting manifest.weight.min_mask_diagonal_fraction is found --
-  // the segmenter is measurably brittle at any single scale (section 1.4's 118kg row), so
-  // one constant is not enough. {1.0} (the default) means "no ladder, one attempt".
+  // ref_fix.md F19: multipliers of input_cm_per_px, still read by pipeline.cpp's
+  // not-yet-rewired ladder loop (docs/fix-phase-4/4-app-wiring.md). README section 13 is a
+  // single pass; the host harness (ML/host_scale_test/weight_branch_cli.cpp) no longer uses
+  // this field as of phase 1.1. {1.0} (the default) means "no ladder, one attempt".
   std::vector<double> scale_ladder_multipliers = {1.0};
 
-  // ref_fix.md F19: once every ladder rung has been tried at conf_threshold with no
-  // plausible mask, retry the same ladder at this lower confidence. 0.0 (default) disables
-  // the retry pass entirely rather than silently lowering the bar.
+  // ref_fix.md F19, same not-yet-rewired pipeline.cpp caller as above. 0.0 (default)
+  // disables the retry pass entirely rather than silently lowering the bar.
   float retry_conf_threshold = 0.0f;
-
-  // docs/fix-phase-4/1-normalize-before-segment.md: see SegmentationInputScaleMode above.
-  SegmentationInputScaleMode input_scale_mode = SegmentationInputScaleMode::kCanvasScale;
 };
 
 // ML_implementation_plan.md revision 7, section 8 / docs/plan-phase/3-manifest-pipeline.md:

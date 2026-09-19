@@ -51,37 +51,44 @@ struct SegmentationOutput {
 
   // ref_fix.md F18/F20: how the 640x640 canvas for THIS call was actually composed, so a
   // future scale bug is visible in the envelope without a code read, the way F15 did for
-  // mask selection. `content_scale` is the resize factor applied to the source image
-  // before padding (equals `letterbox_scale` above always -- kept separate so a caller
-  // never needs to reason about which field means what under which mode).
-  // `input_cm_per_px_used` is the manifest input_cm_per_px x ladder multiplier this
-  // attempt requested; 0.0 when scale-aware composition was not requested at all (no
-  // reference marked, or manifest.segmentation.input_cm_per_px == 0.0 -- an older
-  // manifest). `clamped_to_letterbox` is true when a requested scale-aware composition
-  // would have overflowed the canvas and this call fell back to the plain whole-frame fit
-  // instead (never silently -- see run_segmentation's doc comment).
+  // mask selection. `content_scale` is the resize factor applied before padding (equals
+  // `letterbox_scale` above always -- kept separate so a caller never needs to reason about
+  // which field means what). `input_cm_per_px_used` is what this call was given for
+  // `cm_per_px_target`.
+  // `clamped_to_letterbox` is a round-4 field from the withdrawn canvas_scale path
+  // (docs/fix-phase-4/1.1-readme-is-the-path.md); run_segmentation() no longer sets it and
+  // it reads permanently false. `pipeline.cpp` still reads it in its own (not yet rewired)
+  // envelope -- remove both sides together once phase 4 lands.
   double input_cm_per_px_used = 0.0;
   float content_scale = 1.0f;
   bool clamped_to_letterbox = false;
 
-  // docs/fix-phase-4/1-normalize-before-segment.md (F60/F61): set only when `cap` declares
-  // input_scale_mode == kNormalizeFirst. `used_normalize_first` says which composition
-  // actually ran this call (mirrors `cap.input_scale_mode`, but on the output rather than
-  // the input, so a caller reading only SegmentationOutput can tell). `orig_w`/`orig_h`
-  // above are, on this path, the ROTATED normalized content's dimensions -- not the
-  // captured photo's -- because that is the coordinate space construct_pig_mask() /
+  // docs/fix-phase-4/1.1-readme-is-the-path.md: this is now the only composition
+  // run_segmentation performs. `used_normalize_first` stays for one release as an
+  // always-true envelope field, so a stale build (still reporting `false`, or missing the
+  // field) is identifiable from an envelope alone without a code read. `orig_w`/`orig_h`
+  // above are the ROTATED normalized content's dimensions -- not the captured photo's --
+  // because that is the coordinate space construct_pig_mask() /
   // transform_mask_to_training_space() crop back into unchanged (see run_segmentation's doc
   // comment); `was_rotated_clockwise` says a caller must rotate the resulting PigMask 90
   // degrees counter-clockwise (stages::rotate_pig_mask_90_ccw) to undo that before the mask
-  // matches the normalized image's own (un-rotated) orientation. `canvas_w`/`canvas_h` are
-  // the canvas actually used; `canvas_w_requested`/`canvas_h_requested` (always 960x540 for
-  // now) are what the README specifies, so an oversize canvas (F61) is visible in the
-  // envelope without a code read, the way `clamped_to_letterbox` already is for the other
-  // path.
+  // matches the normalized image's own (un-rotated) orientation. `canvas_w`/`canvas_h` equal
+  // `canvas_w_requested`/`canvas_h_requested` (960x540) always -- phase 1.1 withdrew F61's
+  // enlargement fallback, so there is no longer a case where they differ.
   bool used_normalize_first = false;
   bool was_rotated_clockwise = false;
   int canvas_w = 0, canvas_h = 0;
   int canvas_w_requested = 0, canvas_h_requested = 0;
+
+  // docs/fix-phase-4/1.1-readme-is-the-path.md (F61): true when README section 6's fit
+  // invariant failed -- the normalized, rotated content did not fit the 960x540 canvas.
+  // `run_segmentation` returns false with this set; the caller must report a declared
+  // failure carrying `normalized_w`/`normalized_h` below and the 960x540 bound, and must
+  // never enlarge the canvas or shrink the content to force a fit. This is the one failure
+  // mode this stage predicts will fire on ordinary full-resolution phone captures -- see
+  // the parent fix document's open flags.
+  bool oversize = false;
+  int normalized_w = 0, normalized_h = 0;  // set when oversize, pre-rotation dimensions
 };
 
 // Runs the segmenter over `image_path`, decodes it, composes the 640x640 canvas, runs the
@@ -90,28 +97,26 @@ struct SegmentationOutput {
 // regardless). Returns false (with has_detection left false) on decode/inference failure
 // or when no detection survives -- never a fabricated instance.
 //
-// ref_fix.md F18: when `cm_per_px_actual` and `input_cm_per_px` are both > 0 and finite,
-// the canvas is composed at `content_scale = cm_per_px_actual / input_cm_per_px` via
-// place_at_scale() instead of the whole-frame-fit letterbox() -- so the pig's apparent
-// size in the model's input reflects its real-world size rather than the capture's pixel
-// resolution (section 1.3/1.4: a plain letterbox makes a typical phone photo's pig too
-// small in the model's input for it to detect reliably). If that scale would overflow the
-// 640x640 canvas, this call falls back to the plain letterbox and sets
-// `out->clamped_to_letterbox = true` rather than clipping content. Pass 0.0 for either
-// argument (no reference marked, or an older manifest with input_cm_per_px == 0.0) to
-// always use the plain letterbox, exactly as before F18.
+// docs/fix-phase-4/1.1-readme-is-the-path.md: `cm_per_px_actual` and `input_cm_per_px`
+// (read here as `cm_per_px_target`) must both be > 0 and finite -- this stage requires a
+// user-confirmed reference and a declared training scale, per AGENTS.md rule 7. Both
+// missing/invalid is a declared failure, never a plain-letterbox fallback (README section
+// 15 forbids treating this as optional). See run_segmentation's doc comment below for the
+// composition itself.
 //
-// `conf_threshold_override`: > 0 uses this instead of `cap.conf_threshold` -- ref_fix.md
-// F19's retry pass at a lower confidence after every scale-ladder rung has failed at the
-// manifest's normal threshold. <= 0 (the default) uses `cap.conf_threshold` unchanged.
+// `conf_threshold_override`: > 0 uses this instead of `cap.conf_threshold`. <= 0 (the
+// default) uses `cap.conf_threshold` unchanged. README section 13 is a single pass at one
+// scale; any retry ladder over this parameter is the caller's choice, not this stage's.
 //
-// docs/fix-phase-4/1-normalize-before-segment.md (F60): when `cap.input_scale_mode ==
-// kNormalizeFirst`, `input_cm_per_px` is instead read as `cm_per_px_target` (the weight
-// regressor's training scale, WeightCapability::cm_per_px_target) -- the caller passes
-// whichever value belongs to the active mode; the parameter is not duplicated because
-// exactly one of the two modes ever runs per call. `cm_per_px_actual` keeps its one meaning
-// (the user-confirmed reference object's measured cm/pixel) across both modes. See
-// SegmentationOutput::used_normalize_first for what this path additionally records.
+// docs/fix-phase-4/1.1-readme-is-the-path.md: `input_cm_per_px` is read as
+// `cm_per_px_target` (the weight regressor's training scale,
+// WeightCapability::cm_per_px_target) -- this is the only composition run_segmentation
+// performs, per INSTAHAM_APP_WEIGHT_PIPELINE_SCALING_ROTATION_FIX_README.md sections 2-8
+// and 13. `cm_per_px_actual` keeps its one meaning (the user-confirmed reference object's
+// measured cm/pixel). If the normalized, rotated content does not fit the 960x540 canvas,
+// this returns false with `out->oversize = true` (README section 6's halt) -- never an
+// enlarged canvas or a shrunk image. See SegmentationOutput::used_normalize_first and
+// ::oversize for what this path additionally records.
 bool run_segmentation(OnnxRunner* runner, const SegmentationCapability& cap,
                       const std::string& image_path, double cm_per_px_actual,
                       double input_cm_per_px, float conf_threshold_override,

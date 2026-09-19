@@ -144,12 +144,12 @@ std::vector<float> ordered_feature_vector(const std::vector<std::string>& order,
   return out;
 }
 
-// ---- one segmentation attempt, mirroring pipeline.cpp's ladder loop body -----------------
-struct Attempt {
-  double multiplier;
-  float conf_threshold;  // <= 0 means "use the manifest default"
-};
-
+// docs/fix-phase-4/1.1-readme-is-the-path.md: the round-4 retry ladder (`Attempt`,
+// `run_ladder`) was removed here. README section 13 is a single segmentation pass at one
+// scale, and stages::run_segmentation() has exactly one composition to run it with --
+// there is no ladder rung left to try. `LadderResult`'s name and shape are kept (one
+// result, `selected_rung` fixed at 0 on success) so the envelope fields below and the
+// callers that follow needed no further changes.
 struct LadderResult {
   bool any_detection = false;
   double best_diag = -1.0;
@@ -158,40 +158,6 @@ struct LadderResult {
   stages::PigMask pig_mask;
   std::string last_error;
 };
-
-LadderResult run_ladder(OnnxRunner* seg_runner, const SegmentationCapability& seg_cap,
-                         const WeightCapability& weight_cap, const std::string& image_path,
-                         double cm_per_px_actual_for_canvas, bool scale_aware,
-                         const std::vector<Attempt>& attempts) {
-  LadderResult result;
-  for (size_t i = 0; i < attempts.size() && result.best_diag < weight_cap.min_mask_diagonal_fraction;
-       ++i) {
-    stages::SegmentationOutput attempt_seg;
-    std::string seg_error;
-    const double input_cm_per_px =
-        scale_aware ? seg_cap.input_cm_per_px * attempts[i].multiplier : 0.0;
-    const double cm_per_px_actual = scale_aware ? cm_per_px_actual_for_canvas : 0.0;
-    const bool seg_ok = stages::run_segmentation(seg_runner, seg_cap, image_path, cm_per_px_actual,
-                                                  input_cm_per_px, attempts[i].conf_threshold,
-                                                  &attempt_seg, &seg_error);
-    if (!seg_ok) {
-      result.last_error = seg_error;
-      continue;
-    }
-    if (!attempt_seg.has_detection) continue;
-    result.any_detection = true;
-    stages::PigMask attempt_mask = stages::construct_pig_mask(attempt_seg);
-    if (attempt_mask.empty()) continue;
-    const double diag = mask_diagonal_fraction(attempt_mask);
-    if (diag > result.best_diag) {
-      result.best_diag = diag;
-      result.selected_rung = int(i);
-      result.seg_output = attempt_seg;
-      result.pig_mask = attempt_mask;
-    }
-  }
-  return result;
-}
 
 }  // namespace
 
@@ -249,79 +215,49 @@ int main(int argc, char** argv) {
   bool gates_would_have_withheld = false;
   json gates_would_have_withheld_reasons = json::array();
 
-  // ---- step 3: segmentation -- either the canvas_scale retry ladder + letterbox fallback,
-  // or (docs/fix-phase-4/1-normalize-before-segment.md) a single normalize_first attempt --
-  // selected by the manifest, not this CLI, so this harness runs exactly what the manifest
-  // declares.
-  const bool normalize_first = manifest.segmentation.input_scale_mode ==
-                                SegmentationInputScaleMode::kNormalizeFirst;
-  const bool scale_aware_requested =
-      !normalize_first && std::isfinite(cm_per_px_actual) && cm_per_px_actual > 0.0 &&
-      manifest.segmentation.input_cm_per_px > 0.0;
-
+  // ---- step 3: segmentation -- README section 13's single normalize-first pass. This CLI
+  // no longer has a mode to select: stages::run_segmentation() has exactly one composition
+  // (docs/fix-phase-4/1.1-readme-is-the-path.md), and the round-4 canvas_scale ladder and
+  // letterbox fallback that used to live in this function are gone with it.
   LadderResult ladder;
-  std::string canvas_mode;
+  const std::string canvas_mode = "normalize_first";
   bool force_k_one = false;
+  bool oversize = false;
 
-  if (normalize_first) {
-    // F60: one attempt -- the physical scale is fixed at manifest.weight.cm_per_px_target
-    // by construction, so there is no ladder rung to try (docs/fix-phase-4/1's "the retry
-    // ladder ... does not apply to the pig's physical scale" -- widening the ladder to the
-    // canvas-size decision instead is deferred past this phase).
-    canvas_mode = "normalize_first";
-    if (!std::isfinite(cm_per_px_actual) || cm_per_px_actual <= 0.0 ||
-        manifest.weight.cm_per_px_target <= 0.0) {
-      ladder.last_error = "normalize_first requires cm_per_px_actual and manifest.weight.cm_per_px_target";
-    } else {
-      stages::SegmentationOutput seg;
-      std::string seg_error;
-      const bool ok = stages::run_segmentation(&seg_runner, manifest.segmentation, image_path,
-                                                cm_per_px_actual, manifest.weight.cm_per_px_target,
-                                                /*conf_threshold_override=*/0.0f, &seg, &seg_error);
-      if (!ok) {
-        ladder.last_error = seg_error;
-      } else if (seg.has_detection) {
-        ladder.any_detection = true;
-        stages::PigMask raw_mask = stages::construct_pig_mask(seg);
-        stages::PigMask mask = stages::rotate_pig_mask_90_ccw(raw_mask, seg.was_rotated_clockwise);
-        if (!mask.empty()) {
-          ladder.best_diag = mask_diagonal_fraction(mask);
-          ladder.selected_rung = 0;
-          ladder.seg_output = seg;
-          ladder.pig_mask = mask;
-          force_k_one = true;  // F60: the photograph was already normalized to cm_per_px_target
-        }
-      }
-    }
+  if (!std::isfinite(cm_per_px_actual) || cm_per_px_actual <= 0.0 ||
+      manifest.weight.cm_per_px_target <= 0.0) {
+    ladder.last_error = "normalize_first requires cm_per_px_actual and manifest.weight.cm_per_px_target";
   } else {
-    std::vector<Attempt> attempts;
-    if (scale_aware_requested) {
-      for (double m : manifest.segmentation.scale_ladder_multipliers) attempts.push_back({m, 0.0f});
-      if (manifest.segmentation.retry_conf_threshold > 0.0f) {
-        for (double m : manifest.segmentation.scale_ladder_multipliers) {
-          attempts.push_back({m, manifest.segmentation.retry_conf_threshold});
-        }
+    stages::SegmentationOutput seg;
+    std::string seg_error;
+    const bool ok = stages::run_segmentation(&seg_runner, manifest.segmentation, image_path,
+                                              cm_per_px_actual, manifest.weight.cm_per_px_target,
+                                              /*conf_threshold_override=*/0.0f, &seg, &seg_error);
+    if (!ok) {
+      ladder.last_error = seg_error;
+      oversize = seg.oversize;  // README section 6 halt, not bad input -- report it distinctly
+      ladder.seg_output = seg;  // carries normalized_w/h and the requested bound either way
+    } else if (seg.has_detection) {
+      ladder.any_detection = true;
+      stages::PigMask raw_mask = stages::construct_pig_mask(seg);
+      stages::PigMask mask = stages::rotate_pig_mask_90_ccw(raw_mask, seg.was_rotated_clockwise);
+      if (!mask.empty()) {
+        ladder.best_diag = mask_diagonal_fraction(mask);
+        ladder.selected_rung = 0;
+        ladder.seg_output = seg;
+        ladder.pig_mask = mask;
+        force_k_one = true;  // F60: the photograph was already normalized to cm_per_px_target
       }
-    } else {
-      attempts.push_back({0.0, 0.0f});
-    }
-
-    ladder = run_ladder(&seg_runner, manifest.segmentation, manifest.weight, image_path,
-                         cm_per_px_actual, scale_aware_requested, attempts);
-    canvas_mode = scale_aware_requested ? "scale_aware" : "letterbox_fallback";
-
-    // Phase 2 plan step 3: if scale-aware composition never got a detection at all, retry
-    // once with the plain whole-frame letterbox before giving up -- this is a deliberate
-    // deviation from pipeline.cpp (which has no such fallback), added because these 960x540
-    // PIGRGB images are smaller than the phone captures input_cm_per_px was tuned for.
-    if (scale_aware_requested && !ladder.any_detection) {
-      std::vector<Attempt> fallback_attempts = {{0.0, 0.0f}};
-      ladder = run_ladder(&seg_runner, manifest.segmentation, manifest.weight, image_path,
-                           cm_per_px_actual, /*scale_aware=*/false, fallback_attempts);
-      canvas_mode = "letterbox_fallback";
     }
   }
   envelope["canvas_mode"] = canvas_mode;
+  envelope["oversize"] = oversize;
+  if (oversize) {
+    envelope["normalized_w"] = ladder.seg_output.normalized_w;
+    envelope["normalized_h"] = ladder.seg_output.normalized_h;
+    envelope["canvas_w_requested"] = ladder.seg_output.canvas_w_requested;
+    envelope["canvas_h_requested"] = ladder.seg_output.canvas_h_requested;
+  }
 
   if (ladder.best_diag < 0.0) {
     envelope["segmentation_status"] = ladder.any_detection ? "empty_mask" : "no_detection";

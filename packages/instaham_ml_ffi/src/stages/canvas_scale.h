@@ -7,51 +7,15 @@
 namespace instaham_ml {
 namespace stages {
 
-// ref_fix.md F18: decides whether stages::run_segmentation composes the model's input
-// canvas at a scale derived from the user-confirmed reference object (`content_scale =
-// cm_per_px_actual / input_cm_per_px`) or falls back to the plain whole-frame-fit
-// letterbox this always used. Factored out of segmentation.cpp, pure-array-math and
-// OpenCV/ORT-free, exactly the way F12 factored proto_box_bounds()/cropped_mask_area()
-// into mask_geometry.h -- so this decision is unit-testable (test_segmentation_canvas.cpp)
-// without a real model or photo.
-struct CanvasScaleDecision {
-  bool use_scale_aware = false;  // false -> caller must fall back to letterbox()
-  float scale = 0.0f;            // valid only when use_scale_aware
-};
+// docs/fix-phase-4/1.1-readme-is-the-path.md: `decide_canvas_scale()` and
+// `CanvasScaleDecision`, the round-4 scale-aware canvas composition this file used to also
+// hold, were removed here. They served only the `kCanvasScale` branch
+// stages/segmentation.cpp no longer implements; nothing else called them directly.
+// `pipeline.cpp`'s not-yet-rewired call site (docs/fix-phase-4/4-app-wiring.md) calls
+// run_segmentation() itself, so it now runs the normalize-first composition below with
+// its ladder multipliers substituting for cm_per_px_target until phase 4 fixes that.
 
-// `src_w`/`src_h`: the decoded source image's dimensions. `cm_per_px_actual`: the
-// user-confirmed reference object's measured cm/pixel for this capture, or <= 0.0 when
-// none exists (AGENTS.md rule 7 -- never invented). `input_cm_per_px`: this attempt's
-// target canvas scale (manifest.segmentation.input_cm_per_px x a ref_fix.md F19 ladder
-// multiplier), or <= 0.0 when scale-aware composition was not requested (an older
-// manifest fragment). `canvas_size`: the model's square input side (cap.imgsz).
-//
-// Returns `use_scale_aware = false` whenever either input is missing/non-finite/non-
-// positive, OR the resulting content would overflow the canvas -- never a clipped or
-// distorted composition. The caller is responsible for falling back to letterbox() and
-// recording that fallback (SegmentationOutput::clamped_to_letterbox) in that case.
-inline CanvasScaleDecision decide_canvas_scale(int src_w, int src_h, double cm_per_px_actual,
-                                                double input_cm_per_px, int canvas_size) {
-  CanvasScaleDecision decision;
-  if (!(cm_per_px_actual > 0.0) || !std::isfinite(cm_per_px_actual) || !(input_cm_per_px > 0.0) ||
-      !std::isfinite(input_cm_per_px)) {
-    return decision;
-  }
-  const double content_scale = cm_per_px_actual / input_cm_per_px;
-  if (!(content_scale > 0.0) || !std::isfinite(content_scale)) {
-    return decision;
-  }
-  const int new_w = std::max(1, int(std::round(src_w * content_scale)));
-  const int new_h = std::max(1, int(std::round(src_h * content_scale)));
-  if (new_w > canvas_size || new_h > canvas_size) {
-    return decision;
-  }
-  decision.use_scale_aware = true;
-  decision.scale = float(content_scale);
-  return decision;
-}
-
-// docs/fix-phase-4/1-normalize-before-segment.md (F60/F61): the pure arithmetic behind the
+// docs/fix-phase-4/1.1-readme-is-the-path.md: the pure arithmetic behind the
 // SegmentationInputScaleMode::kNormalizeFirst path -- resize the source image so it is
 // exactly `cm_per_px_target` cm/pixel, rotate it 90 degrees clockwise when that leaves it
 // portrait (no dynamic head-direction inference: README section 4), then centre it on a
@@ -59,13 +23,14 @@ inline CanvasScaleDecision decide_canvas_scale(int src_w, int src_h, double cm_p
 // composition decision -- offsets, rotation, and the oversize fallback -- is unit-testable
 // (test_segmentation_canvas.cpp) without a model or a photograph.
 struct NormalizeFirstComposition {
-  bool valid = false;          // false -> caller must not use this decision (bad inputs)
+  bool valid = false;   // false -> caller must not use this decision (bad inputs, or oversize)
+  bool oversize = false;  // true -> valid is also false; README section 6's halt, not bad input
   double resize_factor = 0.0;  // cm_per_px_actual / cm_per_px_target
   int normalized_w = 0, normalized_h = 0;  // after the uniform resize, before rotation
   bool rotated_clockwise = false;
   int content_w = 0, content_h = 0;  // normalized_w/h, swapped if rotated_clockwise
-  int canvas_w_requested = 960, canvas_h_requested = 540;  // README section 6's base canvas
-  int canvas_w = 0, canvas_h = 0;                          // actually used
+  int canvas_w_requested = 960, canvas_h_requested = 540;  // README section 6's canvas
+  int canvas_w = 0, canvas_h = 0;  // == requested; no enlargement (F61 fallback withdrawn)
   int x_offset = 0, y_offset = 0;  // content's top-left corner on the canvas
 };
 
@@ -76,13 +41,14 @@ struct NormalizeFirstComposition {
 // trained at (<= 0.0 -- an older manifest fragment with no weight capability -- also
 // returns `valid = false`; there is no implicit fallback, matching AGENTS.md rule 8).
 //
-// F61: README section 6 asserts the normalized image always fits the 960x540 canvas and
-// says to halt otherwise; a 4032x3024 field capture (.pig_pictures/, cm_per_px_actual ~=
-// 0.0644) normalizes to 764x573, which does not. Rather than halt, this enlarges the canvas
-// to the smallest 16:9, multiple-of-32 box that contains the content -- preserving the
-// physical scale the invariant exists to protect -- and never shrinks the content to force
-// a fit (the one thing the README is unambiguously right to forbid: it would silently break
-// cm_per_px_target).
+// docs/fix-phase-4/1.1-readme-is-the-path.md (F61, superseding phase 1's enlargement):
+// README section 6 requires the normalized, rotated content fit the 960x540 canvas and
+// says to halt otherwise. That halt is shipped here as `valid = false` with `oversize =
+// true` -- the caller (stages/segmentation.cpp) turns that into a declared weight-branch
+// failure carrying `normalized_w`/`normalized_h` and the 960x540 bound, never a silent
+// resize or an enlarged canvas. Content is never shrunk to force a fit either way -- the
+// one thing the README is unambiguously right to forbid, since it would silently break
+// cm_per_px_target.
 inline NormalizeFirstComposition decide_normalize_first_composition(int src_w, int src_h,
                                                                       double cm_per_px_actual,
                                                                       double cm_per_px_target) {
@@ -100,25 +66,16 @@ inline NormalizeFirstComposition decide_normalize_first_composition(int src_w, i
   c.content_w = c.rotated_clockwise ? c.normalized_h : c.normalized_w;
   c.content_h = c.rotated_clockwise ? c.normalized_w : c.normalized_h;
 
-  // README section 6's base 960x540 canvas when the content fits it exactly (960x540 is
-  // itself the requirement -- it is not a multiple of 32, so it is never "rounded" when it
-  // already suffices). Only when the content does not fit does F61's multiple-of-32, 16:9
-  // enlargement kick in, since that canvas then feeds a model that letterboxes it again
-  // (stride-friendly padding matters there, not for the unmodified base case).
-  int canvas_w = c.canvas_w_requested;
-  int canvas_h = c.canvas_h_requested;
+  const int canvas_w = c.canvas_w_requested;
+  const int canvas_h = c.canvas_h_requested;
   if (c.content_w > canvas_w || c.content_h > canvas_h) {
-    const int needed_w =
-        std::max(c.content_w, int(std::ceil(c.content_h * 16.0 / 9.0)));
-    canvas_w = ((needed_w + 31) / 32) * 32;
-    canvas_h = ((int(std::ceil(canvas_w * 9.0 / 16.0)) + 31) / 32) * 32;
-    // Integer rounding of the 16:9 ratio can theoretically shave a pixel off either
-    // dimension; widen by one more 32-px step until both genuinely fit rather than trust
-    // the rounding (this loop runs at most once or twice in practice).
-    while (canvas_w < c.content_w || canvas_h < c.content_h) {
-      canvas_w += 32;
-      canvas_h = ((int(std::ceil(canvas_w * 9.0 / 16.0)) + 31) / 32) * 32;
-    }
+    // README section 6's fit invariant failed. Halt: no enlargement, no shrink, no
+    // composition. `canvas_w`/`canvas_h` stay at the requested 960x540 so the caller can
+    // report the bound the content was checked against.
+    c.canvas_w = canvas_w;
+    c.canvas_h = canvas_h;
+    c.oversize = true;
+    return c;
   }
   c.canvas_w = canvas_w;
   c.canvas_h = canvas_h;
