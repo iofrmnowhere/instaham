@@ -1,6 +1,6 @@
 # Phase 6 — Enforce capture orientation (portrait head-up, landscape head-right)
 
-Status: not started
+Status: done
 
 Parent: [`../fix-4.md`](../fix-4.md). Opened 2026-09-19 from the user's instruction. Closes F65.
 
@@ -79,6 +79,58 @@ cannot distinguish the state must still get the sentence.
 - If a schema change proves necessary: `dart run build_runner build --delete-conflicting-outputs`
   and a migration test for the version step.
 - Report the exact commands run and any that could not run.
+
+## Result (2026-09-22)
+
+**All five change points are in place.** Dart/UI only; no native change, and nothing in
+`stages/segmentation.cpp` learns about head direction.
+
+- **Tips list** (`capture_guidance_screen.dart`): both sentences added to the existing tips
+  contract, phrased for the orientation the phone is in.
+- **Live prompt** (`capture_screen.dart`): a new `CaptureOrientation` enum
+  (`lib/core/models/capture_orientation.dart`) carries the instruction and attestation text.
+  The in-camera banner is driven by `CameraController.value.deviceOrientation` via
+  `ValueListenableBuilder`, not `MediaQuery` — this is the live sensor reading the controller
+  already tracks internally, so it disagrees with rotation lock the same way the doc warned
+  `MediaQuery` would.
+- **Confirm step**: an unticked checkbox on the review screen, keyed to the *captured* image's
+  orientation (derived from its actual pixel dimensions via `CaptureOrientation.fromDimensions`,
+  matching README §4's own `normalizedHeight > normalizedWidth` test) rather than the live
+  sensor reading at review time, since the phone may have rotated after the shutter fired. The
+  "Verify reference" button is disabled until it is checked; nothing pre-ticks it.
+- **Persistence**: `ScanRecords` gained two nullable/defaulted columns, `captureOrientation` and
+  `headOrientationAttested` — schemaVersion 4 → 5, migration step `from < 5`, Drift output
+  regenerated. `markCaptured` records the orientation at capture time; a new
+  `recordOrientationAttestation` records the confirm-step attestation once it happens
+  (attestation is necessarily later than the image itself). `CapturedImageResult` and
+  `CapturedImageEntity` both carry the same two fields, per the doc's instruction to extend the
+  existing capture record rather than build a second contract surface.
+- **No automatic check.** The rule is enforced by instruction and attestation only, as
+  specified — no head detector was added.
+
+**Verification run:**
+- `dart format` on all changed/new Dart files.
+- `flutter analyze` — clean (7 pre-existing unrelated issues elsewhere in the repo: `ffi`
+  dependency warnings under `model_and_cutter/`, one unused-field warning in generated FFI
+  bindings).
+- `flutter test test/core/database/app_database_test.dart` (8 tests, including a new
+  schemaVersion 4→5 migration test and a `markCaptured`/`recordOrientationAttestation` test) and
+  `flutter test test/core/models/capture_orientation_test.dart` (4 tests, prompt/attestation
+  text per orientation and the dimension→orientation derivation) — all pass.
+- **Fixed a fixture bug the schemaVersion bump exposed**, not a production migration bug: the
+  existing v3→v4 migration test only rolled `weight_results` back to v3 shape, leaving
+  `scan_records` at whatever the *current* schema was (`onCreate` always builds the live
+  schema). That was harmless while schemaVersion was 4, but once it became 5 the replayed
+  `from < 5` step hit a duplicate-column error against a table that was never actually missing
+  those columns. Fixed by also dropping `scan_records`' new columns in that fixture's setup, so
+  it accurately simulates a v3 database. A real device on schemaVersion 3 was never at risk —
+  its `scan_records` genuinely lacks the columns, so `from < 5` adds them correctly there.
+- **No widget-level test drives the confirm-step gating or the live-prompt banner directly.**
+  This repo has no existing harness for mocking the `camera` plugin's platform channel, and
+  `CaptureScreen` depends on it plus `DatabaseScope`/`go_router` context; building that harness
+  was judged out of this phase's scope. The gating logic (`_capturedOrientation == null ||
+  _orientationAttested ? _usePhoto : null`) and the banner's orientation mapping are both thin
+  wrappers over `CaptureOrientation`, which the unit tests cover directly.
 
 ## Deferred
 

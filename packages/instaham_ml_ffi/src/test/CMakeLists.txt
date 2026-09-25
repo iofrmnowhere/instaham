@@ -46,6 +46,14 @@ add_executable(test_feature_domain ../manifest.cpp ../util/sha256.cpp test_featu
 target_include_directories(test_feature_domain PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
 add_test(NAME test_feature_domain COMMAND test_feature_domain)
 
+# docs/plan-phase-4/1-native-cascade.md: manifest.cpp's parsing of
+# capabilities.health.cascade against a synthetic fixture. Pure JSON parsing, no OpenCV/ORT,
+# same wiring as test_feature_domain above.
+add_executable(test_health_cascade_manifest ../manifest.cpp ../util/sha256.cpp
+  test_health_cascade_manifest.cpp)
+target_include_directories(test_health_cascade_manifest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+add_test(NAME test_health_cascade_manifest COMMAND test_health_cascade_manifest)
+
 # docs/metrics-plan.md phase 4 task 3: pins the live values behind the §7 eligibility-check
 # audit against the REAL shipped assets/ml/manifest.json, not a synthetic fixture. Pure JSON
 # parsing like test_feature_domain above, so this builds unconditionally too. The path is
@@ -71,6 +79,20 @@ add_test(NAME test_mask_selection COMMAND test_mask_selection)
 add_executable(test_segmentation_canvas test_segmentation_canvas.cpp)
 target_include_directories(test_segmentation_canvas PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
 add_test(NAME test_segmentation_canvas COMMAND test_segmentation_canvas)
+
+# docs/fix-phase-4/5-debug-and-assertions.md: stages/invariants.h -- README section 17's
+# required assertions. Header-only, pure scalar/array math, no OpenCV/ORT dependency, so
+# this builds unconditionally too.
+add_executable(test_stage_invariants test_stage_invariants.cpp)
+target_include_directories(test_stage_invariants PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+add_test(NAME test_stage_invariants COMMAND test_stage_invariants)
+
+# docs/fix-phase-6/1-native-route-override.md: stages/view_route.h's resolve_view_route().
+# Header-only, pure scalar/string logic, no OpenCV/ORT dependency, so this builds
+# unconditionally too.
+add_executable(test_view_route test_view_route.cpp)
+target_include_directories(test_view_route PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+add_test(NAME test_view_route COMMAND test_view_route)
 
 # add_executable(test_manifest test_manifest.cpp)          # slice 2
 # add_executable(test_classifier_golden test_classifier_golden.cpp)  # slice 2
@@ -115,6 +137,69 @@ if(INSTAHAM_ML_WITH_OPENCV)
   # (not a ctest assertion) driven by ML/parity/chen16_feature_port_gate.py, which is the
   # actual comparison against the Python oracle. Built here so `ctest`/the build always
   # produces it, but it deliberately has no add_test() of its own -- Python is the driver.
+  # docs/plan-phase-3/2-parity-gate-and-tests.md: health_input.{h,cpp}'s non-pixel
+  # behaviour -- coordinate recovery, aspect preservation, degradation, mean fill, and
+  # the region_source/protocol_applied reporting fields. Needs OpenCV (health_input.cpp
+  # includes opencv2/core.hpp / opencv2/imgproc.hpp for the mask resample), so this is
+  # gated the same as test_mask_transform above rather than unconditional like
+  # test_stage_invariants.
+  add_executable(test_health_input
+    ../health_input.cpp
+    ../util/image_io.cpp
+    test_health_input.cpp
+  )
+  target_include_directories(test_health_input PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+  target_link_libraries(test_health_input PRIVATE opencv_imgproc opencv_core)
+  add_test(NAME test_health_input COMMAND test_health_input)
+
+  # docs/plan-phase-3/2-parity-gate-and-tests.md: pixel-parity gate against
+  # ML/parity/reference_health_input.py, driven by ML/parity/test_health_input.py --
+  # Python is the driver, matching chen16_feature_gate_cli's own comment below, so this
+  # is add_executable only, no add_test.
+  add_executable(health_input_gate_cli
+    ../health_input.cpp
+    ../util/image_io.cpp
+    health_input_gate_cli.cpp
+  )
+  target_include_directories(health_input_gate_cli PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+  target_link_libraries(health_input_gate_cli PRIVATE opencv_imgproc opencv_core)
+
+  # docs/plan-phase-3/3-measurement.md: host CLI that runs the real health classifier three
+  # times (full_frame/segmentation_crop/segmentation_masked) over the same real capture and
+  # segmentation mask, through the shipped stages -- not a Python reimplementation. Needs
+  # ONNX Runtime (classifier.cpp, stages/segmentation.cpp, onnx_runner.cpp), so unlike
+  # health_input_gate_cli above this also requires INSTAHAM_ML_WITH_ORT; the top-level
+  # CMakeLists.txt defaults the host build to have it on (see manifest.health.model.path).
+  # No add_test() -- this is a measurement tool phase 3's own script drives, not a ctest
+  # assertion, matching chen16_feature_gate_cli's own comment.
+  if(INSTAHAM_ML_WITH_ORT)
+    add_executable(health_protocol_measure_cli
+      ../classifier.cpp
+      ../health_input.cpp
+      ../manifest.cpp
+      ../onnx_runner.cpp
+      ../util/image_io.cpp
+      ../util/sha256.cpp
+      ../stages/segmentation.cpp
+      ../stages/construction.cpp
+      health_protocol_measure_cli.cpp
+    )
+    target_include_directories(health_protocol_measure_cli PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/..
+      ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/nlohmann_json/single_include)
+    # imgcodecs (cv::imwrite) only -- the `[dump_dir]` debug-image path (docs comment at
+    # this file's own top). No other target in this tree writes images; find_package is
+    # re-invoked here, scoped to this one target, rather than widening the top-level
+    # CMakeLists.txt's `COMPONENTS core imgproc` (which also configures the Android build).
+    find_package(OpenCV CONFIG REQUIRED COMPONENTS imgcodecs)
+    target_link_libraries(health_protocol_measure_cli PRIVATE opencv_imgproc opencv_core
+                                                                opencv_imgcodecs onnxruntime)
+    target_include_directories(health_protocol_measure_cli PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/onnxruntime/include")
+    target_compile_definitions(health_protocol_measure_cli PRIVATE INSTAHAM_ML_HAS_ORT=1
+                                                                     INSTAHAM_ML_HAS_JSON=1)
+  endif()
+
   add_executable(chen16_feature_gate_cli
     ../stages/feature_calculation.cpp
     ../stages/construction.cpp

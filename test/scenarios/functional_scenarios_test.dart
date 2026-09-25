@@ -50,6 +50,7 @@ class _StubPipelineService implements IPipelineService {
   Future<(MlStatus, Map<String, dynamic>)> run(
     String imagePath, {
     double? cmPerPixel,
+    String? viewRouteOverride,
   }) async => (MlStatus.ok, envelope);
 }
 

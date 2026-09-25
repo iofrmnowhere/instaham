@@ -1,5 +1,15 @@
 # InstaHAM Camera Scale Normalization Specification
 
+> **Standing note (docs/fix-phase-4/3-constants.md phase 3, 2026-09-19).** This document's
+> derived scale target -- `PIGRGB_TARGET_PPM = 304.0` / 0.3289473684210526 cm/px -- is
+> **superseded on that one value** by the round-28 host sweep's measured MAE minimum, 0.34
+> cm/px (`docs/scale-constant-sweep-results-2.md`, ADR-011/012), which is what
+> `capabilities.weight.capture_contract.cm_per_px_target` ships as. This document remains
+> **authoritative on the underlying PIGRGB geometry** the 0.34 target and the app's 960x540
+> capture canvas both derive from: the 1.88 m training camera height and the 960x540
+> released `RGB_9579` frame size below. The sweep changed the target scale; it did not
+> change, and could not have changed, the physical setup that scale describes.
+
 ## Purpose
 
 This document tells the implementation AI how to normalize photographs taken with cameras other than the camera used for the PIGRGB-Weight training data.

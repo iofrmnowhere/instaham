@@ -22,50 +22,35 @@ YOLO11s-seg with LDConv + ACmix (`assets/ml/segmentation/yolo.onnx`, opset 17). 
 single-class today, but a hardcoded channel layout would silently misread both class scores
 and coefficients on any future multi-class export.
 
-## Canvas composition — the scale ladder
+## Canvas composition — normalize before segmenting
 
 A plain fit-to-canvas letterbox makes a typical 2250×3000 phone capture's pig roughly
-220×400 px in the model's input, below what the segmenter reliably responds to. So when a
-user-confirmed `cm_per_px` exists **and** the manifest declares
-`segmentation.input_scale.cm_per_px` (1.10), the canvas is composed at
-`content_scale = cm_per_px_actual / input_cm_per_px` via `place_at_scale()` — the pig's
-apparent size in the model's input then reflects its real-world size rather than the
-capture's pixel count.
+220×400 px in the model's input, below what the segmenter reliably responds to. Round 8
+([ADR-013](../adr/013-normalize-first-segmentation-order.md)) fixes this by normalizing the
+*photograph* to physical scale before the segmenter ever sees it, rather than composing a
+scale-aware canvas around the capture's own pixel count: the source image is uniformly resized
+so it is exactly `cm_per_px_target` cm/pixel, rotated 90° clockwise when that leaves it
+portrait (README §4 — no dynamic head-direction inference;
+[ADR-014](../adr/014-capture-orientation-contract.md) makes that assumption true at capture
+time), then centred unresized on a 960×540 canvas before the model's own 640×640 letterbox is
+applied on top.
 
-`decide_canvas_scale()` (`stages/canvas_scale.h`) owns that decision. It is header-only and
-free of OpenCV and ORT so it can be unit-tested without a model or a photo
-(`test_segmentation_canvas.cpp`). It refuses the scale-aware path — returning
-`use_scale_aware = false` — when either input is missing, non-finite, or non-positive, or
-when the scaled content would overflow the 640×640 canvas. The caller then falls back to the
-plain letterbox and records `clamped_to_letterbox = true`; content is never clipped or
-distorted silently.
+`decide_normalize_first_composition()` (`stages/canvas_scale.h`) owns that arithmetic — the
+resize factor, the rotation decision, the canvas offsets, and README §6's fit check. It is
+header-only and free of OpenCV and ORT so it can be unit-tested without a model or a photo
+(`test_segmentation_canvas.cpp`). Both `cm_per_px_actual` (the user-confirmed reference) and
+`cm_per_px_target` (the manifest's training scale) must be positive and finite, or the
+composition is invalid — there is no plain-letterbox fallback (README §15 forbids treating
+normalization as optional; AGENTS.md rule 7 forbids inventing a scale). If the normalized,
+rotated content does not fit the 960×540 canvas, the stage returns a declared failure
+(`oversize = true`, `out->normalized_w/h` and the canvas bound recorded) rather than enlarging
+or shrinking anything — README §6's halt, with no fallback.
 
-The segmenter is brittle at any single scale, so `pipeline.cpp` walks a ladder rather than
-trying one composition:
-
-1. Each multiplier in `segmentation.input_scale.ladder_multipliers` — `[1.0, 1.32, 1.68,
-   0.77]` — applied to `input_cm_per_px`, at the manifest's normal `conf` of 0.25.
-2. If no rung produced a plausible mask, the whole ladder again at
-   `retry_conf_threshold` (0.10). A `retry_conf_threshold` of 0.0 disables this pass rather
-   than silently lowering the bar.
-
-The loop stops at the **first** rung whose constructed mask reaches
-`weight.min_mask_diagonal_fraction` (0.35) — not the best across all rungs, which would be a
-different and unvalidated selection criterion. If none reach it, the highest-diagonal rung is
-kept so the plausibility gate downstream rejects with a real mask and a real fraction. Every
-attempt is recorded in `envelope["segmentation"]["rungs_tried"]` with its multiplier,
-confidence used, `content_scale`, `clamped_to_letterbox`, and outcome.
-
-With no confirmed reference, or with an older manifest whose `input_cm_per_px` is 0.0, there
-is exactly one attempt using the plain letterbox.
-
-Observed so far: every real device scan has selected **rung 0** — default multiplier, no
-retry — including a photo the offline harness fails to detect at that rung at all
-([segmentation-2.md](segmentation-2.md)).
-Three scans from one session is far too small a sample to call the ladder unnecessary;
-`ladder_rung` is persisted so the distribution can be watched as scans accumulate. A spread
-across rungs, or frequent falls through to the `retry_conf_threshold` pass, is evidence for
-re-exporting the segmenter rather than widening the ladder.
+`run_segmentation()` (`stages/segmentation.cpp`) performs exactly **one** composition per call
+— README §13 is a single pass at one scale, not a ladder; a caller wanting to retry at a
+different scale would call this function again, and nothing in this round does. The round-4
+scale ladder and its four `ladder_multipliers` rungs are removed outright, not disabled behind
+a switch.
 
 ## Instance selection
 
@@ -118,17 +103,21 @@ The **weight branch** never takes step 4: it composes its own transform from the
 
 `envelope["segmentation"]` on success: `confidence`, `instances_found`, `candidates_kept`,
 `selected_mask_area_proto`, `runner_up_mask_area_proto`, `selected_box_orig`,
-`selected_box_frame_fraction`, `ladder_rung`, `rungs_tried`, `content_scale`,
-`input_cm_per_px_used`, `clamped_to_letterbox`.
+`selected_box_frame_fraction`, plus round 8's normalize-first fields —
+`was_rotated_clockwise`, `resize_factor`, `normalized_w`/`h`, `x_offset`/`y_offset`,
+`rotated_width`/`height`, `content_scale`, `input_cm_per_px_used`. `ladder_rung`,
+`rungs_tried`, and `clamped_to_letterbox` are round-4 fields removed with the scale ladder
+([ADR-013](../adr/013-normalize-first-segmentation-order.md)) and no longer appear.
 
 These exist so a future selection or scale bug is visible from a saved envelope without a
 code read. A near-tie between `selected_mask_area_proto` and `runner_up_mask_area_proto`, or
 a `selected_box_frame_fraction` of a few percent where a real pig fills 55–85% of the frame,
 names the failure directly.
 
-On failure: `{"status":"error","reason":<seg error>|"no_instance_above_conf"|"empty_mask",
-"rungs_tried":[...]}`, and `envelope["construction"]` reports `skipped` with the matching
-reason. `envelope["construction"]` on success carries `mask_protocol`
+On failure: `{"status":"error","reason":<seg error>|"no_instance_above_conf"|"empty_mask"|
+"oversize"}` — the last is README §6's fit halt, carrying `normalized_w`/`h` and the 960x540
+bound — and `envelope["construction"]` reports `skipped` with the matching reason.
+`envelope["construction"]` on success carries `mask_protocol`
 (`original_coordinate_polygon_v1`), `mask_area_px`, `bbox`, and `mask_diagonal_fraction`.
 
 > Continued in segmentation-2.md — the weight branch's composed mask transform, and

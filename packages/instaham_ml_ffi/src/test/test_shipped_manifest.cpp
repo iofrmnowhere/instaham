@@ -57,6 +57,14 @@ int main() {
   assert(manifest.weight.feature_domain.count("mask_area") == 1);
   assert(manifest.weight.feature_domain.count("body_curve") == 1);
 
+  // docs/plan-4.md / docs/plan-phase-4/1-native-cascade.md: the shipped two-stage cascade.
+  // healthy_label must have resolved against health/classes.json (manifest.cpp checks it
+  // after loading class_names), so this also pins that "Healthy" is a real class name.
+  assert(manifest.health.health_cascade_enabled == true);
+  assert(manifest.health.health_healthy_label == "Healthy");
+  assert(manifest.health.health_second_stage_protocol == "segmentation_masked");
+  assert(manifest.health.health_cascade_disabled_reason.empty());
+
   std::puts("test_shipped_manifest: all assertions passed");
   return 0;
 }

@@ -26,7 +26,13 @@
       "expected_failure_reason": null
     },
     "health_branch": {
-      "expect_assessed": true
+      "expect_assessed": true,
+      "cascade": {
+        "second_stage": "not_needed_healthy",
+        "final_stage": "full_frame",
+        "final_label": "Healthy",
+        "source": "observed on host by docs/plan-phase-4/2-host-verification.md (docs/logs/phase4-health-cascade-host.md, cascade_natural column) with the shipped manifest; not yet asserted by any test"
+      }
     }
   },
   "notes": "96 kg is comfortably above the ~73 kg XGBoost regressor floor (ADR-010).",

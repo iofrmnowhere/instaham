@@ -111,6 +111,19 @@ def build(
         input_protocol_path = frag_dir / "input_protocol.json"
         if cap == "health" and input_protocol_path.exists():
             frag["health"]["input"] = read_json(input_protocol_path)["health"]["input"]
+        # capabilities.health.cascade (docs/plan-4.md) is a hand-edited manifest decision,
+        # not written by any exporter fragment -- preserve it from the previously-shipped
+        # manifest so a routine rebuild does not silently drop it. Without this,
+        # _check_no_key_loss() below would still catch the drop and refuse to build, but
+        # that is a last resort, not the intended path.
+        if cap == "health" and "cascade" not in frag.get("health", {}):
+            existing_path = assets / "manifest.json"
+            if existing_path.exists():
+                existing_cascade = read_json(existing_path).get("capabilities", {}).get(
+                    "health", {}
+                ).get("cascade")
+                if existing_cascade is not None:
+                    frag["health"]["cascade"] = existing_cascade
         capabilities.update(frag)
         _stage(cap, frag_dir, assets)
 

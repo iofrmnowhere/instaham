@@ -2,6 +2,8 @@
 // reference object's cm/pixel to `pipelineService.run()` ONLY when the annotation is both
 // user-confirmed and coplanar-confirmed (AGENTS.md rule 7) -- never a guess, and never an
 // in-progress or predates-this-feature annotation.
+import 'dart:io';
+
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -35,6 +37,7 @@ class _RecordingPipelineService implements IPipelineService {
   Future<(MlStatus, Map<String, dynamic>)> run(
     String imagePath, {
     double? cmPerPixel,
+    String? viewRouteOverride,
   }) async {
     called = true;
     lastCmPerPixel = cmPerPixel;
@@ -53,17 +56,27 @@ void main() {
   late AppDatabase database;
   late _RecordingPipelineService pipelineService;
   late RunAndPersistPipelineUseCase useCase;
+  late Directory tempDir;
+  late String imagePath;
 
-  setUp(() {
+  setUp(() async {
     database = AppDatabase(NativeDatabase.memory());
     pipelineService = _RecordingPipelineService();
     useCase = RunAndPersistPipelineUseCase(
       viewModelService: _FakeViewModelService(),
       pipelineService: pipelineService,
     );
+    // resolveViewGate (F66 fix) now hashes the image at this path to key the cached
+    // 'view' event -- unlike the string literal this replaces, it must exist on disk.
+    tempDir = await Directory.systemTemp.createTemp('instaham_scale_fwd');
+    imagePath = '${tempDir.path}/image.jpg';
+    await File(imagePath).writeAsBytes([1, 2, 3, 4]);
   });
 
-  tearDown(() => database.close());
+  tearDown(() async {
+    await database.close();
+    await tempDir.delete(recursive: true);
+  });
 
   Future<String> newScanWithAnnotation({
     required bool userConfirmed,
@@ -75,12 +88,16 @@ void main() {
     );
     // execute() -> resolveViewGate() reuses an existing 'view' PipelineEvent instead of
     // calling viewModelService.classify() again (see the class doc comment) -- pre-seed
-    // one so this test never needs a real MlRuntime/native library to resolve the view
-    // gate; unrelated to the scale-forwarding behaviour under test.
+    // one, keyed to `imagePath`'s identity, so this test never needs a real
+    // MlRuntime/native library to resolve the view gate; unrelated to the
+    // scale-forwarding behaviour under test.
     await RunAndPersistPipelineUseCase.recordViewGate(
       database,
       scanId,
       const ViewClassificationResult(label: 'health_only', confidence: 0.9),
+      imageIdentity: await RunAndPersistPipelineUseCase.imageIdentityOf(
+        imagePath,
+      ),
     );
     await database.saveReferenceAnnotation(
       scanId: scanId,
@@ -115,7 +132,7 @@ void main() {
         cmPerPixel: 0.2319,
       );
 
-      await useCase.execute(database, scanId, '/fake/image.jpg');
+      await useCase.execute(database, scanId, imagePath);
 
       expect(pipelineService.called, isTrue);
       expect(pipelineService.lastCmPerPixel, 0.2319);
@@ -131,7 +148,7 @@ void main() {
         cmPerPixel: 0.2319,
       );
 
-      await useCase.execute(database, scanId, '/fake/image.jpg');
+      await useCase.execute(database, scanId, imagePath);
 
       expect(pipelineService.called, isTrue);
       expect(pipelineService.lastCmPerPixel, isNull);
@@ -147,7 +164,7 @@ void main() {
         cmPerPixel: 0.2319,
       );
 
-      await useCase.execute(database, scanId, '/fake/image.jpg');
+      await useCase.execute(database, scanId, imagePath);
 
       expect(pipelineService.called, isTrue);
       expect(pipelineService.lastCmPerPixel, isNull);
@@ -166,7 +183,7 @@ void main() {
         const ViewClassificationResult(label: 'health_only', confidence: 0.9),
       );
 
-      await useCase.execute(database, scanId, '/fake/image.jpg');
+      await useCase.execute(database, scanId, imagePath);
 
       expect(pipelineService.called, isTrue);
       expect(pipelineService.lastCmPerPixel, isNull);

@@ -10,6 +10,7 @@
 // driven by the envelope's own `features.gated` list; the measured vector is persisted as
 // a family-tagged JSON blob in `feature_vector`, not the five deprecated columns.
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:drift/drift.dart' hide isNull;
 import 'package:drift/native.dart';
@@ -45,6 +46,7 @@ class _StubPipelineService implements IPipelineService {
   Future<(MlStatus, Map<String, dynamic>)> run(
     String imagePath, {
     double? cmPerPixel,
+    String? viewRouteOverride,
   }) async {
     return (MlStatus.ok, envelope);
   }
@@ -83,15 +85,22 @@ Map<String, dynamic> _envelopeWithWeightReason(
 void main() {
   late AppDatabase database;
   late RunAndPersistPipelineUseCase useCase;
+  late Directory tempDir;
+  late String imagePath;
 
   Future<String> newScan(Map<String, dynamic> envelope) async {
     final scanId = await database.createDraftScan(
       goal: ScanGoal.weightAndHealth,
     );
+    // resolveViewGate (F66 fix) hashes `imagePath` to key this cached 'view' event, so
+    // it must match the real file execute() below is given.
     await RunAndPersistPipelineUseCase.recordViewGate(
       database,
       scanId,
       const ViewClassificationResult(label: 'dorsal_valid', confidence: 0.95),
+      imageIdentity: await RunAndPersistPipelineUseCase.imageIdentityOf(
+        imagePath,
+      ),
     );
     useCase = RunAndPersistPipelineUseCase(
       viewModelService: _FakeViewModelService(),
@@ -100,11 +109,17 @@ void main() {
     return scanId;
   }
 
-  setUp(() {
+  setUp(() async {
     database = AppDatabase(NativeDatabase.memory());
+    tempDir = await Directory.systemTemp.createTemp('instaham_weight_domain');
+    imagePath = '${tempDir.path}/image.jpg';
+    await File(imagePath).writeAsBytes([1, 2, 3, 4]);
   });
 
-  tearDown(() => database.close());
+  tearDown(() async {
+    await database.close();
+    await tempDir.delete(recursive: true);
+  });
 
   test(
     'a domain-rejected run persists the measured feature vector, not nulls',
@@ -122,7 +137,7 @@ void main() {
         ),
       );
 
-      await useCase.execute(database, scanId, '/fake/image.jpg');
+      await useCase.execute(database, scanId, imagePath);
 
       final row = await (database.select(
         database.weightResults,
@@ -148,7 +163,7 @@ void main() {
         _envelopeWithWeightReason('mask_shape_out_of_domain'),
       );
 
-      await useCase.execute(database, scanId, '/fake/image.jpg');
+      await useCase.execute(database, scanId, imagePath);
 
       final events =
           await (database.select(database.pipelineEvents)..where(
@@ -180,7 +195,7 @@ void main() {
         ),
       );
 
-      await useCase.execute(database, scanId, '/fake/image.jpg');
+      await useCase.execute(database, scanId, imagePath);
 
       final row = await (database.select(
         database.weightResults,
@@ -203,7 +218,7 @@ void main() {
         _envelopeWithWeightReason('subject_smaller_than_trained'),
       );
 
-      await useCase.execute(database, scanId, '/fake/image.jpg');
+      await useCase.execute(database, scanId, imagePath);
 
       final row = await (database.select(
         database.weightResults,
@@ -231,7 +246,7 @@ void main() {
       ),
     );
 
-    await useCase.execute(database, scanId, '/fake/image.jpg');
+    await useCase.execute(database, scanId, imagePath);
 
     final row = await (database.select(
       database.weightResults,
@@ -266,7 +281,7 @@ void main() {
         ),
       );
 
-      await useCase.execute(database, scanId, '/fake/image.jpg');
+      await useCase.execute(database, scanId, imagePath);
 
       final row = await (database.select(
         database.weightResults,
@@ -286,7 +301,7 @@ void main() {
         _envelopeWithWeightReason('some_future_reason'),
       );
 
-      await useCase.execute(database, scanId, '/fake/image.jpg');
+      await useCase.execute(database, scanId, imagePath);
 
       final row = await (database.select(
         database.weightResults,

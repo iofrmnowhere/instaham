@@ -1,6 +1,6 @@
 # ADR-003: Compose the segmenter's canvas from the reference scale, and walk a ladder
 
-Status: Accepted
+Status: Superseded by [ADR-013](013-normalize-first-segmentation-order.md)
 
 Context: The segmenter was fed a plain fit-to-canvas letterbox of the whole frame. For a
 typical 2250×3000 phone capture that leaves the pig roughly 220×400 px inside the 640×640

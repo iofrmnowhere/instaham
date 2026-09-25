@@ -36,8 +36,20 @@ struct PipelineRunners {
 // the cutter/feature/weight stages run; a null, non-finite, non-positive, or out-of-range
 // value degrades the weight branch to `{"status":"unavailable","reason":"scale_..."}`
 // rather than predicting on unnormalized pixels. Never affects the health branch.
+//
+// `view_route_override` (docs/fix-phase-6/1-native-route-override.md, F68 -- supersedes the
+// fix-phase-5/2-view-reject-override.md boolean): "" (none), "dorsal_valid", or
+// "health_only". Routes the photo per stages::resolve_view_route() (stages/view_route.h)
+// instead of the label alone deciding it: a "reject" can now run as either dorsal or
+// health-only, and a "health_only" can be promoted to dorsal; a "dorsal_valid" verdict is
+// never downgraded. The stored `view` label is untouched -- the envelope's `view` block
+// gains `"override": true` plus `"override_route"` whenever the override actually changed
+// the route (a no-op override, e.g. health_only -> health_only, leaves the block exactly as
+// today). Does not weaken any other eligibility or quality check (truncation, posture,
+// scale, feature-domain). Defaults to "" (none), matching every existing caller.
 bool run_pipeline(const PipelineRunners& runners, const Manifest& manifest,
-                   const std::string& image_path, const double* cm_per_px, std::string* out_json);
+                   const std::string& image_path, const double* cm_per_px,
+                   std::string* out_json, const std::string& view_route_override = "");
 
 }  // namespace instaham_ml
 

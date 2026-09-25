@@ -36,6 +36,7 @@ and cut-parity work needs it to localise a failure.
 | `break1_unfit` | The shoulder-region piecewise fit did not converge |
 | `shoulder_undecided` | V176 could not choose a cut point on a valid trunk + fit |
 | `circle_cut_failed` | V144 geometry failed on an otherwise valid cut-required decision |
+| `error` (envelope-level, `reason: final_mask_not_subset_of_base`) | README §17 shipped invariant: the final mask's foreground added more than 1% beyond the base mask's foreground — see [ADR-016](../adr/016-final-mask-subset-check-tolerance-gated.md) |
 
 `head_removal_applied` is true **only** for `cut_applied`. Every other status returns the
 uncut (Ji/Duan-cleaned) mask, so a caller that ignores `status` still gets a usable mask — but

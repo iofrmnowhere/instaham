@@ -135,6 +135,12 @@ bool run_segmentation(OnnxRunner* runner, const SegmentationCapability& cap,
   out->canvas_h_requested = comp.canvas_h_requested;
   out->input_cm_per_px_used = input_cm_per_px;
   out->content_scale = float(comp.resize_factor);
+  // docs/fix-phase-4/5-debug-and-assertions.md: set on every run, not only the oversize
+  // halt path above -- see SegmentationOutput::normalized_w/h's own doc comment.
+  out->normalized_w = comp.normalized_w;
+  out->normalized_h = comp.normalized_h;
+  out->x_offset = comp.x_offset;
+  out->y_offset = comp.y_offset;
   out->letterbox_scale = scale;
   out->letterbox_pad_left = pad_left;
   out->letterbox_pad_top = pad_top;

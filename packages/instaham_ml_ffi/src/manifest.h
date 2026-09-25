@@ -22,9 +22,28 @@ struct ClassifierCapability {
   std::string protocol_version;
   // health only: capabilities.health.input.protocol, one of full_frame /
   // segmentation_crop / segmentation_masked / abnormality_crop. Empty for the view
-  // capability, which has no input switch (section 1.1(a)). Only full_frame is
-  // implemented -- see health_input.h -- so any other value currently degrades to it.
+  // capability, which has no input switch (section 1.1(a)). abnormality_crop still
+  // degrades to full_frame -- see health_input.h -- the other two protocols are
+  // implemented as of docs/plan-phase-3/1-coordinate-recovery-and-masked-crop.md.
   std::string input_protocol;
+  // health only: capabilities.health.input.bbox_padding_ratio / background_fill --
+  // docs/plan-phase-3/1-coordinate-recovery-and-masked-crop.md. Defaults match
+  // ML/parity/reference_health_input.py's HEALTH_INPUT_PARAMS so an absent manifest
+  // block reproduces the reference exactly rather than silently zeroing the pad.
+  float health_bbox_padding_ratio = 0.06f;
+  std::string health_background_fill = "imagenet_mean";
+  // health only: capabilities.health.cascade -- docs/plan-4.md / docs/plan-phase-4/1-native-
+  // cascade.md. When enabled, classifier.cpp's run_health_cascade() runs a second pass with
+  // `health_second_stage_protocol` whenever the first pass's label is not
+  // `health_healthy_label`, and that second pass's result becomes the final one. Disabled
+  // (the default) reproduces today's single-pass behaviour exactly.
+  bool health_cascade_enabled = false;
+  // Checked against class_names (below) once it is loaded; a name absent from the class map
+  // disables the cascade rather than failing manifest load (AGENTS.md rule 4) -- see
+  // manifest.cpp's load_classifier(). health_cascade_disabled_reason then records why.
+  std::string health_healthy_label = "Healthy";
+  std::string health_second_stage_protocol = "segmentation_masked";
+  std::string health_cascade_disabled_reason;
   // class name -> index, loaded from classes.json (never hardcode indices: AGENTS.md rule 1)
   std::vector<std::string> class_names;  // index -> name, built from classes.json
 };
@@ -39,24 +58,13 @@ struct SegmentationCapability {
   float iou_threshold = 0.7f;
   std::string protocol_version;
 
-  // ref_fix.md F18: centimetres one 640x640-canvas pixel should span. Round-4 legacy field,
-  // still read by pipeline.cpp's shipped (pre-phase-4) canvas_scale composition, which
-  // stages/segmentation.cpp no longer implements as of
-  // docs/fix-phase-4/1.1-readme-is-the-path.md -- pipeline.cpp's calls now run the
-  // normalize-first composition instead, with this value substituting for
-  // WeightCapability::cm_per_px_target until phase 4 rewires the call site. Do not build or
-  // sideload an APK from this state; phase 4 closes the gap.
-  double input_cm_per_px = 0.0;
-
-  // ref_fix.md F19: multipliers of input_cm_per_px, still read by pipeline.cpp's
-  // not-yet-rewired ladder loop (docs/fix-phase-4/4-app-wiring.md). README section 13 is a
-  // single pass; the host harness (ML/host_scale_test/weight_branch_cli.cpp) no longer uses
-  // this field as of phase 1.1. {1.0} (the default) means "no ladder, one attempt".
-  std::vector<double> scale_ladder_multipliers = {1.0};
-
-  // ref_fix.md F19, same not-yet-rewired pipeline.cpp caller as above. 0.0 (default)
-  // disables the retry pass entirely rather than silently lowering the bar.
-  float retry_conf_threshold = 0.0f;
+  // docs/fix-phase-4/4-app-wiring.md phase 4: the round-4 `input_scale` block
+  // (`legacy_ladder_base_cm_per_px`, `ladder_multipliers`, `retry_conf_threshold`) is
+  // removed here along with pipeline.cpp's retry ladder it fed. README section 13 is a
+  // single pass at `WeightCapability::cm_per_px_target`; there is no other scale for this
+  // capability to declare. A manifest still carrying the old block is read as if it did
+  // not (manifest.cpp no longer parses `input_scale`), not rejected -- an older asset
+  // degrades to the README path's one composition rather than failing to load.
 };
 
 // ML_implementation_plan.md revision 7, section 8 / docs/plan-phase/3-manifest-pipeline.md:

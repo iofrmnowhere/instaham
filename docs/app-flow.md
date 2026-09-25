@@ -23,26 +23,73 @@ drives a display-only `uncertain` flag on the health card below `kHealthUncertai
 | Label | Weight branch | Health branch | Reference marking |
 |---|---|---|---|
 | `dorsal_valid` | runs | runs | shown (Reference mode) |
-| `health_only` | skipped | runs | skipped |
-| `reject` | stopped | stopped | n/a — retake dialog |
+| `health_only` | skipped | runs | skipped (after the route dialog) |
+| `reject` | stopped | stopped | n/a — route dialog |
+| `reject` or `health_only`, overridden to `dorsal_valid` | runs | runs | shown (Reference mode) |
+| `reject`, overridden to `health_only` | skipped | runs | skipped |
 
 ## Stage A — capture-time routing
 
 `CaptureScreen._usePhoto()` bakes EXIF orientation once via
-`ImageService.processRawBytes` (`AGENTS.md` rule 5 — no later stage rotates), creates the
-scan row, then calls `RunAndPersistPipelineUseCase.resolveViewGate`, which runs the view
-classifier and persists the label as a `view` `PipelineEvent`. That event is reused at
-analysis time, so the model never runs twice.
+`ImageService.processRawBytes` (`AGENTS.md` rule 5 — no later stage rotates), then calls
+`RunAndPersistPipelineUseCase.resolveViewGate`, which runs the view classifier and persists
+the label as a `view` `PipelineEvent`. That event is reused at analysis time, so the model
+never runs twice.
+
+### When the scan row is actually created
+
+A scan row is **not** created by opening the camera. `didChangeDependencies` only adopts an
+incoming `initialArgs.sessionId`; the first writer is `_capture()` or `_pickFromGallery()`,
+whichever produces a photo first, and each of those calls `_ensureSession()` only *after* the
+image has been processed and the widget is confirmed still mounted. By the time `_usePhoto()`
+runs, `_ensureSession()` normally finds that row already there.
+
+The practical consequences, all deliberate
+([plan-phase-2/2.1](plan-phase-2/2.1-capture-screen-guards.md) finding 3):
+
+- Opening the camera and leaving writes nothing.
+- Quitting *during* capture or gallery-pick processing — before the mounted check — writes
+  nothing either.
+- Reaching the review screen and then leaving **does** leave a row in status `captured` with
+  no results. That is the one path that still produces a row the user did not finish, and it
+  is not cleaned up; `ScanStatuses.cancelled` exists but is deliberately unused, because the
+  chosen design writes no row at all rather than writing one and hiding it.
+
+### The capture-time wait
+
+`resolveViewGate` is a real native call and the review screen's "Verify reference" button is
+a user-facing wait, so the review screen has its own busy state: while `_saving` is true the
+button shows an inline indicator, and "Retake", "Verify reference", the shutter, the gallery
+button, the guidance button, and the reference picker are all disabled. `_usePhoto()` also
+re-checks `_saving` on entry, because a fast double-tap can enter the method twice before the
+first `setState` lands a frame later.
+
+There is **no** `PopScope` on this screen, deliberately — unlike `/analysis`. Under the
+ordering above there is no in-flight work whose result the user would lose by leaving, so
+there is nothing to warn about.
 
 Routing on the label:
 
-- `reject` → status `rejected`, "Photo not usable" dialog, retake.
-- `health_only` → `skipReference = true` → status `analyzing`, an `analysis`/`queued`
-  event explaining the skip, push `/analysis`. Reference marking exists only to scale a
-  weight, so it has nothing to serve here.
-- `dorsal_valid`, or a gate failure (`viewLabel == null`) → Reference mode goes to status
-  `referenceReview` and `/reference-marking`; height mode goes straight to `analyzing` and
-  `/analysis`.
+- `reject` or `health_only` → one dialog, `showViewChoiceDialog()`, with **three** stacked
+  actions ([adr/020](adr/020-view-route-override-either-route.md), widening
+  [adr/017](adr/017-user-consent-view-gate-override.md)):
+  - **Retake photo** sets status `rejected` and returns to the camera, on either verdict. No
+    override is recorded. Dismissing the dialog counts as Retake.
+  - **Check health only** takes the `health_only` route. On a `reject` it records a
+    `view_override` `PipelineEvent` with status `override:health_only`; on a `health_only`
+    verdict it is the verdict's own route and records nothing.
+  - **Check weight and health** records a `view_override` event with status
+    `override:dorsal_valid` and takes the `dorsal_valid` route.
+
+  The override event is keyed to that image's sha256, never to the scan, and the verdict's own
+  `view` event is never rewritten. After the dialog, routing follows the effective route (the
+  override when one was chosen, otherwise the verdict) exactly as below.
+- `health_only` (verdict or chosen route) → `skipReference = true` → status `analyzing`, an
+  `analysis`/`queued` event explaining the skip, push `/analysis`. Reference marking exists
+  only to scale a weight, so it has nothing to serve here.
+- `dorsal_valid` (verdict or chosen route), or a gate failure (`viewLabel == null`) →
+  Reference mode goes to status `referenceReview` and `/reference-marking`; height mode goes
+  straight to `analyzing` and `/analysis`.
 
 A view-gate failure is caught and logged, then falls through to unfiltered routing rather
 than blocking the user — `AGENTS.md` rule 4 applied to the gate itself.
@@ -65,10 +112,36 @@ marked" and passes `null`.
 health result, then reloads the bundle and renders. A retake, or a scan with no image, just
 renders stored state.
 
+### Where the work runs, and what the user sees
+
+The native call does not run on the UI isolate. `MlRuntime` hands each native entrypoint to
+`Isolate.run` and serializes every call through a `CallQueue`, so the UI isolate keeps pumping
+frames for the whole 12–71 second run
+([plan-phase-2/1](plan-phase-2/1-isolate-offload.md); `docs/device-metrics-results.md` for the
+latency figures). The worker opens its own bindings rather than closing over the caller's, and
+reads `instaham_ml_last_error` on its own thread, since that value is `thread_local`.
+
+While `_bundle` is unresolved the screen renders `AnalysisProgressView`, which shows an
+indeterminate indicator, an elapsed-seconds counter, an expectation line, and a label naming
+the phase Dart is actually in — `loadingBundle` → `runningPipeline` → `reloadingBundle`. Those
+three are the only boundaries Dart can observe: the native call is one opaque blocking call,
+so there is no per-stage checklist and must not be one. Inventing ticks for
+segmentation/measurement/weight would be a fabricated completed state (`AGENTS.md`).
+
+Leaving mid-analysis is safe and is **not** blocked. The run continues on the worker isolate
+and persists whether or not this screen is alive, so `PopScope` warns once — "Analysis will
+finish in the background" — and lets the second press through. The warning is armed only while
+the pipeline itself is running, not during the cheap bundle load and reload either side of it.
+There is no cancel affordance, because a native call already in flight cannot be interrupted.
+
 `RunAndPersistPipelineUseCase.execute` then:
 
-1. Reads the persisted view gate. On `reject` it saves both branches ineligible, sets status
-   `rejected`, and returns.
+1. Reads the persisted view gate, and on any verdict looks up a `view_override` event whose
+   image identity matches the image being analyzed (`viewRouteOverride()`; a legacy round 9
+   `override` status reads as `dorsal_valid`). A `reject` with no override saves both branches
+   ineligible, sets status `rejected`, and returns. Otherwise the chosen route, if any, is
+   passed down as `viewRouteOverride` to the native call, which sends it as
+   `view_route_override` ([ffi-bridge.md](ffi-bridge.md)).
 2. Resolves `cmPerPixel` from the reference annotation under the three conditions above.
 3. Makes **one** native call — `PipelineServiceImpl.run` → `MlRuntime.runPipeline` →
    `instaham_ml_run_pipeline_request_json` — and rejects a non-OK status or a `stopped`
@@ -100,15 +173,23 @@ Collapsing these into one "Unavailable" is a regression that has already happene
 
 | Card | State | Meaning |
 |---|---|---|
-| View | `dorsal_valid` / `health_only` / `reject` | the routing decision itself, shown as its own card |
 | Health | ok | label + confidence; `uncertain` badge below 0.60 |
+| Health | ok, **re-checked** | the whole photo was not `Healthy`, so the pig alone was classified again and that label is shown (`preprocessingVersion` `cascade_v1:segmentation_masked`); worded as a possible indicator, never a confirmed diagnosis — [pipeline/health.md](pipeline/health.md) |
 | Health | Unavailable | classifier failed — never blocked by the weight branch |
-| Weight | **Skipped** | routing outcome: not a dorsal photo. Not a failure. |
+| Weight | **Skipped** | routing outcome: the route that ran was not `dorsal_valid`. Not a failure. |
 | Weight | **Unavailable** | genuinely no number: no pig detected, segmentation failed, no confirmed reference scale, or an eligibility/domain check rejected the features |
 | Weight | ok | a kg value |
 
 Never display an invented score, and never show a completed state for a branch that did not
 produce one.
+
+The photo check itself has no card. Round 10 removed the "Photo framing" card and the
+"Photo check overridden" banner ([adr/020](adr/020-view-route-override-either-route.md)); an
+override is kept only in the database and the envelope, and nothing on screen shows it. Both
+cards read `LocalScanBundle.effectiveRoute` — the override when present, otherwise the verdict
+— so **Skipped** means the route that actually ran, never the raw verdict: weight is Skipped
+only when that route is not `dorsal_valid`, and health is Skipped only for a `reject` with no
+override.
 
 Why a weight number is or is not available at all — the `weight.available` manifest flag — is
 in [pipeline/prediction.md](pipeline/prediction.md). The blocking reason is no longer the cutter

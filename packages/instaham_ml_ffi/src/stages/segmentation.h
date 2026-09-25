@@ -80,6 +80,13 @@ struct SegmentationOutput {
   int canvas_w = 0, canvas_h = 0;
   int canvas_w_requested = 0, canvas_h_requested = 0;
 
+  // docs/fix-phase-4/5-debug-and-assertions.md: the content rectangle's placement on the
+  // canvas -- its top-left corner. Set on every successful (non-oversize) run, not only on
+  // a halt, so a future coordinate bug in the offset arithmetic itself is visible in the
+  // envelope without a code read, the way candidates_kept/selected_box_* already are for
+  // mask selection.
+  int x_offset = 0, y_offset = 0;
+
   // docs/fix-phase-4/1.1-readme-is-the-path.md (F61): true when README section 6's fit
   // invariant failed -- the normalized, rotated content did not fit the 960x540 canvas.
   // `run_segmentation` returns false with this set; the caller must report a declared
@@ -88,7 +95,13 @@ struct SegmentationOutput {
   // mode this stage predicts will fire on ordinary full-resolution phone captures -- see
   // the parent fix document's open flags.
   bool oversize = false;
-  int normalized_w = 0, normalized_h = 0;  // set when oversize, pre-rotation dimensions
+  // docs/fix-phase-4/5-debug-and-assertions.md: set on EVERY run (oversize or not), not
+  // only on the halt path -- the pre-rotation size of the resized-to-scale content, before
+  // README section 4's fixed rotation swaps width/height. `resize_factor` (below) times
+  // this pair recovers the source dimensions; the pair itself is what a caller checks
+  // against `check_composition_positive()`/`check_mask_matches_rgb_dimensions()`
+  // (stages/invariants.h).
+  int normalized_w = 0, normalized_h = 0;
 };
 
 // Runs the segmenter over `image_path`, decodes it, composes the 640x640 canvas, runs the

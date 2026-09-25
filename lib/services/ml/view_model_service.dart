@@ -33,7 +33,7 @@ class ViewModelServiceImpl implements IViewModelService {
   @override
   Future<ViewClassificationResult> classify(String imagePath) async {
     final runtime = await MlRuntime.instance();
-    final (status, json) = runtime.classifyView(imagePath);
+    final (status, json) = await runtime.classifyView(imagePath);
     if (status != MlStatus.ok) {
       // AGENTS.md rule 8: never force a prediction after a failed check. 'reject' routes
       // the pipeline to stop exactly as a genuine low-confidence classification would.

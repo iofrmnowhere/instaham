@@ -141,6 +141,12 @@ bool load_classifier(const json& j, const std::string& key, const std::string& b
   // parse_health_input_protocol() degrades them to full_frame (health_input.h).
   if (cap.contains("input") && cap["input"].is_object()) {
     out->input_protocol = cap["input"].value("protocol", "");
+    // docs/plan-phase-3/1-coordinate-recovery-and-masked-crop.md: both default to the
+    // struct's own defaults (matching the Python reference) when the manifest omits them.
+    out->health_bbox_padding_ratio =
+        cap["input"].value("bbox_padding_ratio", out->health_bbox_padding_ratio);
+    out->health_background_fill =
+        cap["input"].value("background_fill", out->health_background_fill);
   }
 
   if (cap.contains("preprocessing")) {
@@ -170,6 +176,32 @@ bool load_classifier(const json& j, const std::string& key, const std::string& b
   if (!load_class_names(out->classes_path, &out->class_names, error)) {
     *error_code_out = INSTAHAM_ML_ERR_MANIFEST;
     return false;
+  }
+
+  // health only (key == "health"); docs/plan-phase-4/1-native-cascade.md. A missing/disabled
+  // block, or an unknown second_stage_protocol, leaves health_cascade_enabled false. A
+  // healthy_label absent from class_names (just loaded above) is not a load failure --
+  // AGENTS.md rule 4 -- it disables the cascade and records why for the envelope.
+  if (key == "health" && cap.contains("cascade") && cap["cascade"].is_object()) {
+    const json& cascade = cap["cascade"];
+    bool enabled = cascade.value("enabled", false);
+    out->health_healthy_label = cascade.value("healthy_label", out->health_healthy_label);
+    out->health_second_stage_protocol =
+        cascade.value("second_stage_protocol", out->health_second_stage_protocol);
+    if (enabled &&
+        (out->health_second_stage_protocol != "segmentation_crop" &&
+         out->health_second_stage_protocol != "segmentation_masked")) {
+      enabled = false;
+      out->health_cascade_disabled_reason =
+          "unknown cascade.second_stage_protocol '" + out->health_second_stage_protocol + "'";
+    } else if (enabled &&
+               std::find(out->class_names.begin(), out->class_names.end(),
+                         out->health_healthy_label) == out->class_names.end()) {
+      enabled = false;
+      out->health_cascade_disabled_reason =
+          "cascade.healthy_label '" + out->health_healthy_label + "' is not in classes.json";
+    }
+    out->health_cascade_enabled = enabled;
   }
   return true;
 }
@@ -207,25 +239,10 @@ bool load_segmentation(const json& j, const std::string& base_dir, SegmentationC
     if (color.is_array() && !color.empty()) out->letterbox_color = uint8_t(color[0].get<int>());
   }
 
-  // ref_fix.md F18/F19: absent on an older manifest fragment -- keeps input_cm_per_px at
-  // 0.0 (disabled) and the ladder at its single-rung default, so a pre-F18 manifest
-  // segments exactly as it always has (a plain whole-frame letterbox, one attempt).
-  if (cap.contains("input_scale")) {
-    const json& input_scale = cap["input_scale"];
-    out->input_cm_per_px = input_scale.value("cm_per_px", 0.0);
-    if (input_scale.contains("ladder_multipliers") &&
-        input_scale["ladder_multipliers"].is_array() &&
-        !input_scale["ladder_multipliers"].empty()) {
-      out->scale_ladder_multipliers.clear();
-      for (const auto& m : input_scale["ladder_multipliers"]) {
-        out->scale_ladder_multipliers.push_back(m.get<double>());
-      }
-    }
-    out->retry_conf_threshold = input_scale.value("retry_conf_threshold", 0.0f);
-  }
-  // docs/fix-phase-4/1.1-readme-is-the-path.md: `input_scale.mode` is no longer read.
-  // stages/run_segmentation() has exactly one composition (README section 13); there is
-  // nothing left to select between.
+  // docs/fix-phase-4/4-app-wiring.md phase 4: `input_scale` (the round-4 ladder base,
+  // multipliers and retry threshold) is no longer read at all. stages/run_segmentation()
+  // has exactly one composition (README section 13) at WeightCapability::cm_per_px_target;
+  // a manifest still carrying the old block is simply ignored, not rejected.
 
   if (!verify_hash(out->model_path, out->model_sha256, error)) {
     *error_code_out = INSTAHAM_ML_ERR_HASH_MISMATCH;

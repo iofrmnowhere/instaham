@@ -55,7 +55,8 @@ bool run_classifier(OnnxRunner* runner, const ClassifierCapability& cap,
   HealthInput prepared;
   if (health_input != nullptr) {
     prepared = prepare_health_input(img, health_input->protocol, health_input->region,
-                                    cap.resize_shorter_side, cap.input_size);
+                                    cap.resize_shorter_side, cap.input_size,
+                                    cap.health_bbox_padding_ratio, cap.health_background_fill);
   } else {
     prepared.image = resize_shorter_then_crop(img, cap.resize_shorter_side, cap.input_size);
     prepared.protocol_requested = health_input_protocol_name(HealthInputProtocol::kFullFrame);
@@ -119,6 +120,98 @@ bool run_classifier(OnnxRunner* runner, const ClassifierCapability& cap,
     result["region_source"] = prepared.region_source;
   }
   *out_json = result.dump();
+  return true;
+}
+
+namespace {
+
+const char* second_stage_name(HealthSecondStage s) {
+  switch (s) {
+    case HealthSecondStage::kNotNeededHealthy: return "not_needed_healthy";
+    case HealthSecondStage::kRun:              return "ran";
+    case HealthSecondStage::kNoRegion:         return "no_region";
+    case HealthSecondStage::kDisabled:
+    default:                                   return "disabled";
+  }
+}
+
+}  // namespace
+
+bool run_health_cascade(OnnxRunner* runner, const ClassifierCapability& cap,
+                        const std::string& image_path, const PigRegion* region,
+                        std::string* out_json, int* error_code_out) {
+  HealthInputOptions first_opts;
+  first_opts.protocol = parse_health_input_protocol(cap.input_protocol);
+  first_opts.region = region;
+  std::string first_json;
+  int first_err = 0;
+  if (!run_classifier(runner, cap, image_path, &first_json, &first_err, &first_opts)) {
+    *out_json = first_json;
+    *error_code_out = first_err;
+    return false;
+  }
+
+  if (!cap.health_cascade_enabled) {
+    // Byte-for-byte run_classifier()'s own output -- no `cascade` key -- so the manifest
+    // switch off really means "today's behaviour", not "today's behaviour plus a note".
+    *out_json = first_json;
+    return true;
+  }
+
+  json first = json::parse(first_json, /*cb=*/nullptr, /*allow_exceptions=*/false);
+  const std::string first_label = first.value("label", std::string());
+  const HealthSecondStage decision =
+      decide_health_second_stage(cap.health_cascade_enabled, first_label, cap.health_healthy_label,
+                                  region);
+
+  json cascade = {
+      {"version", "cascade_v1"},
+      {"enabled", true},
+      {"second_stage", second_stage_name(decision)},
+      {"final_stage", first.value("input_protocol_applied", std::string("full_frame"))},
+      {"first", {{"label", first_label}, {"confidence", first.value("confidence", 0.0)},
+                 {"probabilities", first.value("probabilities", json::object())}}},
+  };
+
+  if (decision != HealthSecondStage::kRun) {
+    json final_envelope = first;
+    final_envelope["cascade"] = cascade;
+    *out_json = final_envelope.dump();
+    return true;
+  }
+
+  HealthInputOptions second_opts;
+  second_opts.protocol = parse_health_input_protocol(cap.health_second_stage_protocol);
+  second_opts.region = region;
+  std::string second_json;
+  int second_err = 0;
+  const bool second_ok =
+      run_classifier(runner, cap, image_path, &second_json, &second_err, &second_opts);
+  json second = second_ok
+                    ? json::parse(second_json, /*cb=*/nullptr, /*allow_exceptions=*/false)
+                    : json::object();
+
+  if (!second_ok) {
+    cascade["second_stage"] = "second_stage_failed";
+    json final_envelope = first;
+    final_envelope["cascade"] = cascade;
+    *out_json = final_envelope.dump();
+    return true;
+  }
+  if (second.value("input_degraded", false)) {
+    // The masked pass quietly fell back to full frame (an empty mask) -- that is not a
+    // real second opinion, so the first pass's result stands (AGENTS.md rule 4).
+    cascade["second_stage"] = "second_stage_degraded";
+    json final_envelope = first;
+    final_envelope["cascade"] = cascade;
+    *out_json = final_envelope.dump();
+    return true;
+  }
+
+  cascade["final_stage"] = second.value("input_protocol_applied", cap.health_second_stage_protocol);
+  json final_envelope = second;
+  final_envelope["cascade"] = cascade;
+  *out_json = final_envelope.dump();
   return true;
 }
 

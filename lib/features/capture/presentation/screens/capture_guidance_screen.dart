@@ -18,6 +18,8 @@ class CaptureGuidanceScreen extends StatelessWidget {
       'Place a known straight reference flat beside the pig.',
       'Keep both reference endpoints visible.',
       'Keep the phone parallel to the ground and avoid blur.',
+      "Portrait: keep the pig's head facing up.",
+      "Landscape: keep the pig's head facing right.",
     ];
 
     return AppScaffold(

@@ -25,6 +25,8 @@ Routing only. Follow one link — do not read the folder.
 - [plan.md](plan.md) / [fix.md](fix.md) — the live plan and fix documents
 - [fix-2.md](fix-2.md) — round 6: the weight branch froze the app after "Confirm analysis" (phases 2.1 and 3 superseded by `fix-3.md`)
 - [fix-3.md](fix-3.md) — round 7: the weight branch rasterized the mask twice; F55's composed transform
+- [fix-4.md](fix-4.md) — round 8: the segmenter never saw the physically normalized photograph; the scaling-rotation README is its specification
+- [fix-5.md](fix-5.md) — round 9: the view gate's verdict is cached per scan and reused for different photos
 - [metrics-plan.md](metrics-plan.md) — activating the 21 skipped tests across the §14/§16 metric suite
 - [test-plan.md](test-plan.md) — host-side replication of the weight branch to settle `cm_per_px_target`
 - [sweep.md](sweep.md) — closed: the `cm_per_px_target` sweep rebuild; see the results document below
@@ -52,7 +54,7 @@ Observed numbers, not predictions. Check each one's status banner before citing 
 Listed as folders deliberately — open the parent document above, which indexes the phases, rather than reading these directly.
 
 - [plan-phase/](plan-phase/) — phase files split out of `plan.md` under the 150-line rule
-- [fix-phase/](fix-phase/), [fix-phase-2/](fix-phase-2/), [fix-phase-3/](fix-phase-3/) — phase files for `fix.md`, `fix-2.md` and `fix-3.md` respectively
+- [fix-phase/](fix-phase/), [fix-phase-2/](fix-phase-2/), [fix-phase-3/](fix-phase-3/), [fix-phase-4/](fix-phase-4/), [fix-phase-5/](fix-phase-5/) — phase files for `fix.md`, `fix-2.md`, `fix-3.md`, `fix-4.md` and `fix-5.md` respectively
 - [metrics-phase/](metrics-phase/) — phase files for `metrics-plan.md`, including the device-metric defect findings
 - [test-plan-phase/](test-plan-phase/) — phase files for `test-plan.md`
 - [sweep-phase/](sweep-phase/) — phase files for the closed `sweep.md`; `4-run-and-record.md` is the primary record behind the current sweep results

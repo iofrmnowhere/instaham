@@ -29,6 +29,15 @@ struct NormalizeFirstComposition {
   int normalized_w = 0, normalized_h = 0;  // after the uniform resize, before rotation
   bool rotated_clockwise = false;
   int content_w = 0, content_h = 0;  // normalized_w/h, swapped if rotated_clockwise
+  // docs/fix-phase-4/3-constants.md phase 3: 960x540 is the released PIGRGB RGB_9579 frame
+  // size at the 1.88 m training camera height (docs/INSTAHAM_CAMERA_SCALE_NORMALIZATION.md
+  // line 29), the same physical setup training_frame_px's 720x720 (manifest.h) is fitted
+  // to -- README section 6 fixes the app's canvas to that released frame size rather than
+  // to the training crop. That source document itself says a normalized image "does not
+  // need to be exactly 960 x 540" (same file, lines 287/685); the README requires an exact
+  // fit and halts otherwise (section 6). This round ships the README's exact-fit reading;
+  // the divergence from the normalization doc's own guidance is flagged in fix-4.md, not
+  // resolved here.
   int canvas_w_requested = 960, canvas_h_requested = 540;  // README section 6's canvas
   int canvas_w = 0, canvas_h = 0;  // == requested; no enlargement (F61 fallback withdrawn)
   int x_offset = 0, y_offset = 0;  // content's top-left corner on the canvas

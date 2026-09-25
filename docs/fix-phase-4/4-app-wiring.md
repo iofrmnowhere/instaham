@@ -1,6 +1,6 @@
 # Phase 4 — Wire the app and verify on device
 
-Status: not started
+Status: native side done 2026-09-19; device sideload/verification still open (see Result)
 
 Parent: [`../fix-4.md`](../fix-4.md). Unblocked 2026-09-19 — phase 2's gate is void. Work this
 after phase 3 has settled the constants.
@@ -52,10 +52,21 @@ Not a defect. This phase carries a host-validated change onto the device.
   per README §13, and this is the first run that would show a regression from that. If detection
   drops, record it and raise it to the user as a flag; do not reinstate the ladder inside this
   phase.
-- **Expect README §6's halt to fire** on full-resolution captures (F61: 4032x3024 normalizes to
-  764x573 against a 540 bound). That is the specified behaviour, not a bug in the wiring. Record
-  how many captures halt and at what dimensions — that is the evidence the user needs to rule on
-  the open flag.
+- **Do not expect README §6's halt to fire, and treat it as a finding if it does.** This bullet
+  previously read "expect the halt to fire on full-resolution captures (F61: 4032x3024
+  normalizes to 764x573 against a 540 bound)". Phase 3 retracted both pieces of evidence behind
+  that: each paired a capture size with a `cm_per_px_actual` measured at a different resolution.
+  The device's own `adb_log.md` `height_ratio` resolves its captures to **2250x3000**, which
+  needs 426 of the 540 px available, and all nine corpus images fit with 418–432 px. The
+  invariant bounds ground coverage, not pixels — at most 326 cm on the long side and 184 cm on
+  the short side, at 0.34 cm/px.
+  So a halt on device is **not** the specified behaviour showing up on schedule. The first
+  suspect is the app pairing a reference mark and an image from different coordinate spaces —
+  AGENTS.md rule 9 (marks must map to the displayed image rectangle, including `BoxFit`
+  letterboxing) and rule 6 (no resize or rotate after marking without transforming the
+  coordinates). Record the halting capture's dimensions *and* the `cm_per_px_actual` the app
+  sent with it, and check that the second was measured on the first. Do not grow the canvas to
+  make it go away.
 - Record the device results in a durable document as each run completes.
 
 ## Deferred
@@ -63,3 +74,86 @@ Not a defect. This phase carries a host-validated change onto the device.
 No Firebase Test Lab run. The project's Firebase project is on the Spark free tier with five
 physical device runs per day, and Test Lab is submitted only on an explicit instruction for that
 specific occasion. Sideloading covers this phase.
+
+## Result (2026-09-19)
+
+**Native side done; the sideload/device-comparison half of this phase's own Verification
+section has not run yet** — that step is the user's, and this session did not build or hand
+off an APK.
+
+1. **`pipeline.cpp` now runs the README's single normalize-first pass.** The round-4 retry
+   ladder (multiple `run_segmentation()` attempts at `legacy_ladder_base_cm_per_px *`
+   multiplier, plus a lowered-confidence second sweep) is deleted outright; there is exactly
+   one call, at `manifest.weight.cm_per_px_target`, matching
+   `ML/host_scale_test/weight_branch_cli.cpp`'s own single pass. README section 6's fit halt
+   (`SegmentationOutput::oversize`) is surfaced as a declared failure at every level the
+   envelope reports it — `segmentation.reason`, `scale.reason`, `cutter`/`features.reason`,
+   and `weight.reason` (`user_message_key: "weight_capture_oversize_for_target_scale"`,
+   carrying `normalized_w`/`h` and the 960x540 bound) — never a crash, an enlarged canvas, or
+   a second attempt at a different scale (README section 13: there is no other scale to
+   retry at). `k` is fixed at `1.0` rather than computed from `cm_per_px_actual /
+   cm_per_px_target` (F60: the photograph was already resampled to the target scale before
+   the segmenter ran, so computing k again would double-apply it) — the same `force_k_one`
+   reasoning `weight_branch_cli.cpp` already used.
+2. **Rotation contract closed.** `pipeline.cpp` previously never called
+   `stages::rotate_pig_mask_90_ccw()` at all — a real gap this phase closes, not a
+   pre-existing correct behaviour re-verified. It is now called on both `pig_mask`
+   (`construct_pig_mask()`'s output, feeding health input and the quality gates) and
+   `scaled_mask` (`transform_mask_to_training_space()`'s output, feeding the cutter),
+   undoing README section 4's pre-model 90-degree rotation before either mask leaves the
+   stage — exactly `weight_branch_cli.cpp`'s pattern. Verified, not assumed: a smoke run
+   through the real `instaham_ml_run_pipeline_request_json()` entry point against
+   `corpus_a/75kg_pig_meter_stick.jpg` (portrait, 2250x3000) came back with `mask_w=418,
+   mask_h=558` — the original portrait aspect ratio, not the rotated-landscape working
+   space — and `estimated_kg=88.9058837890625`, `k=1.0`, `mask_area_px=46131`,
+   `scaled_area_px=46043`, matching `weight_branch_cli.exe` on the identical image and
+   `cm_per_px_actual` bit-for-bit. A second run at a `cm_per_px_actual` chosen to trigger the
+   section 6 halt (`0.17`) produced the declared-failure envelope described in point 1, with
+   `health` still reporting `status: "ok"` independently (AGENTS.md rule 4) and no crash. A
+   third run with no confirmed reference degraded the same way pre-existing behaviour always
+   has (`segmentation.reason: "reference_object_not_confirmed"`). This smoke harness was
+   scratch-only (compiled against `instaham_ml.lib`/`.dll`, not committed).
+3. **Dart side needs no change — confirmed, not assumed.** `reference_marking_screen.dart`
+   computes `cmPerPixel` from the marked endpoints itself, in original-capture coordinates,
+   and `WeightResultEntity`/`run_and_persist_pipeline_use_case.dart` carry only that scalar
+   to `pipelineService.run(imagePath, cmPerPixel: ...)`. No raw reference-endpoint coordinate
+   ever crosses into native code, so AGENTS.md rule 6 (no resize/rotate after marking without
+   transforming coordinates) holds by construction — there is nothing coordinate-shaped for
+   the native resize/rotate to invalidate, only a ratio that is invariant under both. Rule 9
+   is the segmenter's own concern (point 2 above), not Dart's. The envelope's Dart consumer
+   (`run_and_persist_pipeline_use_case.dart`) already persists `segmentation`/`construction`
+   generically via `jsonEncode`, not by destructuring the now-removed
+   `ladder_rung`/`rungs_tried`/`clamped_to_letterbox` fields, so no Dart edit was needed for
+   the envelope shape change either — confirmed by grep, not by inspection of one call site.
+4. **Envelope fields.** `ladder_rung`, `rungs_tried`, `clamped_to_letterbox` are gone
+   (nothing left to retry, so nothing to report per rung). `was_rotated_clockwise` is new on
+   `segmentation` (the README's own rotation flag, previously invisible in the app envelope).
+   Phase 5 owns the larger set of shipped debug/assertion fields this doc's own header lists
+   (`resize_factor`, `x_offset`/`y_offset`, orientation attestation, etc.) — not duplicated
+   here.
+5. **Manifest cleanup, hand-carried rather than re-exported — same call phase 3 made, same
+   reasoning.** `SegmentationCapability::input_cm_per_px` /
+   `scale_ladder_multipliers` / `retry_conf_threshold` and the `input_scale` block that fed
+   them (`assets/ml/manifest.json`, `ML/export/export_yolo.py`, `manifest.h`/`.cpp`) are
+   removed outright — there is no ladder left to configure. This phase's own text said any
+   field phase 3 touched "is regenerated by re-running `export_yolo.py` and
+   `ML.export.build_manifest`"; that was not done. A full rebuild needs all four capability
+   fragments (view/health/weight/segmentation) and re-runs a non-deterministic ONNX export
+   (phase 3's own finding) that would re-stage a new `segmentation.model.sha256` for a
+   config-only removal. Consistent with phase 3's precedent, the removal was hand-carried
+   into the manifest and the exporter's own fragment source instead, and is flagged here
+   again rather than resolved. `load_manifest()` treats a still-un-rebuilt manifest carrying
+   the old `input_scale` block as absent, not malformed, so this is not a breaking change
+   either way.
+6. **Verification run.** Build clean (Ninja/VS BuildTools); `ctest`: 8 of 9 pass, the same
+   two pre-existing failures as every prior phase this round (`test_abi`,
+   `test_scale_normalization`). `dart format`/`flutter analyze`/`flutter test` were not run —
+   no Dart file changed (point 3). The device sideload and the phase-2-capture comparison
+   this phase's Verification section asks for are **not done**; they need the user's phone
+   and are out of scope for this session per standing project rule (never build/sideload an
+   APK on the user's behalf, and the retry-ladder-removal detection-regression question this
+   phase file itself flags can only be answered on that device run).
+
+Files changed: `packages/instaham_ml_ffi/src/pipeline.cpp`, `packages/instaham_ml_ffi/src/manifest.h`,
+`packages/instaham_ml_ffi/src/manifest.cpp`, `assets/ml/manifest.json`,
+`ML/export/export_yolo.py`.

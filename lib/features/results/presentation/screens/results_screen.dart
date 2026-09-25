@@ -14,6 +14,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/widgets/app_card.dart';
 import '../../../../core/theme/widgets/app_scaffold.dart';
 import '../../../inference_pipeline/domain/use_cases/run_and_persist_pipeline_use_case.dart';
+import '../widgets/analysis_progress_view.dart';
 
 class ResultsScreen extends StatefulWidget {
   final ScanFlowArgs args;
@@ -27,6 +28,11 @@ class ResultsScreen extends StatefulWidget {
 class _ResultsScreenState extends State<ResultsScreen> {
   AppDatabase? _database;
   Future<LocalScanBundle?>? _bundle;
+  // plan-phase-2/2-progress-ui.md: the phase AnalysisProgressView renders while _bundle is
+  // pending. Not a per-stage checklist -- just the three boundaries Dart observes below.
+  AnalysisPhase _phase = AnalysisPhase.loadingBundle;
+  bool _pipelineRanThisLoad = false;
+  bool _popWarned = false;
 
   @override
   void didChangeDependencies() {
@@ -39,6 +45,8 @@ class _ResultsScreenState extends State<ResultsScreen> {
   void _reload() {
     final id = widget.args.sessionId;
     setState(() {
+      _phase = AnalysisPhase.loadingBundle;
+      _pipelineRanThisLoad = false;
       _bundle = id == null
           ? Future<LocalScanBundle?>.value(null)
           : _loadAndRunPipelineIfNeeded(id);
@@ -55,10 +63,37 @@ class _ResultsScreenState extends State<ResultsScreen> {
     var bundle = await db.recordsDao.loadScanBundle(id);
     final imagePath = bundle?.scan.imagePath;
     if (bundle != null && bundle.health == null && imagePath != null) {
+      if (mounted) {
+        setState(() {
+          _phase = AnalysisPhase.runningPipeline;
+          _pipelineRanThisLoad = true;
+        });
+      }
       await const RunAndPersistPipelineUseCase().execute(db, id, imagePath);
+      if (mounted) setState(() => _phase = AnalysisPhase.reloadingBundle);
       bundle = await db.recordsDao.loadScanBundle(id);
     }
-    return bundle;
+    if (bundle == null) return null;
+    // docs/fix-phase-6/2-dialog-and-routing.md (F68, widens F67): identity-matched, same
+    // rule as resolveViewGate/F66 -- a mismatch (no override, or one recorded for an
+    // earlier photo in this scan) must never show the banner or affect the card labels.
+    final currentImagePath = bundle.scan.imagePath;
+    final routeOverride = currentImagePath == null
+        ? null
+        : await RunAndPersistPipelineUseCase.viewRouteOverride(
+            db,
+            id,
+            currentImagePath,
+          );
+    return LocalScanBundle(
+      scan: bundle.scan,
+      pig: bundle.pig,
+      reference: bundle.reference,
+      weight: bundle.weight,
+      health: bundle.health,
+      viewEvent: bundle.viewEvent,
+      viewRouteOverride: routeOverride,
+    );
   }
 
   ReferenceSelection? _referenceFor(LocalScanBundle bundle) {
@@ -141,37 +176,60 @@ class _ResultsScreenState extends State<ResultsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return AppScaffold(
-      showNav: false,
-      header: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: AppColors.border)),
-        ),
-        child: Row(
-          children: [
-            IconButton(
-              onPressed: () => context.go('/records'),
-              icon: const Icon(Icons.chevron_left),
+    return FutureBuilder<LocalScanBundle?>(
+      future: _bundle,
+      builder: (context, snapshot) {
+        final analyzing =
+            snapshot.connectionState != ConnectionState.done &&
+            _pipelineRanThisLoad;
+        return PopScope(
+          // plan-phase-2/2-progress-ui.md: the run continues on the worker isolate and
+          // persists regardless of whether this screen is alive, so leaving is safe -- warn
+          // once rather than block. Only armed while the pipeline itself is running, not the
+          // cheap bundle load/reload either side of it.
+          canPop: !analyzing || _popWarned,
+          onPopInvokedWithResult: (didPop, result) {
+            if (didPop || !analyzing || _popWarned) return;
+            _popWarned = true;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Analysis will finish in the background.'),
+              ),
+            );
+          },
+          child: AppScaffold(
+            showNav: false,
+            header: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: AppColors.border)),
+              ),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: () => context.go('/records'),
+                    icon: const Icon(Icons.chevron_left),
+                  ),
+                  Text(
+                    'Scan details',
+                    style: AppTextStyles.headline.copyWith(fontSize: 20),
+                  ),
+                ],
+              ),
             ),
-            Text(
-              'Scan details',
-              style: AppTextStyles.headline.copyWith(fontSize: 20),
+            child: Builder(
+              builder: (context) {
+                if (snapshot.connectionState != ConnectionState.done) {
+                  return AnalysisProgressView(phase: _phase);
+                }
+                final bundle = snapshot.data;
+                if (bundle == null) return _MissingRecord(args: widget.args);
+                return _buildRecord(bundle);
+              },
             ),
-          ],
-        ),
-      ),
-      child: FutureBuilder<LocalScanBundle?>(
-        future: _bundle,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final bundle = snapshot.data;
-          if (bundle == null) return _MissingRecord(args: widget.args);
-          return _buildRecord(bundle);
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -217,13 +275,11 @@ class _ResultsScreenState extends State<ResultsScreen> {
           ),
         ),
         const SizedBox(height: 14),
-        _viewCard(bundle.viewEvent),
-        const SizedBox(height: 12),
         if (goal.requiresReference) ...[
-          _weightCard(bundle.weight, bundle.viewEvent),
+          _weightCard(bundle.weight, bundle.effectiveRoute),
           const SizedBox(height: 12),
         ],
-        _healthCard(bundle.health, bundle.viewEvent),
+        _healthCard(bundle.health, bundle.effectiveRoute),
         if (reference != null) ...[
           const SizedBox(height: 12),
           AppCard(
@@ -356,7 +412,13 @@ class _ResultsScreenState extends State<ResultsScreen> {
   /// applied here). "Skipped" (not a dorsal photo) is a routing outcome, not a failure;
   /// "Unavailable" (segmentation failed, or the cutter is the identity dummy -- section
   /// 3.4) is the branch genuinely not producing a number this build.
-  Widget _weightCard(WeightResult? result, PipelineEvent? viewEvent) {
+  ///
+  /// F70 (docs/fix-phase-6/2-dialog-and-routing.md): `effectiveRoute` is the route that
+  /// actually ran (`LocalScanBundle.effectiveRoute` -- the override when present,
+  /// otherwise the stored verdict), not the raw verdict. Reading the verdict alone showed
+  /// "Skipped" for an overridden `reject`/`health_only` scan whose weight checks then
+  /// genuinely failed, which is the "Unavailable" case, not a routing skip.
+  Widget _weightCard(WeightResult? result, String? effectiveRoute) {
     if (result == null) {
       return const _BranchCard(
         icon: Icons.monitor_weight_outlined,
@@ -369,7 +431,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
     }
     if (!result.eligible || result.valueKg == null) {
       final skippedByViewGate =
-          viewEvent != null && viewEvent.status != 'dorsal_valid';
+          effectiveRoute != null && effectiveRoute != 'dorsal_valid';
       return _BranchCard(
         icon: Icons.monitor_weight_outlined,
         title: 'Weight',
@@ -390,58 +452,10 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  /// TASKS.md's P2: the view gate's own outcome, shown as its own card instead of being
-  /// silently folded into a health-card "Unavailable" (Cause C — the two used to be
-  /// indistinguishable to the user).
-  Widget _viewCard(PipelineEvent? viewEvent) {
-    if (viewEvent == null) {
-      return const _BranchCard(
-        icon: Icons.crop_free,
-        title: 'Photo framing',
-        value: 'Pending',
-        status: ResultStatus.uncertain,
-        message: 'Awaiting the view-suitability check.',
-      );
-    }
-    final confidence = double.tryParse(viewEvent.message ?? '');
-    final confidenceText = confidence == null
-        ? ''
-        : ' (${(confidence * 100).round()}% confidence)';
-    return switch (viewEvent.status) {
-      'dorsal_valid' => _BranchCard(
-        icon: Icons.crop_free,
-        title: 'Photo framing',
-        value: 'Dorsal view$confidenceText',
-        status: ResultStatus.success,
-        message: 'Suitable for both weight and health screening.',
-      ),
-      'health_only' => _BranchCard(
-        icon: Icons.crop_free,
-        title: 'Photo framing',
-        value: 'Health-only view$confidenceText',
-        status: ResultStatus.uncertain,
-        message:
-            'Not a dorsal (top-down) view, so weight estimation is skipped. '
-            'Health screening still runs.',
-      ),
-      'reject' => _BranchCard(
-        icon: Icons.crop_free,
-        title: 'Photo framing',
-        value: 'Not usable$confidenceText',
-        status: ResultStatus.blocked,
-        message: 'Retake with the whole pig visible and well lit.',
-      ),
-      _ => _BranchCard(
-        icon: Icons.crop_free,
-        title: 'Photo framing',
-        value: viewEvent.status,
-        status: ResultStatus.uncertain,
-        message: 'Unrecognized view-gate outcome.',
-      ),
-    };
-  }
-
-  Widget _healthCard(HealthResult? result, PipelineEvent? viewEvent) {
+  /// F70 (docs/fix-phase-6/2-dialog-and-routing.md): `effectiveRoute` is the route that
+  /// actually ran, not the raw verdict -- a `reject` overridden to `health_only` or
+  /// `dorsal_valid` did run health, so it must not read as "Skipped" here either.
+  Widget _healthCard(HealthResult? result, String? effectiveRoute) {
     if (result == null) {
       return const _BranchCard(
         icon: Icons.health_and_safety_outlined,
@@ -453,10 +467,10 @@ class _ResultsScreenState extends State<ResultsScreen> {
       );
     }
     if (!result.eligible || result.className == null) {
-      // A view-gate reject means health was deliberately never attempted -- that is not
-      // the same failure as an eligibility check or inference error, so it reads
-      // differently (TASKS.md Cause C).
-      final skippedByViewGate = viewEvent?.status == 'reject';
+      // A view-gate reject with no override means health was deliberately never
+      // attempted -- that is not the same failure as an eligibility check or inference
+      // error, so it reads differently (TASKS.md Cause C).
+      final skippedByViewGate = effectiveRoute == 'reject';
       return _BranchCard(
         icon: Icons.health_and_safety_outlined,
         title: 'Visual health',
@@ -470,14 +484,29 @@ class _ResultsScreenState extends State<ResultsScreen> {
     final confidence = result.confidence == null
         ? 'Confidence unavailable'
         : '${(result.confidence! * 100).round()}% confidence';
+    // docs/plan-4.md / docs/plan-phase-4/3-app-surfacing.md: the two-stage cascade re-checks
+    // a non-healthy whole-photo result against the pig alone (background removed). That
+    // second pass cannot clear a false alarm and how well it names the right disease is
+    // unmeasured (docs/logs/phase3-health-protocol-measurement.md), so this is worded as a
+    // possible indicator, never as a confirmation. Read from the stored row, not the live
+    // envelope, so reopening a scan later shows the same wording. Older rows and results
+    // that never needed the second pass (`preprocessingVersion` null, or
+    // "cascade_v1:full_frame") read exactly as before this plan.
+    final secondPassRan =
+        result.preprocessingVersion == 'cascade_v1:segmentation_masked';
+    final message = secondPassRan
+        ? '$confidence · Flagged on the whole photo, then re-checked on the pig alone. '
+              'This is a possible indicator, not a confirmed diagnosis.'
+              '${result.uncertain ? ' Review or retake recommended.' : ''}'
+        : (result.uncertain
+              ? '$confidence · Review or retake recommended.'
+              : confidence);
     return _BranchCard(
       icon: Icons.health_and_safety_outlined,
       title: 'Possible visual indicator',
       value: result.className!,
       status: result.uncertain ? ResultStatus.uncertain : ResultStatus.success,
-      message: result.uncertain
-          ? '$confidence · Review or retake recommended.'
-          : confidence,
+      message: message,
     );
   }
 }

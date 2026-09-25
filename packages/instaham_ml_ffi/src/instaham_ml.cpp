@@ -442,12 +442,29 @@ InstahamMlStatus instaham_ml_run_pipeline_request_json(InstahamMlContext* raw_ct
     cm_per_px = &cm_per_px_value;
   }
 
+  // docs/fix-phase-6/1-native-route-override.md (F68): "view_route_override" is the string
+  // form -- "dorsal_valid" or "health_only" wins when both are present. The old boolean
+  // "view_gate_override" (fix-phase-5/2-view-reject-override.md, F67) stays accepted as an
+  // alias for "dorsal_valid" so round 9 callers and tests keep working bit for bit. Absent,
+  // null, another string, or a non-string "view_route_override" all mean no override.
+  std::string view_route_override;
+  if (request.contains("view_route_override") && request["view_route_override"].is_string()) {
+    const std::string requested = request["view_route_override"].get<std::string>();
+    if (requested == "dorsal_valid" || requested == "health_only") {
+      view_route_override = requested;
+    }
+  } else if (request.contains("view_gate_override") &&
+             request["view_gate_override"].is_boolean() &&
+             request["view_gate_override"].get<bool>()) {
+    view_route_override = "dorsal_valid";
+  }
+
   instaham_ml::PipelineRunners runners{ctx->view_runner.get(), ctx->health_runner.get(),
                                         ctx->segmentation_runner.get(),
                                         ctx->weight_runner.get()};
   std::string json_out;
-  bool ok =
-      instaham_ml::run_pipeline(runners, ctx->manifest, image_path, cm_per_px, &json_out);
+  bool ok = instaham_ml::run_pipeline(runners, ctx->manifest, image_path, cm_per_px, &json_out,
+                                       view_route_override);
   *out_json = dup_cstr(json_out);
   if (!ok) {
     set_error(json_out);

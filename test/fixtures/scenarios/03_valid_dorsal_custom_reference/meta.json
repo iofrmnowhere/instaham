@@ -26,7 +26,13 @@
       "expected_failure_reason": null
     },
     "health_branch": {
-      "expect_assessed": true
+      "expect_assessed": true,
+      "cascade": {
+        "second_stage": "not_needed_healthy",
+        "final_stage": "full_frame",
+        "final_label": "Healthy",
+        "source": "observed on host by docs/plan-phase-4/2-host-verification.md (docs/logs/phase4-health-cascade-host.md, cascade_natural column) with the shipped manifest; not yet asserted by any test"
+      }
     }
   },
   "notes": "Near-floor fixture (75 kg): weight branch is expected to still produce a number (domain is valid), but its accuracy is not asserted -- only that the branch does not gate. See ADR-010 / finding 7 in docs/metrics-plan.md.",

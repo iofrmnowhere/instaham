@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../features/analytics/data/analytics_dao.dart';
 import '../../features/capture/data/custom_references_dao.dart';
 import '../../features/records/data/records_dao.dart';
+import '../models/capture_orientation.dart';
 import '../models/measurement_mode.dart';
 import '../models/scan_flow.dart';
 
@@ -34,6 +35,15 @@ class ScanRecords extends Table {
   TextColumn get imagePath => text().nullable()();
   TextColumn get measurementMode => text().nullable()();
   RealColumn get cameraHeightCm => real().nullable()();
+  // docs/fix-phase-4/6-capture-orientation.md: 'portrait' | 'landscape', the orientation the
+  // capture reached the segmenter in, and whether the user attested to the pig's head facing
+  // the direction that orientation requires. The app cannot verify head direction itself (no
+  // head detector; README §4 forbids adding one at preprocessing), so this is instruction and
+  // attestation, recorded here so a wrong-looking mask can be checked against what the user
+  // declared.
+  TextColumn get captureOrientation => text().nullable()();
+  BoolColumn get headOrientationAttested =>
+      boolean().withDefault(const Constant(false))();
   TextColumn get failureCode => text().nullable()();
   TextColumn get failureMessage => text().nullable()();
   TextColumn get notes => text().nullable()();
@@ -132,6 +142,13 @@ class PipelineEvents extends Table {
   TextColumn get stage => text()();
   TextColumn get status => text()();
   TextColumn get message => text().nullable()();
+  // docs/fix-phase-5/1-view-verdict-cache.md (F66): sha256 of the image bytes this event
+  // classified, so a cached 'view' event can be checked against the image it is about to
+  // be reused for, instead of being trusted for any image the scan happens to hold at
+  // read time. Null for events written before this column existed, and for stages that
+  // are not per-image (resolveViewGate treats a null identity as a mismatch, never as a
+  // wildcard).
+  TextColumn get imageIdentity => text().nullable()();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
@@ -193,7 +210,7 @@ class AppDatabase extends _$AppDatabase {
   static final Random _random = Random.secure();
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -217,6 +234,22 @@ class AppDatabase extends _$AppDatabase {
           weightResults.cutterKeptFraction,
         );
         await migrator.addColumn(weightResults, weightResults.cutterStatus);
+      }
+      if (from < 5) {
+        // docs/fix-phase-4/6-capture-orientation.md: nullable/defaulted additions -- no
+        // backfill; scans captured before this phase keep no orientation/attestation.
+        await migrator.addColumn(scanRecords, scanRecords.captureOrientation);
+        await migrator.addColumn(
+          scanRecords,
+          scanRecords.headOrientationAttested,
+        );
+      }
+      if (from < 6) {
+        // docs/fix-phase-5/1-view-verdict-cache.md (F66): nullable addition -- no
+        // backfill. Events written before this column existed carry no image identity,
+        // so resolveViewGate treats them as a mismatch and re-classifies rather than
+        // trusting a verdict it cannot attribute to an image.
+        await migrator.addColumn(pipelineEvents, pipelineEvents.imageIdentity);
       }
     },
     beforeOpen: (_) async {
@@ -286,6 +319,8 @@ class AppDatabase extends _$AppDatabase {
     String? imagePath,
     MeasurementMode? measurementMode,
     double? cameraHeightCm,
+    CaptureOrientation? captureOrientation,
+    bool headOrientationAttested = false,
   }) async {
     final now = DateTime.now();
     await (update(scanRecords)..where((row) => row.id.equals(scanId))).write(
@@ -294,11 +329,30 @@ class AppDatabase extends _$AppDatabase {
         imagePath: Value(imagePath),
         measurementMode: Value(measurementMode?.name),
         cameraHeightCm: Value(cameraHeightCm),
+        captureOrientation: Value(captureOrientation?.storageValue),
+        headOrientationAttested: Value(headOrientationAttested),
         capturedAt: Value(now),
         updatedAt: Value(now),
       ),
     );
     await addPipelineEvent(scanId, 'capture', 'completed');
+  }
+
+  /// Records the user's head-direction attestation for an already-captured scan
+  /// (docs/fix-phase-4/6-capture-orientation.md point 4). Called once the confirm step on the
+  /// review screen is checked, since attestation happens after the image itself is produced.
+  Future<void> recordOrientationAttestation(
+    String scanId, {
+    required CaptureOrientation orientation,
+    required bool attested,
+  }) async {
+    await (update(scanRecords)..where((row) => row.id.equals(scanId))).write(
+      ScanRecordsCompanion(
+        captureOrientation: Value(orientation.storageValue),
+        headOrientationAttested: Value(attested),
+        updatedAt: Value(DateTime.now()),
+      ),
+    );
   }
 
   Future<void> updateScanStatus(
@@ -358,6 +412,7 @@ class AppDatabase extends _$AppDatabase {
     String stage,
     String status, {
     String? message,
+    String? imageIdentity,
   }) {
     return into(pipelineEvents).insert(
       PipelineEventsCompanion(
@@ -365,6 +420,7 @@ class AppDatabase extends _$AppDatabase {
         stage: Value(stage),
         status: Value(status),
         message: Value(message),
+        imageIdentity: Value(imageIdentity),
       ),
     );
   }

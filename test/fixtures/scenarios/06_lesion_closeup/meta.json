@@ -19,7 +19,13 @@
       "expected_failure_reason": "view_not_dorsal"
     },
     "health_branch": {
-      "expect_assessed": true
+      "expect_assessed": true,
+      "cascade": {
+        "second_stage": "no_region",
+        "final_stage": "full_frame",
+        "final_label": "Infected_Environmental_Sunburn",
+        "source": "observed on host by docs/plan-phase-4/2-host-verification.md (docs/logs/phase4-health-cascade-host.md, cascade_natural column) with the shipped manifest; not yet asserted by any test"
+      }
     }
   },
   "notes": "Confirmed by task 1's phase-4 run (observed_phase4 below): view resolves health_only (confidence 0.9682) as hypothesized, but the live weight-branch reason is view_not_dorsal, not weight_needs_reference_object -- the latter is a dead WeightEligibilityChecker reason (finding 5) that the live pipeline never emits.",

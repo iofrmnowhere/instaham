@@ -75,6 +75,16 @@
             "probe_status": { "type": "string", "enum": ["not_run", "partial", "full"] },
             "probe_detail": { "type": "object" }
           }
+        },
+        "cascade": {
+          "type": "object",
+          "description": "health only, hand-edited — docs/plan-4.md. When enabled, a first full_frame-family pass whose label is not healthy_label triggers a second pass with second_stage_protocol, and that second result becomes the final one.",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "healthy_label": { "type": "string" },
+            "second_stage_protocol": { "type": "string", "enum": ["segmentation_crop", "segmentation_masked"] },
+            "evidence": { "type": "string" }
+          }
         }
       }
     },

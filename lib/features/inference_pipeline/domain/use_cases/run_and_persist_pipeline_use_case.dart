@@ -31,8 +31,11 @@
 // so the native weight branch can normalize features into the regressor's training pixel
 // space instead of always predicting on unscaled capture pixels.
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../../core/database/app_database.dart';
 import '../../../../core/database/reference_annotation_dao.dart';
@@ -73,8 +76,13 @@ class RunAndPersistPipelineUseCase {
         viewModelService: viewModelService,
       );
       final viewRejected = view.label == 'reject';
+      // docs/fix-phase-6/2-dialog-and-routing.md (F68): the override lookup is no longer
+      // gated on `reject` -- a `health_only` verdict can now also be overridden to the
+      // full route. `routeOverride` is the chosen route ('dorsal_valid'/'health_only'),
+      // or null when no override was recorded for this exact image.
+      final routeOverride = await viewRouteOverride(db, scanId, imagePath);
 
-      if (viewRejected) {
+      if (viewRejected && routeOverride == null) {
         await db.saveHealthResult(
           scanId: scanId,
           eligible: false,
@@ -116,6 +124,7 @@ class RunAndPersistPipelineUseCase {
       final (status, envelope) = await pipelineService.run(
         imagePath,
         cmPerPixel: cmPerPixel,
+        viewRouteOverride: routeOverride,
       );
       if (status != MlStatus.ok || envelope['status'] == 'stopped') {
         throw StateError(
@@ -151,6 +160,14 @@ class RunAndPersistPipelineUseCase {
       if (healthJson['status'] == 'ok') {
         final confidence =
             (healthJson['confidence'] as num?)?.toDouble() ?? 0.0;
+        // docs/plan-4.md / docs/plan-phase-4/3-app-surfacing.md: which stage produced this
+        // result, read from the envelope's own `cascade.final_stage` -- never inferred from
+        // the label. Absent `cascade` key (the manifest's cascade switch is off, or an
+        // older native build) means this scan predates the cascade or ran single-pass;
+        // `preprocessingVersion` stays null so old and new rows can be told apart.
+        // Reuses an existing, previously-unwritten HealthResults column -- no schema change.
+        final cascadeJson = healthJson['cascade'] as Map<String, dynamic>?;
+        final finalStage = cascadeJson?['final_stage'] as String?;
         await db.saveHealthResult(
           scanId: scanId,
           eligible: true,
@@ -158,6 +175,9 @@ class RunAndPersistPipelineUseCase {
           confidence: confidence,
           uncertain: confidence < kHealthUncertainBelow,
           modelVersion: kHealthModelVersion,
+          preprocessingVersion: finalStage == null
+              ? null
+              : 'cascade_v1:$finalStage',
         );
       } else {
         await db.saveHealthResult(
@@ -346,47 +366,148 @@ class RunAndPersistPipelineUseCase {
   /// Reuses the 'view' PipelineEvent capture time already wrote for this scan
   /// (capture_screen.dart's `_usePhoto()`), so the view model never runs twice and the
   /// route already taken (or not taken, for a reject) stays consistent with what is shown
-  /// here. Falls back to running the classifier itself only for a scan that predates this
-  /// change or whose capture-time attempt never persisted an event.
+  /// here. Falls back to running the classifier itself for a scan that predates this
+  /// change, whose capture-time attempt never persisted an event, OR whose stored event
+  /// describes a different image than [imagePath] (F66: `_sessionId` is reused across
+  /// retakes within one capture screen, so the scan's identity alone cannot key the
+  /// cache -- the image must). A stored event with no recorded identity is treated as a
+  /// mismatch, never as a wildcard.
   static Future<ViewClassificationResult> resolveViewGate(
     AppDatabase db,
     String scanId,
     String imagePath, {
     IViewModelService viewModelService = const ViewModelServiceImpl(),
   }) async {
+    final identity = await imageIdentityOf(imagePath);
+    // Ordered by `id`, not `createdAt`: two view events from a fast retake within the
+    // same capture session can land in the same createdAt second, and only the
+    // autoincrement id is guaranteed to reflect actual insertion order.
     final existing =
         await (db.select(db.pipelineEvents)
               ..where(
                 (row) => row.scanId.equals(scanId) & row.stage.equals('view'),
               )
-              ..orderBy([(row) => OrderingTerm.desc(row.createdAt)])
+              ..orderBy([(row) => OrderingTerm.desc(row.id)])
               ..limit(1))
             .getSingleOrNull();
-    if (existing != null) {
+    if (existing != null &&
+        existing.imageIdentity != null &&
+        existing.imageIdentity == identity) {
       return ViewClassificationResult(
         label: existing.status,
         confidence: double.tryParse(existing.message ?? '') ?? 0.0,
       );
     }
     final view = await viewModelService.classify(imagePath);
-    await recordViewGate(db, scanId, view);
+    await recordViewGate(db, scanId, view, imageIdentity: identity);
     return view;
   }
 
+  /// sha256 of the image's bytes, used to key a cached view-gate verdict to the image it
+  /// classified rather than to the scan (F66). A content hash is preferred over the file
+  /// path: `processCapture` writes unique-per-capture filenames, but a path match would
+  /// still wrongly hit if a file were ever replaced in place, and a hash also survives the
+  /// temp directory being relocated.
+  static Future<String> imageIdentityOf(String imagePath) async {
+    final bytes = await File(imagePath).readAsBytes();
+    // plan-phase-2/2.1-capture-screen-guards.md finding 4: sha256 over a multi-MB JPEG is
+    // real CPU-bound work; run it off the UI isolate the same way subphase 1.1 moved
+    // decode/bake/encode. Uint8List in, String out -- both plainly sendable, so compute()
+    // needs no isolate-context plumbing.
+    return compute(_sha256Hex, bytes);
+  }
+
+  static String _sha256Hex(Uint8List bytes) => sha256.convert(bytes).toString();
+
   /// Persists a view-gate decision as a `PipelineEvent` (`status` = label, `message` =
-  /// confidence as a plain decimal string) so it can be reused by [resolveViewGate] and
+  /// confidence as a plain decimal string, `imageIdentity` = the classified image's
+  /// sha256) so it can be reused by [resolveViewGate] -- for the same image only -- and
   /// rendered by ResultsScreen's view card (TASKS.md P2) without re-running the model.
   static Future<void> recordViewGate(
     AppDatabase db,
     String scanId,
-    ViewClassificationResult view,
-  ) {
+    ViewClassificationResult view, {
+    String? imageIdentity,
+  }) {
     return db.addPipelineEvent(
       scanId,
       'view',
       view.label,
       message: view.confidence.toStringAsFixed(4),
+      imageIdentity: imageIdentity,
     );
+  }
+
+  /// F67 (fix-phase-5/2-view-reject-override.md), widened by F68
+  /// (fix-phase-6/2-dialog-and-routing.md) to carry which route was chosen: records that
+  /// the user picked [route] ('dorsal_valid' or 'health_only') instead of the verdict the
+  /// photo check gave for [imagePath]. Deliberately a **separate stage**,
+  /// `'view_override'`, not `'view'` -- `resolveViewGate`'s cache lookup and
+  /// `RecordsDao.loadLatestEvent(scanId, 'view')` (the results screen's view/weight/health
+  /// cards) both select the latest row of stage `'view'` with no status filter, and an
+  /// override row filed under that stage would be read back as if it were a verdict. A
+  /// distinct stage keeps every existing 'view' reader untouched. The event's status is
+  /// `'override:<route>'` (round 9's plain `'override'` is never written by this method
+  /// again, only read back by [viewRouteOverride]).
+  ///
+  /// Keyed by the same content-hash `imageIdentity` as the cached verdict itself -- never
+  /// the scan alone, for the exact reason F66 exists: `_sessionId` is reused across
+  /// retakes, so a scan-scoped override would leak onto every later photo in the same
+  /// capture-screen session. `message` carries the overridden label and confidence so the
+  /// event is self-describing without a join back to the original 'view' row.
+  ///
+  /// Takes plain `overriddenLabel`/`overriddenConfidence` rather than a
+  /// `ViewClassificationResult` so `capture_screen.dart` (a UI widget) does not need to
+  /// import `services/ml/view_model_service.dart` (AGENTS.md: "keep UI widgets independent
+  /// of ... ML runtime packages") just to call this method.
+  static Future<void> recordViewGateOverride(
+    AppDatabase db,
+    String scanId, {
+    required String route,
+    required String overriddenLabel,
+    required double overriddenConfidence,
+    required String imageIdentity,
+  }) {
+    return db.addPipelineEvent(
+      scanId,
+      'view_override',
+      'override:$route',
+      message: '$overriddenLabel ${overriddenConfidence.toStringAsFixed(4)}',
+      imageIdentity: imageIdentity,
+    );
+  }
+
+  /// The chosen override route ('dorsal_valid' or 'health_only') for the exact image at
+  /// [imagePath], or null when no override was recorded for it -- a null-identity row
+  /// (legacy, or a different image) is a mismatch, never a wildcard, same rule as
+  /// [resolveViewGate]. A legacy row with status `'override'` (no route, round 9's only
+  /// possible meaning) reads as `'dorsal_valid'`. This replaces the old `bool`
+  /// `hasViewGateOverride`.
+  static Future<String?> viewRouteOverride(
+    AppDatabase db,
+    String scanId,
+    String imagePath,
+  ) async {
+    final identity = await imageIdentityOf(imagePath);
+    final existing =
+        await (db.select(db.pipelineEvents)
+              ..where(
+                (row) =>
+                    row.scanId.equals(scanId) &
+                    row.stage.equals('view_override'),
+              )
+              ..orderBy([(row) => OrderingTerm.desc(row.id)])
+              ..limit(1))
+            .getSingleOrNull();
+    if (existing == null ||
+        existing.imageIdentity == null ||
+        existing.imageIdentity != identity) {
+      return null;
+    }
+    if (existing.status == 'override') return 'dorsal_valid';
+    return existing.status.startsWith('override:')
+        ? existing.status.substring('override:'.length)
+        : null;
   }
 }
 

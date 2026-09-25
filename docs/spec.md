@@ -1,5 +1,56 @@
 # Model I/O Spec
 
+Re-checked on 2026-09-25 after `docs/plan-4.md` (round 4, two-stage health cascade) phases
+1-3. **These are legitimate, intended changes, not drift.** The health section was stale in
+two ways, and both are now described in place under the Health classifier section:
+
+- It still called `segmentation_crop` and `segmentation_masked` stubs. `docs/plan-3.md`
+  implemented both.
+- It did not describe the cascade. The manifest gained a `health.cascade` block, and
+  `envelope["health"]` gained a `cascade` object.
+
+The health model file, its sha256, `classes.json`, the input tensor, the preprocessing
+constants, and the first-pass `protocol` (`full_frame`) are unchanged. The manifest diff
+against `HEAD` also drops the segmenter's `input_scale` block, which the 2026-09-19 entry
+below already records. The other three graphs, `feature_order`, `cm_per_px_target` (0.34) and
+both quality-gate switches were not touched by this round.
+
+Re-checked on 2026-09-22 after `docs/fix-4.md` round 8 phase 5 (phase 6 added no model I/O —
+see below). **Legitimate, intended additions — README §16/§17 debug scalars and shipped
+invariants, not drift.** `envelope["segmentation"]` gained `resize_factor`, `normalized_w`/`h`
+(now set on every run, not only the §6 halt), `x_offset`/`y_offset`, `rotated_width`/`height`,
+and (on the halt path) `cm_per_px_actual` alongside the halt dimensions.
+`envelope["construction"]` gained `base_mask_w`/`h`. `envelope["cutter"]` gained
+`base_mask_w`/`h`, `final_mask_w`/`h`, `final_mask_added_px`, `final_mask_removed_px`, and a
+new declared-failure reason, `final_mask_not_subset_of_base` — README §17's "FINAL_MASK
+foreground ⊆ BASE_MASK foreground" check, shipped **tolerance-gated** rather than literal:
+the vendor cutter's Ji/Duan gap-fill legitimately adds a small number of foreground pixels
+beyond the base mask (measured 0.037% of base-mask area on one corpus A photo), so the reason
+fires only above `kMaxTolerableAddedMaskPxFraction` (0.01, `pipeline.cpp:72`), not on any
+added pixel — see `docs/adr/016-final-mask-subset-check-tolerance-gated.md`. These fields are
+documented in place in the Segmenter Output and Envelope sections below. Phase 6 (capture
+orientation / head-direction attestation) added no model input, output, or envelope field —
+those two values live on the Dart-side `ScanRecords` row only, never crossing into the native
+envelope — so it is out of scope for this file. Everything else re-checked and unchanged from
+the 2026-09-19 entry below: the four graphs' shapes, `feature_order`, `cm_per_px_target`
+(0.34), `training_frame_px`, `min_mask_diagonal_fraction`, both quality-gate switches, and the
+normalize-first composition itself.
+
+Re-checked on 2026-09-19 after `docs/fix-4.md` round 8 phase 4. **Two legitimate changes,
+both intended (the round's own designated specification, not drift).** The segmenter's canvas
+composition changed from the round-4 scale-aware-or-plain-letterbox choice with a
+`[1.0, 1.32, 1.68, 0.77]` retry ladder to the README's single normalize-first pass at
+`cm_per_px_target`, with a halt (not a fallback) when the normalized content overflows the
+960×540 canvas; the manifest's `segmentation.input_scale` block, which fed that ladder, is
+removed rather than superseded. The weight regressor's `k` is now fixed at `1.0` rather than
+computed from `cm_per_px_actual / cm_per_px_target`, because the photograph is already
+resampled to `cm_per_px_target` before the segmenter runs. Both are described in place below;
+see `docs/fix-phase-4/4-app-wiring.md`'s Result section for the verification (a real
+`instaham_ml_run_pipeline_request_json()` run matched `weight_branch_cli.exe` bit-for-bit on
+the same corpus A image). Everything else — the four graphs' shapes, the view/health
+contracts, `feature_order`, `cm_per_px_target` itself (0.34), `training_frame_px`,
+`min_mask_diagonal_fraction`, both quality-gate switches — verified unchanged.
+
 Derived from the code and from `assets/ml/manifest.json` as they stand now. The view, health,
 and segmenter contracts below were re-checked on 2026-09-07 and are unchanged; the **weight
 regressor section was rewritten** — the shipped family moved from 5-feature `baseline5` to
@@ -129,6 +180,17 @@ preprocessing, output mapping, and gating contract below are unchanged by the sw
 - Contract: the label **gates the whole graph**. `reject` stops the pipeline;
   `health_only` skips segmentation; `dorsal_valid` runs everything. Any other value, or an
   unavailable capability, fails closed with every downstream stage `skipped`.
+- User route override (round 9 [ADR-017](adr/017-user-consent-view-gate-override.md), widened
+  in round 10 by [ADR-020](adr/020-view-route-override-either-route.md)): the request-shaped
+  entrypoint's `view_route_override` (`"dorsal_valid"` / `"health_only"`) changes the route,
+  never the label. `stages::resolve_view_route()` (`src/stages/view_route.h`) decides it:
+  `dorsal_valid` is never changed, `health_only` can be raised to `dorsal_valid`, and `reject`
+  can take either route instead of stopping. The legacy boolean `view_gate_override: true`
+  means `"dorsal_valid"` and is read only when `view_route_override` is absent or not a string.
+  When the resolved route differs from the un-overridden one (`pipeline.cpp:296-306`), the
+  envelope's `view` block gains `"override": true` and `"override_route": "<route>"`; a no-op
+  override leaves the block unchanged. *Added 2026-09-25: the spec had not recorded round 9's
+  boolean override at all; both rounds are captured here.*
 
 ## Health classifier — `assets/ml/health/model.onnx`
 
@@ -138,19 +200,57 @@ GhostNetV3-100, opset 17, `protocol_version: health_v1`.
 - Shape: `1x3x224x224`, NCHW, RGB, float32. Input name `input`.
 - Preprocessing: identical to the view classifier — same resize/crop/normalization
   constants, shared code path (`resize_shorter_then_crop` in `health_input.cpp`).
-- Input protocol: manifest declares `full_frame`. `segmentation_crop` and
-  `segmentation_masked` are declared as *supported* but their implementations are stubs that
-  degrade to `full_frame`. When the manifest asks for anything but `full_frame`, the envelope
-  reports `input_protocol_requested`, `input_protocol_applied` and `input_degraded: true`, so
-  a scan can never claim a crop that did not happen.
+- Input protocol: the manifest's `health.input.protocol` is `full_frame`, and that is the
+  **first pass**. `segmentation_crop` and `segmentation_masked` are implemented
+  (`docs/plan-3.md`), ported from `ML/parity/reference_health_input.py`: the pig region's box
+  is padded by `bbox_padding_ratio` (0.06) and cropped, and `segmentation_masked` also fills
+  every pixel outside the pig mask with `background_fill` (`imagenet_mean`, the ImageNet mean
+  as uint8 RGB) before the same resize-shorter-255 / centre-crop-224 preprocessing.
+  `abnormality_crop` is still a stub that falls back to full frame. A region protocol with no
+  valid region, or with an all-zero mask, falls back to full frame
+  (`on_segmentation_failure: full_frame`). The envelope always reports
+  `input_protocol_requested`, `input_protocol_applied`, `input_degraded` and `region_source`
+  (`none` / `bbox` / `mask`), so a scan can never claim a crop that did not happen.
+- Region: `pipeline.cpp` builds the region only from the construction stage's pig mask
+  (`pig_region_from_base_mask()`, BASE_MASK coordinates divided by
+  `SegmentationOutput::content_scale` back into the original photo). The `health_only` route
+  and any run without a mask pass no region.
+- **Two-stage cascade** (`docs/plan-4.md`, manifest `health.cascade`: `enabled: true`,
+  `healthy_label: "Healthy"`, `second_stage_protocol: "segmentation_masked"`). The first
+  pass runs on the whole photo. If its label is `healthy_label`, that result is final. If
+  not, and a region **with a mask** exists, the model runs a second time with
+  `second_stage_protocol`, and that second result becomes the final envelope. A bbox with no
+  mask counts as no region, because the masked pass would then repeat the first. If the second
+  pass fails or falls back to full frame, the first result stays final. A manifest `cascade`
+  block with an unknown `second_stage_protocol`, or a `healthy_label` not in `classes.json`,
+  disables the cascade rather than failing the load. The reason is held in
+  `ClassifierCapability::health_cascade_disabled_reason`, but it is **not** written to the
+  envelope.
 
 ### Output
 - Format: `[1, 10]` logits over `health/classes.json`: `Healthy` 0, then nine
   `Infected_*` classes (bacterial erysipelas, greasy pig disease, environmental dermatitis,
   sunburn, fungal pityriasis rosea, ringworm, parasitic mange, viral FMD, swinepox).
 - Postprocessing: softmax → argmax label + confidence + probability map.
+- Cascade envelope: when the cascade is enabled, `envelope["health"]` is the final pass's
+  classifier output plus a `cascade` object: `version` (`cascade_v1`), `enabled` (`true`),
+  `second_stage`, `final_stage` (the `input_protocol_applied` of the pass that is final), and
+  `first` (`label`, `confidence`, `probabilities` of the whole-photo pass). `second_stage` is
+  one of `not_needed_healthy`, `ran`, `no_region`, `second_stage_failed` or
+  `second_stage_degraded`. `disabled` exists in the code but cannot appear in practice: with the
+  cascade off, the envelope is exactly the single-pass `run_classifier()` output, with **no**
+  `cascade` key.
+- `instaham_ml_classify_health_json` stays **single-stage**. It has no segmentation output to
+  draw a region from, so it never runs the cascade. The app uses the full pipeline entrypoint,
+  not this one.
+- Dart persistence: `run_and_persist_pipeline_use_case.dart` stores `cascade.final_stage` in
+  the existing `HealthResults.preprocessingVersion` column as `cascade_v1:<final_stage>`, or
+  null when there is no `cascade` key. This needed no schema change. The results screen shows
+  its re-check wording only for `cascade_v1:segmentation_masked`, and never presents that
+  result as a confirmed diagnosis.
 - Contract: independent of the weight branch. A failed weight branch must never suppress
-  this result, and health runs on both the `dorsal_valid` and `health_only` routes.
+  this result, and health runs on both the `dorsal_valid` and `health_only` routes. Only the
+  `dorsal_valid` route can reach a second pass, because only it builds a region.
 
 ## Segmenter — `assets/ml/segmentation/yolo.onnx`
 
@@ -160,13 +260,19 @@ YOLO11s-seg with LDConv + ACmix, opset 17,
 ### Input
 - Shape: `1x3x640x640`, NCHW, RGB, float32 in `[0,1]` (plain `v/255`, **no** ImageNet
   normalization — unlike the two classifiers). Input name `images`.
-- Canvas composition: with a user-confirmed `cm_per_px` and a manifest
-  `segmentation.input_scale.cm_per_px` (1.10), content is placed at
-  `content_scale = cm_per_px_actual / input_cm_per_px`, padded with fill 114. Otherwise, or
-  when that scale would overflow the canvas, a plain whole-frame letterbox (fill 114,
-  `scaleup: false`, stride 32) with `clamped_to_letterbox` recorded.
-- Retry ladder: multipliers `[1.0, 1.32, 1.68, 0.77]`, then the same ladder again at
-  `retry_conf_threshold` 0.10.
+- Canvas composition (`docs/fix-4.md` round 8, README-specified): a required
+  user-confirmed `cm_per_px` (`cm_per_px_actual`) and `capabilities.weight.cm_per_px_target`
+  are resized to exactly `cm_per_px_target` (`resize_factor = cm_per_px_actual /
+  cm_per_px_target`), rotated 90° clockwise if that leaves the content portrait, then centred
+  unresized on a fixed 960×540 canvas (letterbox fill 114). A missing/invalid reference or an
+  unavailable weight capability is a declared segmentation failure — there is no
+  plain-whole-frame fallback and no retry ladder; this is the pipeline's only composition.
+  If the normalized, rotated content does not fit 960×540, this halts (`oversize`, README
+  §6) rather than enlarging the canvas or shrinking the content — surfaced through the whole
+  envelope (`segmentation`/`scale`/`cutter`/`features`/`weight`, each carrying
+  `normalized_w`/`normalized_h` and the 960×540 bound). The manifest's old
+  `input_scale` block (a legacy per-canvas cm/px base, a multiplier ladder, and a lowered
+  retry confidence threshold) is removed; it fed the retry ladder this round deletes.
 
 ### Output
 - `outputs[0]`: `[1, 4 + nc + 32, num_anchors]` — `cx, cy, w, h`, then `nc` class scores,
@@ -181,6 +287,11 @@ YOLO11s-seg with LDConv + ACmix, opset 17,
 - Mask protocol: `original_coordinate_polygon_v1`. Letterbox parameters are carried through
   on `SegmentationOutput` verbatim and never recomputed downstream.
 - No detection above threshold is **not** an error; an instance is never fabricated.
+- Debug/assertion scalars (`docs/fix-phase-4/5-debug-and-assertions.md`, README §16/§17), in
+  `envelope["segmentation"]` on every run: `resize_factor`, `normalized_w`/`h`, `x_offset`/
+  `y_offset`, `rotated_width`/`height`. `envelope["construction"]` gains `base_mask_w`/`h`.
+  These are cheap and shipped so a coordinate bug is visible from a saved envelope without a
+  code read; see the Envelope and ABI section for the cutter-side counterparts.
 
 ## Weight regressor — `assets/ml/weight/xgboost.onnx`
 
@@ -206,12 +317,17 @@ layer or the Dart layer names a feature.
   retained `baseline5` rollback family only, not the shipped one.)
 - Features are measured on the **final V176/V144 cut mask** — the head/neck-removed mask the
   model was trained on — after the mask is resampled into the regressor's training pixel
-  space by `k = cm_per_px_actual / cm_per_px_target` (**target currently 0.34 cm/px**, round
-  28's measured MAE minimum on both host sweep corpora — see the calibration note below;
-  720×720 training frame). `cm_per_px` comes **only** from the user-confirmed
-  reference object; there is no
-  implicit `k = 1.0`. `chen16_noheight` values are raw pixel counts and lengths on that
-  mask — there is no `RA`-style frame denominator and no additional linear scaling.
+  space by `k` (**target currently 0.34 cm/px**, round 28's measured MAE minimum on both host
+  sweep corpora — see the calibration note below; 720×720 training frame). As of
+  `docs/fix-4.md` round 8 phase 4, `k` is fixed at **`1.0`**, not computed from
+  `cm_per_px_actual / cm_per_px_target`: the segmenter (see the segmenter's Input section
+  above) already resampled the photograph to `cm_per_px_target` before it ran, so the mask
+  handed to `transform_mask_to_training_space()` is already in the training pixel space, and
+  computing `k` again from `cm_per_px_actual` would double-apply the scale. `cm_per_px` still
+  comes **only** from the user-confirmed reference object, gating whether this path runs at
+  all — there is no implicit fallback if it is missing. `chen16_noheight` values are raw
+  pixel counts and lengths on that mask — there is no `RA`-style frame denominator and no
+  additional linear scaling.
 - When no scale is available (no reference marked, or a rejected one), the cutter still runs
   for telemetry on an **unscaled** mask, but that mask is now capped: `pipeline.cpp`'s
   `kUnscaledCutterMaxDimPx` (2880, the bound the scaled path already guarantees at
@@ -306,6 +422,11 @@ additive and `INSTAHAM_ML_ABI_VERSION` stays 1. Callers branch on the `InstahamM
 return code, never on JSON shape. Manifest `schema_version` is 1; every referenced model and
 class-map file's sha256 is verified before any ORT session is created.
 
+`envelope["view"]` is the classifier's output (`status`, `label`, `confidence`,
+`probabilities`, `class_map_sha256`, `protocol_version`, `classifier.cpp:103-110`),
+plus `override` / `override_route` only on a run whose route a user override changed — see the
+view classifier's contract above.
+
 `envelope["features"]` carries `status`, `family`, `order`, `gated` (the enforced subset),
 `values` (keyed by feature name) and `measured_on`. `envelope["cutter"]` carries `status`,
 `head_removal_applied`, the real `protocol_version`, `protocol_implemented: true`, and
@@ -320,6 +441,17 @@ existing `ji.fallback` decline. Note that Dart's `cutterDeclineStatuses` set
 (`run_and_persist_pipeline_use_case.dart:401`) has **not** been extended with it; that set is
 unreachable while the weight override is on, so this is a latent gap rather than a live one,
 and it needs closing before `weight.available` returns to `false`.
+
+`envelope["cutter"]` also carries, on every run (`docs/fix-phase-4/5-debug-and-assertions.md`,
+README §16/§17): `base_mask_w`/`h`, `final_mask_w`/`h`, `final_mask_added_px`,
+`final_mask_removed_px` — the last two measuring the final (cut) mask's foreground against the
+base (pre-cut) mask's, always recorded regardless of outcome. A separate declared-failure
+reason, `final_mask_not_subset_of_base`, fires when `final_mask_added_px` exceeds 1% of the
+base mask's area (`kMaxTolerableAddedMaskPxFraction`, `pipeline.cpp:72`) — tolerance-gated
+rather than literal, because the vendor cutter's Ji/Duan gap-fill legitimately adds a small,
+scattered number of foreground pixels as denoising, not a coordinate bug; see
+`docs/adr/016-final-mask-subset-check-tolerance-gated.md` and
+`docs/pipeline/cutter.md`'s status table.
 
 ## Previously flagged mismatch — resolved 2026-09-09
 
@@ -338,4 +470,4 @@ now reads `weight_pending_field_validation`, matching what the native side actua
 Nothing in `manifest.cpp` or Dart reads either field, so this was descriptive text only, with
 no behaviour change.
 
-## Last verified against code: 2026-09-14
+## Last verified against code: 2026-09-25

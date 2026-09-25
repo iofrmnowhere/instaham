@@ -11,8 +11,11 @@
 #include "stages/construction.h"
 #include "stages/cutter.h"
 #include "stages/feature_calculation.h"
+#include "stages/invariants.h"
+#include "stages/mask_geometry.h"
 #include "stages/quality_gates.h"
 #include "stages/segmentation.h"
+#include "stages/view_route.h"
 #include "stages/weight_prediction.h"
 #include "third_party/nlohmann_json/single_include/nlohmann/json.hpp"
 
@@ -59,6 +62,15 @@ constexpr double kMaxValidHeightRatio = 4.0;
 // for (pipeline.cpp's cutter/features telemetry stays populated even with no reference
 // marked).
 constexpr int kUnscaledCutterMaxDimPx = 2880;
+
+// docs/fix-phase-4/5-debug-and-assertions.md phase 5 verification: how much of
+// mask_for_cutter's area FINAL_MASK is allowed to add beyond it (README section 17's
+// FINAL_MASK ⊆ BASE_MASK) before that is treated as a coordinate error rather than the
+// vendor cutter's own Ji/Duan gap-fill cleanup. Measured at 0.0065% on the one real corpus
+// A photograph checked (docs/fix-phase-4/5-debug-and-assertions.md's Result section) --
+// 1% is two orders of magnitude above that measurement, so it still catches a genuinely
+// displaced region while not turning ordinary cleanup noise into a withheld weight.
+constexpr double kMaxTolerableAddedMaskPxFraction = 0.01;
 
 // ref_fix.md F1: every scale-branch rejection carries its own reason so
 // envelope["weight"]["reason"] can name it exactly -- previously every rejection
@@ -164,13 +176,11 @@ std::string domain_user_message_key(const std::string& reason) {
 // ref_fix.md F16/F19/F23: the constructed mask's bounding-box diagonal as a fraction of the
 // image's own diagonal -- what both the retry ladder (F19) and the plausibility gate (F16,
 // now at F23's raised 0.35 threshold) measure. Shared so the two can never diverge on what
-// "plausible" means.
+// "plausible" means. The formula itself now lives in stages::mask_diagonal_fraction()
+// (mask_geometry.h) -- docs/fix-phase-4/3-constants.md phase 3 pulled it out of this
+// anonymous namespace so it is unit-testable at more than one frame aspect ratio.
 double mask_diagonal_fraction(const stages::PigMask& mask) {
-  const double mask_diag =
-      std::sqrt(double(mask.bbox_w) * mask.bbox_w + double(mask.bbox_h) * mask.bbox_h);
-  const double frame_diag =
-      std::sqrt(double(mask.width) * mask.width + double(mask.height) * mask.height);
-  return frame_diag > 0.0 ? mask_diag / frame_diag : 0.0;
+  return stages::mask_diagonal_fraction(mask.bbox_w, mask.bbox_h, mask.width, mask.height);
 }
 
 // ref_fix.md F22: is `value` outside the regressor's own [min, max] from the training/eval
@@ -258,7 +268,7 @@ json extrapolated_feature_names(const std::vector<std::string>& feature_order,
 
 bool run_pipeline(const PipelineRunners& runners, const Manifest& manifest,
                    const std::string& image_path, const double* cm_per_px,
-                   std::string* out_json) {
+                   std::string* out_json, const std::string& view_route_override) {
   if (image_path.empty() || !out_json) {
     if (out_json) *out_json = unavailable("invalid_argument").dump();
     return false;
@@ -279,15 +289,30 @@ bool run_pipeline(const PipelineRunners& runners, const Manifest& manifest,
   } else {
     view_json = unavailable("view capability not available in this manifest");
   }
+  // docs/fix-phase-6/1-native-route-override.md (F68): the route decision itself lives in a
+  // pure, model-free function so it is unit-testable without ORT. `view_route_override` is
+  // already normalized to "" / "dorsal_valid" / "health_only" by the caller
+  // (instaham_ml.cpp) before it reaches here.
+  const stages::ViewRoute route = stages::resolve_view_route(view_label, view_route_override);
+  const stages::ViewRoute unoverridden_route = stages::resolve_view_route(view_label, "");
+  const bool overridden = route != unoverridden_route;
+  if (overridden) {
+    // The stored label is untouched -- only the routing decision changes. `override` +
+    // `override_route` mark the envelope as self-describing so a later reader (results
+    // screen, log, ctest fixture) cannot mistake this for a clean, un-overridden run.
+    view_json["override"] = true;
+    view_json["override_route"] = route == stages::ViewRoute::kDorsal ? "dorsal_valid"
+                                                                       : "health_only";
+  }
   envelope["view"] = view_json;
 
-  if (view_label == "reject") {
+  if (route == stages::ViewRoute::kStopped) {
     *out_json = stopped_envelope(view_json, "view_rejected").dump();
     return true;
   }
 
-  const bool is_dorsal = view_label == "dorsal_valid";
-  const bool is_health_only = view_label == "health_only";
+  const bool is_dorsal = route == stages::ViewRoute::kDorsal;
+  const bool is_health_only = route == stages::ViewRoute::kHealthOnly;
   if (!is_dorsal && !is_health_only) {
     // View unavailable or an unrecognised label -- fail closed rather than guess a route
     // (AGENTS.md rule 8). Health and weight are both reported skipped, not silently absent.
@@ -311,135 +336,155 @@ bool run_pipeline(const PipelineRunners& runners, const Manifest& manifest,
   stages::SegmentationOutput seg_output;
   stages::PigMask pig_mask;
   bool have_mask = false;
+  // docs/fix-phase-4/4-app-wiring.md: set whenever run_segmentation declares README section
+  // 6's fit halt, so the weight branch below (which never sees seg_output when have_mask is
+  // false) can still name this failure specifically instead of the generic "no_mask".
+  bool seg_oversize = false;
 
   if (is_dorsal && manifest.segmentation.available && runners.segmentation) {
-    // ref_fix.md F18/F19: scale-aware composition only when a user-confirmed reference
-    // exists AND the manifest declares input_cm_per_px (an older manifest fragment leaves
-    // it at 0.0, which disables this and every attempt below falls back to the plain
-    // whole-frame letterbox -- unchanged pre-F18 behaviour).
-    const bool scale_aware = cm_per_px != nullptr && std::isfinite(*cm_per_px) &&
-                              *cm_per_px > 0.0 && manifest.segmentation.input_cm_per_px > 0.0;
+    // docs/fix-phase-4/4-app-wiring.md (closes F64): the app now runs the same single
+    // normalize-first pass as the host harness (ML/host_scale_test/weight_branch_cli.cpp)
+    // and stages/segmentation.cpp's own doc comment -- README section 13 is one pass at one
+    // scale, `WeightCapability::cm_per_px_target`. The round-4 retry ladder over
+    // `legacy_ladder_base_cm_per_px` multipliers is gone; there is no second attempt to
+    // fall back to. A missing/invalid reference or an unavailable weight capability is a
+    // declared segmentation failure here (AGENTS.md rule 7/8), not a plain-letterbox
+    // fallback -- the segmenter needs the photograph normalized to run this path at all.
+    const bool have_scale_inputs = cm_per_px != nullptr && std::isfinite(*cm_per_px) &&
+                                    *cm_per_px > 0.0 && manifest.weight.available &&
+                                    manifest.weight.cm_per_px_target > 0.0;
 
-    struct Attempt {
-      double multiplier;
-      float conf_threshold;  // <= 0 means "use the manifest default"
-    };
-    std::vector<Attempt> attempts;
-    if (scale_aware) {
-      for (double m : manifest.segmentation.scale_ladder_multipliers) {
-        attempts.push_back({m, 0.0f});
-      }
-      if (manifest.segmentation.retry_conf_threshold > 0.0f) {
-        for (double m : manifest.segmentation.scale_ladder_multipliers) {
-          attempts.push_back({m, manifest.segmentation.retry_conf_threshold});
-        }
-      }
+    stages::SegmentationOutput raw_seg;
+    std::string seg_error;
+    bool seg_ok = false;
+    if (have_scale_inputs) {
+      seg_ok = stages::run_segmentation(runners.segmentation, manifest.segmentation, image_path,
+                                         *cm_per_px, manifest.weight.cm_per_px_target,
+                                         /*conf_threshold_override=*/0.0f, &raw_seg, &seg_error);
     } else {
-      attempts.push_back({0.0, 0.0f});  // one attempt, plain letterbox
+      seg_error = "reference_object_not_confirmed";
     }
 
-    // ref_fix.md F19: stop at the FIRST attempt whose constructed mask meets F23's
-    // plausibility threshold -- not the best across all attempts, which would be a
-    // different (unvalidated) selection criterion. If none do, keep the highest-diagonal
-    // one so the existing F16 gate below still has a real mask to reject with a real
-    // fraction, rather than reporting on an arbitrary attempt.
-    bool any_detection = false;
-    std::string last_seg_error;
-    double best_diag = -1.0;
-    int selected_rung = -1;
-    json rungs_tried = json::array();
-    for (size_t i = 0; i < attempts.size() && best_diag < manifest.weight.min_mask_diagonal_fraction;
-         ++i) {
-      stages::SegmentationOutput attempt_seg;
-      std::string seg_error;
-      const double input_cm_per_px =
-          scale_aware ? manifest.segmentation.input_cm_per_px * attempts[i].multiplier : 0.0;
-      const double cm_per_px_actual = scale_aware ? *cm_per_px : 0.0;
-      const bool seg_ok = stages::run_segmentation(
-          runners.segmentation, manifest.segmentation, image_path, cm_per_px_actual,
-          input_cm_per_px, attempts[i].conf_threshold, &attempt_seg, &seg_error);
-      json rung_json = {
-          {"rung", int(i)},
-          {"multiplier", attempts[i].multiplier},
-          {"conf_threshold_used",
-           attempts[i].conf_threshold > 0.0f ? attempts[i].conf_threshold
-                                              : manifest.segmentation.conf_threshold},
-          {"input_cm_per_px_used", attempt_seg.input_cm_per_px_used},
-          {"content_scale", attempt_seg.content_scale},
-          {"clamped_to_letterbox", attempt_seg.clamped_to_letterbox},
+    if (!seg_ok) {
+      // README section 6: the normalized, rotated content did not fit the 960x540 canvas.
+      // Surfaced as a declared failure carrying the dimensions and the bound the composition
+      // was checked against -- never a crash, an enlarged canvas, or a silent retry at a
+      // different scale (there is no other scale to retry at; see the doc comment above).
+      seg_oversize = raw_seg.oversize;
+      seg_output = raw_seg;  // carries normalized_w/h and the requested bound for the
+                              // have_mask-false weight branch below, even without a mask
+      json seg_json = {
+          {"status", "error"},
+          {"reason", seg_oversize ? "oversize" : (seg_error.empty() ? "unavailable" : seg_error)},
       };
-      if (!seg_ok) {
-        last_seg_error = seg_error;
-        rung_json["result"] = "error";
-        rung_json["reason"] = seg_error;
-        rungs_tried.push_back(rung_json);
-        continue;
+      if (seg_oversize) {
+        seg_json["normalized_w"] = raw_seg.normalized_w;
+        seg_json["normalized_h"] = raw_seg.normalized_h;
+        seg_json["canvas_w_requested"] = raw_seg.canvas_w_requested;
+        seg_json["canvas_h_requested"] = raw_seg.canvas_h_requested;
+        // docs/fix-phase-4/5-debug-and-assertions.md: an occurrence of this halt is a
+        // signal, most likely of a reference-mark coordinate-space mismatch rather than a
+        // too-small canvas -- record cm_per_px_actual alongside the dimensions so the two
+        // can be checked against each other without a second run.
+        seg_json["cm_per_px_actual"] = *cm_per_px;
       }
-      if (!attempt_seg.has_detection) {
-        rung_json["result"] = "no_instance_above_conf";
-        rungs_tried.push_back(rung_json);
-        continue;
-      }
-      any_detection = true;
-      rung_json["candidates_kept"] = attempt_seg.candidates_kept;
-      stages::PigMask attempt_mask = stages::construct_pig_mask(attempt_seg);
-      if (attempt_mask.empty()) {
-        rung_json["result"] = "empty_mask";
-        rungs_tried.push_back(rung_json);
-        continue;
-      }
-      const double diag = mask_diagonal_fraction(attempt_mask);
-      rung_json["result"] = "ok";
-      rung_json["mask_diagonal_fraction"] = diag;
-      rungs_tried.push_back(rung_json);
-      if (diag > best_diag) {
-        best_diag = diag;
-        selected_rung = int(i);
-        seg_output = attempt_seg;
-        pig_mask = attempt_mask;
-      }
-    }
-
-    if (best_diag < 0.0) {
-      envelope["segmentation"] =
-          any_detection ? json{{"status", "error"}, {"reason", "empty_mask"}}
-                         : json{{"status", "error"},
-                                {"reason", last_seg_error.empty() ? "no_instance_above_conf"
-                                                                   : last_seg_error}};
-      envelope["segmentation"]["rungs_tried"] = rungs_tried;
-      envelope["construction"] = skipped(any_detection ? "empty_mask" : "no_instance");
-    } else {
-      // ref_fix.md F15: candidates_kept/*_mask_area_proto/selected_box_* are what would
-      // have shown F12's bug directly -- candidates_kept > 1 with a near-tied runner-up
-      // area, and a selected_box_frame_fraction of ~1-9% against the true pig's ~55-85%.
-      // ref_fix.md F18/F19/F20: ladder_rung/rungs_tried/content_scale/input_cm_per_px_used
-      // are what would have shown F18's bug directly -- a photo whose only usable rung is
-      // not rung 0, or one where every rung stayed below F23's threshold.
+      envelope["segmentation"] = seg_json;
+      envelope["construction"] = skipped(seg_oversize ? "oversize" : "segmentation_failed");
+    } else if (!raw_seg.has_detection) {
       envelope["segmentation"] = json{
-          {"status", "ok"},
-          {"confidence", seg_output.box.conf},
-          {"instances_found", 1},
-          {"candidates_kept", seg_output.candidates_kept},
-          {"selected_mask_area_proto", seg_output.selected_mask_area_proto},
-          {"runner_up_mask_area_proto", seg_output.runner_up_mask_area_proto},
-          {"selected_box_orig",
-           {seg_output.selected_box_orig_x0, seg_output.selected_box_orig_y0,
-            seg_output.selected_box_orig_x1, seg_output.selected_box_orig_y1}},
-          {"selected_box_frame_fraction", seg_output.selected_box_frame_fraction},
-          {"ladder_rung", selected_rung},
-          {"rungs_tried", rungs_tried},
-          {"content_scale", seg_output.content_scale},
-          {"input_cm_per_px_used", seg_output.input_cm_per_px_used},
-          {"clamped_to_letterbox", seg_output.clamped_to_letterbox},
+          {"status", "error"},
+          {"reason", "no_instance_above_conf"},
+          {"candidates_kept", raw_seg.candidates_kept},
       };
-      have_mask = true;
-      envelope["construction"] = json{
-          {"status", "ok"},
-          {"mask_protocol", "original_coordinate_polygon_v1"},
-          {"mask_area_px", pig_mask.area_px},
-          {"bbox", {pig_mask.bbox_x, pig_mask.bbox_y, pig_mask.bbox_w, pig_mask.bbox_h}},
-          {"mask_diagonal_fraction", best_diag},
-      };
+      envelope["construction"] = skipped("no_instance");
+    } else {
+      // docs/fix-phase-4/4-app-wiring.md, AGENTS.md rule 6/9: run_segmentation's mask comes
+      // back in the (optionally rotated) normalized-content coordinate space, never the
+      // original capture's -- construct_pig_mask() crops into that space, and
+      // rotate_pig_mask_90_ccw() undoes README section 4's pre-model rotation before the
+      // mask leaves this stage, exactly as the host harness does
+      // (ML/host_scale_test/weight_branch_cli.cpp). Nothing downstream (health input,
+      // the scale/height_ratio gate, the cutter) may ever see a rotated mask.
+      const stages::PigMask raw_mask = stages::construct_pig_mask(raw_seg);
+      // docs/fix-phase-4/5-debug-and-assertions.md, README section 17: "cropped mask size
+      // equals rotated normalized RGB size" -- construct_pig_mask() always sizes its
+      // output to (seg.orig_w, seg.orig_h), which segmentation.cpp sets to the ROTATED
+      // content's dimensions, so this can only fail if a future change to either stage
+      // disagrees with the other. Checked before the inverse rotation, never after.
+      const std::string cropped_mask_violation = stages::check_mask_matches_rgb_dimensions(
+          raw_mask.width, raw_mask.height, raw_seg.orig_w, raw_seg.orig_h);
+      const stages::PigMask mask =
+          cropped_mask_violation.empty()
+              ? stages::rotate_pig_mask_90_ccw(raw_mask, raw_seg.was_rotated_clockwise)
+              : stages::PigMask{};
+      // README section 17: "after inverse rotation: BASE_MASK size equals original
+      // normalized RGB size" -- `raw_seg.normalized_w/h` is that original (pre-rotation)
+      // size (stages/segmentation.h), set on every run since this phase.
+      const std::string base_mask_violation =
+          cropped_mask_violation.empty()
+              ? stages::check_mask_matches_rgb_dimensions(mask.width, mask.height,
+                                                           raw_seg.normalized_w,
+                                                           raw_seg.normalized_h)
+              : "";
+      if (!cropped_mask_violation.empty() || !base_mask_violation.empty()) {
+        // AGENTS.md rule 8 / README section 17's closing line: a declared failure with the
+        // specific reason, never a silent extra resize -- this path is not expected to
+        // fire given the two stages already agree by construction; it exists so a future
+        // change that breaks that agreement is caught here rather than as a wrong weight.
+        const std::string reason =
+            !cropped_mask_violation.empty() ? cropped_mask_violation : base_mask_violation;
+        envelope["segmentation"] = json{{"status", "error"}, {"reason", reason}};
+        envelope["construction"] = skipped(reason);
+      } else if (mask.empty()) {
+        envelope["segmentation"] = json{{"status", "error"}, {"reason", "empty_mask"}};
+        envelope["construction"] = skipped("empty_mask");
+      } else {
+        seg_output = raw_seg;
+        pig_mask = mask;
+        have_mask = true;
+        const double diag = mask_diagonal_fraction(pig_mask);
+        // ref_fix.md F15: candidates_kept/*_mask_area_proto/selected_box_* are what would
+        // have shown F12's bug directly -- candidates_kept > 1 with a near-tied runner-up
+        // area, and a selected_box_frame_fraction of ~1-9% against the true pig's ~55-85%.
+        // docs/fix-phase-4/5-debug-and-assertions.md: resize_factor/normalized_w/h/
+        // x_offset/y_offset/rotated_width/rotated_height added this phase -- cheap
+        // scalars that name which transform actually ran, per that document's Root
+        // Cause ("nothing in the envelope said which transform had actually been
+        // applied").
+        envelope["segmentation"] = json{
+            {"status", "ok"},
+            {"confidence", seg_output.box.conf},
+            {"instances_found", 1},
+            {"candidates_kept", seg_output.candidates_kept},
+            {"selected_mask_area_proto", seg_output.selected_mask_area_proto},
+            {"runner_up_mask_area_proto", seg_output.runner_up_mask_area_proto},
+            {"selected_box_orig",
+             {seg_output.selected_box_orig_x0, seg_output.selected_box_orig_y0,
+              seg_output.selected_box_orig_x1, seg_output.selected_box_orig_y1}},
+            {"selected_box_frame_fraction", seg_output.selected_box_frame_fraction},
+            {"content_scale", seg_output.content_scale},
+            {"resize_factor", seg_output.content_scale},
+            {"input_cm_per_px_used", seg_output.input_cm_per_px_used},
+            {"was_rotated_clockwise", seg_output.was_rotated_clockwise},
+            {"normalized_w", seg_output.normalized_w},
+            {"normalized_h", seg_output.normalized_h},
+            {"x_offset", seg_output.x_offset},
+            {"y_offset", seg_output.y_offset},
+            {"rotated_width", raw_mask.width},
+            {"rotated_height", raw_mask.height},
+        };
+        envelope["construction"] = json{
+            {"status", "ok"},
+            {"mask_protocol", "original_coordinate_polygon_v1"},
+            {"mask_area_px", pig_mask.area_px},
+            {"bbox", {pig_mask.bbox_x, pig_mask.bbox_y, pig_mask.bbox_w, pig_mask.bbox_h}},
+            {"mask_diagonal_fraction", diag},
+            // README section 9: BASE_MASK's own dimensions -- the original (un-rotated)
+            // normalized image's size, per check_mask_matches_rgb_dimensions() above.
+            {"base_mask_w", pig_mask.width},
+            {"base_mask_h", pig_mask.height},
+        };
+      }
     }
   } else if (!is_dorsal) {
     // health_only: segmentation is not required for this route (see comment above), not
@@ -452,25 +497,27 @@ bool run_pipeline(const PipelineRunners& runners, const Manifest& manifest,
   }
 
   // ---- health: runs on both branches (section 1.1(b)), degrades its input, never blocks ----
+  // docs/plan-4.md / docs/plan-phase-4/1-native-cascade.md: run_health_cascade() runs the
+  // first (manifest-configured) pass, then -- only when the manifest's cascade is enabled,
+  // that pass's label is not the healthy one, and a usable region exists -- a second pass
+  // with the manifest's second_stage_protocol, reporting that as the final result. With the
+  // cascade disabled this is exactly the single run_classifier() call it replaces.
   json health_json = json::object();
   if (manifest.health.available && runners.health) {
-    HealthInputOptions health_opts;
-    health_opts.protocol = parse_health_input_protocol(manifest.health.input_protocol);
+    const PigRegion* region_ptr = nullptr;
     PigRegion region;
-    if (have_mask) {
-      region.x0 = pig_mask.bbox_x;
-      region.y0 = pig_mask.bbox_y;
-      region.x1 = pig_mask.bbox_x + pig_mask.bbox_w;
-      region.y1 = pig_mask.bbox_y + pig_mask.bbox_h;
-      region.has_mask = true;
-      region.mask = pig_mask.pixels.data();
-      region.mask_w = pig_mask.width;
-      region.mask_h = pig_mask.height;
-      health_opts.region = region.valid() ? &region : nullptr;
+    // docs/plan-phase-3/2.1-recovery-helper.md: the BASE_MASK-to-original recovery lives in
+    // pig_region_from_base_mask() (health_input.h) so test_health_input.cpp exercises the
+    // same code this call site runs, instead of a copy of the arithmetic.
+    if (have_mask &&
+        pig_region_from_base_mask(pig_mask.bbox_x, pig_mask.bbox_y, pig_mask.bbox_w,
+                                   pig_mask.bbox_h, pig_mask.pixels.data(), pig_mask.width,
+                                   pig_mask.height, seg_output.content_scale, &region)) {
+      region_ptr = region.valid() ? &region : nullptr;
     }
     std::string raw;
     int err = 0;
-    run_classifier(runners.health, manifest.health, image_path, &raw, &err, &health_opts);
+    run_health_cascade(runners.health, manifest.health, image_path, region_ptr, &raw, &err);
     health_json = parse_or_empty(raw);
   } else {
     health_json = unavailable("health capability not available in this manifest");
@@ -497,11 +544,30 @@ bool run_pipeline(const PipelineRunners& runners, const Manifest& manifest,
       scale_failure_reason = "reference_object_not_confirmed";
       envelope["scale"] = unavailable(scale_failure_reason);
     } else {
-      k = *cm_per_px / manifest.weight.cm_per_px_target;
+      // docs/fix-phase-4/4-app-wiring.md (F60): on the README's normalize-first path the
+      // photograph was already resampled to manifest.weight.cm_per_px_target BEFORE the
+      // segmenter ran (stages/segmentation.cpp), so the mask handed to the cutter is
+      // already in the training pixel space -- k is 1.0 by construction, not computed from
+      // cm_per_px_actual, which would double-apply the scale
+      // (ML/host_scale_test/weight_branch_cli.cpp's `force_k_one` does the same thing). A
+      // value away from 1.0 here would be a bug signal, not a calibration; phase 5 ships it
+      // as a shipped assertion.
+      k = 1.0;
       // ref_fix.md F2: k alone conflates capture height with capture resolution (the
       // training frame is a fixed 720x720; a live capture is typically 1280px wide, a
       // gallery import up to 3000px). Divide the resolution term back out so the bound
       // below is actually a camera-height check, as it was always meant to be.
+      // docs/fix-phase-4/3-constants.md phase 3 (F62): `pig_mask.width/height` here is
+      // `content_w/content_h` from the normalize-first composition (stages/canvas_scale.h)
+      // -- the resized, optionally-rotated photo, NOT the 960x540 canvas it is later
+      // centred on. sqrt(w*h) is an area term, so it is aspect-independent; nothing about
+      // adopting a 960x540 (vs a square) canvas changes what training_frame_w/h needs to
+      // be here, and training_frame_px stays 720x720, the value recovered from the
+      // training rows themselves (see capture_contract.training_frame_px's own comment in
+      // ML/export/export_xgboost.py). This is a separate gate from
+      // stages::mask_diagonal_fraction() below (mask_geometry.h) and does not read
+      // min_mask_diagonal_fraction; the two were previously described together in a way
+      // that overstated how coupled they are.
       const double capture_scale =
           std::sqrt(double(pig_mask.width) * double(pig_mask.height));
       const double training_scale =
@@ -539,7 +605,10 @@ bool run_pipeline(const PipelineRunners& runners, const Manifest& manifest,
       }
     }
   } else if (is_dorsal && !have_mask) {
-    scale_failure_reason = "no_mask";
+    // docs/fix-phase-4/4-app-wiring.md: name README section 6's halt specifically when it
+    // is what withheld the mask, rather than the generic "no_mask" every other
+    // segmentation failure already reports under envelope["segmentation"]["reason"].
+    scale_failure_reason = seg_oversize ? "oversize" : "no_mask";
     envelope["scale"] = skipped(scale_failure_reason);
   } else {
     scale_failure_reason = "view_not_dorsal";
@@ -677,6 +746,14 @@ bool run_pipeline(const PipelineRunners& runners, const Manifest& manifest,
       // docs/fix-phase-3/2 Outcome). construct_pig_mask's output (pig_mask) is unchanged and
       // still feeds the quality gates above, in original capture coordinates.
       scaled_mask = stages::transform_mask_to_training_space(seg_output, k);
+      // docs/fix-phase-4/4-app-wiring.md, AGENTS.md rule 6/9: transform_mask_to_training_space
+      // crops back into seg_output's own coordinate space, which on this path is still the
+      // ROTATED normalized content -- undo README section 4's rotation here too, exactly as
+      // already done for `pig_mask` above (and as
+      // ML/host_scale_test/weight_branch_cli.cpp does under `force_k_one`). Skipping this
+      // would hand the cutter/feature stages a mask rotated 90 degrees from the one the
+      // plausibility gate and health input already agreed on.
+      scaled_mask = stages::rotate_pig_mask_90_ccw(scaled_mask, seg_output.was_rotated_clockwise);
       if (!scaled_mask.empty()) {
         mask_for_cutter = &scaled_mask;
         if (envelope["construction"].is_object()) {
@@ -728,15 +805,66 @@ bool run_pipeline(const PipelineRunners& runners, const Manifest& manifest,
     const double kept_fraction = mask_for_cutter->area_px > 0
                                       ? double(post_cut_area) / double(mask_for_cutter->area_px)
                                       : 0.0;
+    // README section 17: "FINAL_MASK size equals BASE_MASK size" and "FINAL_MASK
+    // foreground subset of BASE_MASK foreground" -- measured against the SAME mask the
+    // cutter actually received (`mask_for_cutter`), not the pre-scale `pig_mask` above,
+    // since that is the BASE_MASK this cut is measured against (README sections 9-11).
+    // docs/fix-phase-4/5-debug-and-assertions.md phase 5 verification: the cutter's
+    // Ji/Duan preprocessing (vendor/instaham_v176) runs a morphological CLOSE before the
+    // actual cut (README section 10's "Ji-Duan preprocessing" step), which legitimately
+    // fills small gaps and adds a handful of foreground pixels the base mask did not have
+    // -- measured at 17 added px out of 46043 base px (0.037%) on
+    // corpus_a/75kg_pig_meter_stick.jpg, the one real photograph checked. That is expected
+    // denoising, not a coordinate bug: a genuine coordinate error would add a large,
+    // spatially displaced region, not a scattering of gap-fill pixels.
+    // `kMaxTolerableAddedMaskPxFraction` draws the line README section 17 asks for
+    // ("FINAL_MASK ⊆ BASE_MASK") while not turning ordinary vendor-cutter cleanup into a
+    // withheld weight on every capture -- AGENTS.md rule 8 still holds above that line: a
+    // large violation is a declared failure, never a silently accepted cut.
+    const stages::MaskSubsetMeasurement final_mask_measurement =
+        stages::measure_final_mask_against_base(mask_for_cutter->pixels, mask_for_cutter->width,
+                                                 mask_for_cutter->height, cutter_result.mask,
+                                                 cutter_result.width, cutter_result.height);
+    std::string final_mask_violation;
+    if (!final_mask_measurement.dims_match) {
+      final_mask_violation = "final_mask_dimensions_mismatch";
+    } else if (mask_for_cutter->area_px > 0 &&
+               double(final_mask_measurement.added_px) / double(mask_for_cutter->area_px) >
+                   kMaxTolerableAddedMaskPxFraction) {
+      final_mask_violation = "final_mask_not_subset_of_base";
+    }
+
     envelope["cutter"] = json{
-        {"status", cutter_result.status},
+        {"status", final_mask_violation.empty() ? cutter_result.status : "error"},
         {"head_removal_applied", cutter_result.head_removal_applied},
         {"protocol_version",
          "v176_strict_nonprimary_break1_region_meet_v144_fixed_center_bilateral_circle_v1"},
         {"protocol_implemented", true},
         {"kept_fraction", kept_fraction},
         {"removed_fraction", 1.0 - kept_fraction},
+        // docs/fix-phase-4/5-debug-and-assertions.md: FINAL_MASK's own dimensions --
+        // README section 11. `mask_for_cutter` is what README calls BASE_MASK by the time
+        // it reaches the cutter (already in training-pixel space on this normalize-first
+        // path); `cutter_result` is FINAL_MASK.
+        {"base_mask_w", mask_for_cutter->width},
+        {"base_mask_h", mask_for_cutter->height},
+        {"final_mask_w", cutter_result.width},
+        {"final_mask_h", cutter_result.height},
+        {"final_mask_added_px", final_mask_measurement.added_px},
+        {"final_mask_removed_px", final_mask_measurement.removed_px},
     };
+    if (!final_mask_violation.empty()) {
+      envelope["cutter"]["reason"] = final_mask_violation;
+      envelope["features"] = skipped(final_mask_violation);
+      json final_mask_violation_json = json{
+          {"status", "error"},
+          {"reason", final_mask_violation},
+      };
+      envelope["weight"] = weight_override ? final_mask_violation_json : weight_unavailable_json;
+      envelope["status"] = "ok";
+      *out_json = envelope.dump();
+      return true;
+    }
 
     // ref_fix.md F1: the reason here is the SAME one already recorded on envelope["scale"]
     // above -- never a generic "scale_unavailable" regardless of what actually failed.
@@ -891,9 +1019,27 @@ bool run_pipeline(const PipelineRunners& runners, const Manifest& manifest,
                            : weight_unavailable_json;
     }
   } else if (is_dorsal && !have_mask) {
-    envelope["cutter"] = skipped("no_mask");
-    envelope["features"] = skipped("no_mask");
-    envelope["weight"] = unavailable("segmentation_failed");
+    // docs/fix-phase-4/4-app-wiring.md: name README section 6's halt as a declared
+    // weight-branch failure carrying the normalized dimensions and the 960x540 bound,
+    // rather than the generic "segmentation_failed" every other cause of a missing mask
+    // already gets -- the whole point of surfacing `oversize` distinctly (see the
+    // segmentation block above) is that this is the one reaction (raise it as an open
+    // flag) that must never be a silent retry or a crash.
+    envelope["cutter"] = skipped(seg_oversize ? "oversize" : "no_mask");
+    envelope["features"] = skipped(seg_oversize ? "oversize" : "no_mask");
+    if (seg_oversize) {
+      envelope["weight"] = json{
+          {"status", "unavailable"},
+          {"reason", "oversize"},
+          {"user_message_key", "weight_capture_oversize_for_target_scale"},
+          {"normalized_w", seg_output.normalized_w},
+          {"normalized_h", seg_output.normalized_h},
+          {"canvas_w_requested", seg_output.canvas_w_requested},
+          {"canvas_h_requested", seg_output.canvas_h_requested},
+      };
+    } else {
+      envelope["weight"] = unavailable("segmentation_failed");
+    }
   } else {
     // health_only: no cutter, no features, no weight -- exactly refactor_plan.md's
     // "no -> use base segmentation mask for health cnn" (health already ran above).

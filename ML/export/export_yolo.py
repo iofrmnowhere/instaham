@@ -111,27 +111,18 @@ def export(*, checkpoint: Path, out: Path, imgsz: int = 640, opset: int = 17) ->
                 "single_largest_instance": True,
                 "mask_protocol": "original_coordinate_polygon_v1",
             },
-            # ref_fix.md F18/F19 (round 4): the exported model does not reliably detect a
-            # pig at the apparent size a plain whole-frame letterbox produces for a typical
-            # phone photo (measured: every detection above ~100x100px in a 640x640
-            # letterboxed 2250x3000 capture scored 0.000 confidence across all three
-            # ground-truth photos in .pig_pictures/ -- see ref_fix.md section 1.3/1.4).
-            # `cm_per_px` is centimetres one 640-canvas pixel should span when a
-            # user-confirmed reference object is available; pipeline.cpp composes the
-            # canvas at content_scale = cm_per_px_actual / cm_per_px instead of fitting the
-            # whole frame, so the pig's apparent size reflects its real-world size. 1.10 is
-            # the value measured to recover a clean whole-pig mask on 2 of 3 photos at
-            # every rung tested (0.90-2.40); `ladder_multipliers` (of this value) and
-            # `retry_conf_threshold` are ref_fix.md F19's retry ladder for the third,
-            # measurably more brittle photo. This is a property of what THIS checkpoint was
-            # trained on, not a per-photo tuning knob -- retune only if the segmenter is
-            # retrained with scale jitter (ref_fix.md section 5) or re-exported at a
-            # different imgsz.
-            "input_scale": {
-                "cm_per_px": 1.10,
-                "ladder_multipliers": [1.0, 1.32, 1.68, 0.77],
-                "retry_conf_threshold": 0.10,
-            },
+            # docs/fix-phase-4/4-app-wiring.md phase 4: the round-4 `input_scale` block
+            # (ref_fix.md F18/F19 -- a legacy per-canvas cm/pixel base plus a retry ladder
+            # of multipliers and a lowered retry confidence threshold, all consumed by
+            # pipeline.cpp's own retry loop) is removed. That loop is deleted along with it:
+            # README section 13 is a single segmentation pass at
+            # `weight.capture_contract.cm_per_px_target`, the only scale this capability
+            # still declares. See docs/fix-phase-4/3-constants.md phase 3 for why the field
+            # was renamed rather than removed a round earlier (a full ONNX re-export was
+            # out of that phase's scope), and this phase's own notes for why it is a
+            # hand-carried removal rather than a fresh re-export here too -- the export is
+            # non-deterministic run to run and re-staging a new segmentation binary buys
+            # nothing for a manifest-key change.
             "export_mode": "onnx_native",
             "protocol_version": "yolo11s_ldconv_acmix_fixed_seed42",
             "source_run": {"checkpoint_sha256": sha256_file(checkpoint)},

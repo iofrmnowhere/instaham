@@ -56,6 +56,15 @@ normalized RGB.
 
 ### The oversize fallback (F61)
 
+> **Superseded twice.** Phase 1.1 withdrew this fallback in favour of README §6's halt. Phase 3
+> then retracted F61's premise entirely: "a 4032x3024 field capture normalizes to 764x573"
+> applies a `cm_per_px_actual` of ~0.0644 to a 4032x3024 frame, but that value was measured on a
+> **2250x3000** image — the device's own `adb_log.md` `height_ratio` resolves its capture to
+> `sqrt(w·h) = 2598.1 = sqrt(2250 × 3000)`. At its own resolution that capture needs 426 of the
+> 540 px available. The fit invariant bounds ground coverage, not pixels. This section is kept
+> as the record of a decision that was made and reversed; do not reuse its premise. See
+> `../fix-4.md`'s Root cause correction.
+
 README §6 asserts the normalized image always fits 960x540 and says to halt otherwise. F61
 shows a 4032x3024 field capture normalizes to 764x573, which does not fit. Define the
 behaviour instead of asserting:

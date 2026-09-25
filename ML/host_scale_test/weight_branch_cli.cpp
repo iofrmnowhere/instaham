@@ -15,8 +15,16 @@
 // shown a number at all".
 //
 // Usage: weight_branch_cli <manifest_path> <image_path> <cm_per_px_actual>
+//                          [--dump-stages <out_dir>]
 // Prints one JSON object to stdout. Diagnostics go to stderr. Exit 0 once an envelope was
 // produced (including a declined one); exit 2 on argument/load failure.
+//
+// docs/fix-phase-4/5-debug-and-assertions.md: `--dump-stages <out_dir>` writes README
+// section 16's three-image comparison (normalized RGB, BASE_MASK, FINAL_MASK) as BMPs (OpenCV's vcpkg build here has no PNG encoder registered)
+// under `out_dir`, host-only per that phase's scoping -- these are recomputed here from
+// the same public stage functions the app calls (util/image_io.h's resize_uniform/
+// rotate90_cw, both pure and deterministic), not read back out of stages/segmentation.cpp,
+// so this stays additive rather than changing that stage's return contract.
 
 #include <algorithm>
 #include <cmath>
@@ -26,6 +34,9 @@
 #include <string>
 #include <vector>
 
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
+
 #include "manifest.h"
 #include "onnx_runner.h"
 #include "stages/construction.h"
@@ -34,6 +45,7 @@
 #include "stages/segmentation.h"
 #include "stages/weight_prediction.h"
 #include "third_party/nlohmann_json/single_include/nlohmann/json.hpp"
+#include "util/image_io.h"
 
 using json = nlohmann::json;
 using namespace instaham_ml;
@@ -159,16 +171,54 @@ struct LadderResult {
   std::string last_error;
 };
 
+// docs/fix-phase-4/5-debug-and-assertions.md, README section 16: writes an RgbImage
+// (util/image_io.h's RGB-interleaved convention) as a BMP. OpenCV's imwrite expects BGR,
+// so this converts on the way out -- the app itself never does this conversion, it exists
+// only for this debug dump.
+bool write_rgb_image(const instaham_ml::RgbImage& img, const std::string& path) {
+  if (img.width <= 0 || img.height <= 0) return false;
+  cv::Mat rgb(img.height, img.width, CV_8UC3, const_cast<uint8_t*>(img.pixels.data()));
+  cv::Mat bgr;
+  cv::cvtColor(rgb, bgr, cv::COLOR_RGB2BGR);
+  return cv::imwrite(path, bgr);
+}
+
+// Writes a single-channel 0/255 or 0/1 mask as a viewable BMP (0/1 rescaled to 0/255 so it
+// is not a near-black image when opened).
+bool write_mask_image(const std::vector<uint8_t>& mask, int w, int h, const std::string& path) {
+  if (w <= 0 || h <= 0 || int(mask.size()) != w * h) return false;
+  const uint8_t max_val = *std::max_element(mask.begin(), mask.end());
+  cv::Mat m(h, w, CV_8UC1, const_cast<uint8_t*>(mask.data()));
+  cv::Mat viewable;
+  if (max_val > 0 && max_val < 255) {
+    m.convertTo(viewable, CV_8UC1, 255.0 / double(max_val));
+  } else {
+    viewable = m;
+  }
+  return cv::imwrite(path, viewable);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc != 4) {
-    std::fprintf(stderr, "usage: %s <manifest_path> <image_path> <cm_per_px_actual>\n", argv[0]);
+  if (argc != 4 && argc != 6) {
+    std::fprintf(stderr,
+                 "usage: %s <manifest_path> <image_path> <cm_per_px_actual> "
+                 "[--dump-stages <out_dir>]\n",
+                 argv[0]);
     return 2;
   }
   const std::string manifest_path = argv[1];
   const std::string image_path = argv[2];
   const double cm_per_px_actual = std::atof(argv[3]);
+  std::string dump_dir;
+  if (argc == 6) {
+    if (std::string(argv[4]) != "--dump-stages") {
+      std::fprintf(stderr, "unrecognized argument: %s\n", argv[4]);
+      return 2;
+    }
+    dump_dir = argv[5];
+  }
 
   json envelope;
   envelope["image"] = image_path;
@@ -297,6 +347,30 @@ int main(int argc, char** argv) {
     envelope["canvas_h_requested"] = seg_output.canvas_h_requested;
   }
 
+  // docs/fix-phase-4/5-debug-and-assertions.md, README section 16: the "normalized RGB"
+  // of the three-image comparison ("normalized RGB, BASE_MASK, FINAL_MASK ... should align
+  // pixel-for-pixel") is section 2's PRE-rotation image (0.34 cm/px, original orientation)
+  // -- the same orientation section 8 restores BASE_MASK to
+  // ("BASE_MASK.shape == normalized0p34Image.shape"). This deliberately does NOT apply
+  // section 4's rotation (unlike the ROTATED RGB the model actually ran on, section 16
+  // item 3, which is not dumped here since it would not align with BASE_MASK/FINAL_MASK).
+  // Recomputed here (not read back out of stages/segmentation.cpp) from the same pure,
+  // deterministic util/image_io.h function the stage used -- a plain resize_uniform() --
+  // so this cannot itself introduce a coordinate mismatch relative to what the model
+  // actually ran on.
+  if (!dump_dir.empty()) {
+    instaham_ml::RgbImage source_img;
+    std::string decode_error;
+    if (instaham_ml::decode_image_rgb(image_path, &source_img, &decode_error)) {
+      instaham_ml::RgbImage normalized =
+          instaham_ml::resize_uniform(source_img, seg_output.content_scale);
+      write_rgb_image(normalized, dump_dir + "/normalized_rgb.bmp");
+    } else {
+      std::fprintf(stderr, "--dump-stages: could not re-decode %s for the RGB dump: %s\n",
+                   image_path.c_str(), decode_error.c_str());
+    }
+  }
+
   // ---- step 4: mask diagonal gate (recorded, not enforced -- see file header) ---------
   const double mask_diag_fraction = mask_diagonal_fraction(pig_mask);
   envelope["mask_diagonal_fraction"] = mask_diag_fraction;
@@ -407,6 +481,16 @@ int main(int argc, char** argv) {
     return 2;
   }
 
+  // docs/fix-phase-4/5-debug-and-assertions.md, README section 9: BASE_MASK is the mask as
+  // the cutter actually receives it (`mask_for_cutter`), not `pig_mask` above -- on this
+  // normalize-first path they are the same coordinate space, but dumping the one the
+  // cutter was actually handed keeps this comparable to final_mask.bmp pixel-for-pixel,
+  // matching README section 16's "these three should align" requirement exactly.
+  if (!dump_dir.empty()) {
+    write_mask_image(mask_for_cutter->pixels, mask_for_cutter->width, mask_for_cutter->height,
+                   dump_dir + "/base_mask.bmp");
+  }
+
   // ---- step 8: the cutter ---------------------------------------------------------------
   stages::MaskView mask_view{mask_for_cutter->pixels.data(), mask_for_cutter->width,
                               mask_for_cutter->height};
@@ -421,6 +505,14 @@ int main(int argc, char** argv) {
   envelope["pre_cut_area"] = pre_cut_area;
   envelope["post_cut_area"] = post_cut_area;
   envelope["kept_fraction"] = kept_fraction;
+
+  // docs/fix-phase-4/5-debug-and-assertions.md, README section 16: FINAL_MASK -- the third
+  // of the three images that "should align pixel-for-pixel" with normalized_rgb.bmp and
+  // base_mask.bmp above.
+  if (!dump_dir.empty()) {
+    write_mask_image(cutter_result.mask, cutter_result.width, cutter_result.height,
+                   dump_dir + "/final_mask.bmp");
+  }
 
   if (!cutter_result.ok()) {
     gates_would_have_withheld = true;

@@ -4,7 +4,27 @@ import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../models/capture_orientation.dart';
 import 'captured_image_result.dart';
+
+/// plan-phase-2/1.1-image-processing-freeze.md: decode, EXIF-orientation bake, and JPEG
+/// re-encode are synchronous, CPU-bound pure-Dart work (the `image` package) -- on a full-res
+/// capture (up to 3000x3000) this blocks the UI isolate for real seconds, freezing the
+/// capture screen's own busy indicator instead of letting it animate. Run via `compute()`
+/// (`processRawBytes`) so it executes on a worker isolate.
+///
+/// Top-level so `compute()` can call it without closing over `ImageService` state. Returns a
+/// record rather than a custom class -- only records/primitives/collections-of-those are
+/// guaranteed sendable back across the isolate boundary.
+(Uint8List, int, int) _decodeBakeEncode(Uint8List rawBytes) {
+  final decoded = img.decodeImage(rawBytes);
+  if (decoded == null) {
+    throw Exception('Failed to decode captured image bytes.');
+  }
+  final oriented = img.bakeOrientation(decoded);
+  final encodedBytes = Uint8List.fromList(img.encodeJpg(oriented, quality: 92));
+  return (encodedBytes, oriented.width, oriented.height);
+}
 
 abstract final class ImageService {
   static final ImagePicker _picker = ImagePicker();
@@ -21,14 +41,9 @@ abstract final class ImageService {
     Uint8List rawBytes, {
     String? originalPath,
   }) async {
-    final decoded = img.decodeImage(rawBytes);
-    if (decoded == null) {
-      throw Exception('Failed to decode captured image bytes.');
-    }
-
-    final oriented = img.bakeOrientation(decoded);
-    final encodedBytes = Uint8List.fromList(
-      img.encodeJpg(oriented, quality: 92),
+    final (encodedBytes, width, height) = await compute(
+      _decodeBakeEncode,
+      rawBytes,
     );
 
     String? savedPath;
@@ -47,8 +62,9 @@ abstract final class ImageService {
 
     return CapturedImageResult(
       bytes: encodedBytes,
-      widthPx: oriented.width,
-      heightPx: oriented.height,
+      widthPx: width,
+      heightPx: height,
+      orientation: CaptureOrientation.fromDimensions(width, height),
       localPath: savedPath,
     );
   }

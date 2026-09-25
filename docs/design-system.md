@@ -110,21 +110,33 @@ Photo review: Retake | Use photo
 VIEW GATE runs here, on "Use photo" -- not at analysis time, because its
 label decides which screen comes next. Routes on argmax; no threshold.
     |
-    |-- reject ------> "Photo not usable" dialog -> Retake (status: rejected)
+    |-- reject ------> "Photo not recognized" dialog  --.
+    |-- health_only -> "Weight may not be measurable"  --+-> Retake photo (status: rejected)
+    |                  dialog (same three buttons)       |-> Check health only
+    |                                                     `-> Check weight and health
     |
-    |-- health_only -> analyze directly. Reference marking is SKIPPED: it exists
-    |                  only to scale a weight, and there is no weight branch here.
+    |-- health_only route (verdict or chosen) -> analyze directly. Reference
+    |                  marking is SKIPPED: it exists only to scale a weight, and
+    |                  there is no weight branch here.
     |
-    `-- dorsal_valid -> verify or manually mark reference endpoints -> Confirm & analyze
+    `-- dorsal_valid route (verdict or chosen) -> verify or manually mark reference
+                       endpoints -> Confirm & analyze
     v
 Independent weight and visual-health results
     v
 Assign pig (optional) -> save in Records
 ```
 
-The view gate's own outcome renders as its own card in results — it is never folded into a
-health or weight "Unavailable". See [app-flow.md](app-flow.md) for the full
-model graph behind "analyze".
+The route dialog (`showViewChoiceDialog()`, `capture_screen.dart`) stacks its three buttons
+full-width so each keeps a 44px target on a small phone; **Check weight and health** is the
+filled button, and dismissing the dialog counts as **Retake photo**. A `dorsal_valid` verdict
+never shows it.
+
+The view gate's outcome has **no card** in results (round 10,
+[adr/020](adr/020-view-route-override-either-route.md)), and an override is not shown on
+screen. The weight and health cards explain a routing skip themselves (**Skipped**, read from
+the route that actually ran), and it is never folded into an "Unavailable". See
+[app-flow.md](app-flow.md) for the full model graph behind "analyze".
 
 ### Camera control hierarchy
 
@@ -153,6 +165,36 @@ model graph behind "analyze".
 - Endpoint coordinates are stored normalized to the original image. `cm/pixel` is calculated only with original image dimensions; never use rendered preview dimensions as image pixels.
 - Automatic reference recognition is not present in the current model package. Manual confirmation remains mandatory until a separate detector is trained and validated.
 
+### Loading and progress contract
+
+Every wait longer than a frame or two gets a visible, animating state. The reference
+implementation is `AnalysisProgressView`
+(`lib/features/results/presentation/widgets/analysis_progress_view.dart`); the next screen
+that needs a progress state follows this contract rather than inventing a second pattern.
+
+- **Indeterminate indicator only.** No progress bar, no percentage. Nothing in the pipeline
+  reports fractional completion, so a filling bar would be an invented number.
+- **Honest phase label.** Name only a phase the Dart side actually observes. For `/analysis`
+  that is three: loading the saved scan, analyzing the photo, finishing up. The native call in
+  the middle is one opaque blocking call.
+- **No fabricated stage ticks.** Never render a per-stage checklist (segmentation ✓,
+  measurement ✓, weight ✓) for work whose completion the app cannot observe. This is the same
+  rule as "never display invented model scores" applied to progress.
+- **Elapsed, not estimated.** Show an observed elapsed-seconds counter, not an ETA or a
+  predicted remaining time. Pair it with a plain expectation line ("This can take up to a
+  minute on some phones") so a long wait reads as expected rather than hung.
+- **No cancel.** A native call already in flight cannot be interrupted, so no screen offers a
+  cancel button it could not honor.
+- **Leaving is warn-once, never blocked.** Work that continues and persists on a worker
+  isolate must not trap the user on the screen. `PopScope` warns once, then lets the next
+  press through. A screen with no in-flight work to lose gets no `PopScope` at all.
+- **Controls are disabled while work is in flight**, and the control that started the work
+  shows the busy state inline. Entry points re-check their own busy flag on entry, since an
+  `onPressed` guard is a frame behind and a double-tap can beat it.
+- **Accessibility.** The progress text is one `Semantics` live region carrying the phase and
+  the elapsed count together, with the decorative duplicate text excluded, so a screen reader
+  announces one coherent update instead of two fragments.
+
 ### Results and recovery
 
 - Weight and visual-health branches render independently. A failed weight branch must never
@@ -161,9 +203,9 @@ model graph behind "analyze".
 - Visual health shows `Possible visual indicator`, model confidence, and uncertainty wording.
   The label is always the model's argmax; the `uncertain` badge (below 0.60) is a display
   flag layered on top, never a gate that changes the label.
-- The view gate renders as its own card. `Skipped` (a routing outcome — not a dorsal photo)
-  and `Unavailable` (genuinely no number) are distinct weight states and must stay distinct;
-  collapsing them has regressed twice.
+- The view gate has no card of its own (round 10). `Skipped` (a routing outcome — the route
+  that actually ran was not `dorsal_valid`) and `Unavailable` (genuinely no number) are
+  distinct weight states and must stay distinct; collapsing them has regressed twice.
 - Pending model integration is shown as `Pending`; it is not replaced with mock numbers.
 - A blocked reference flow offers manual review before forcing a retake.
 - Retake preserves session ID, selected goal, reference configuration, pig assignment, and usable prior inputs.

@@ -492,6 +492,32 @@ class $ScanRecordsTable extends ScanRecords
     type: DriftSqlType.double,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _captureOrientationMeta =
+      const VerificationMeta('captureOrientation');
+  @override
+  late final GeneratedColumn<String> captureOrientation =
+      GeneratedColumn<String>(
+        'capture_orientation',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _headOrientationAttestedMeta =
+      const VerificationMeta('headOrientationAttested');
+  @override
+  late final GeneratedColumn<bool> headOrientationAttested =
+      GeneratedColumn<bool>(
+        'head_orientation_attested',
+        aliasedName,
+        false,
+        type: DriftSqlType.bool,
+        requiredDuringInsert: false,
+        defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'CHECK ("head_orientation_attested" IN (0, 1))',
+        ),
+        defaultValue: const Constant(false),
+      );
   static const VerificationMeta _failureCodeMeta = const VerificationMeta(
     'failureCode',
   );
@@ -601,6 +627,8 @@ class $ScanRecordsTable extends ScanRecords
     imagePath,
     measurementMode,
     cameraHeightCm,
+    captureOrientation,
+    headOrientationAttested,
     failureCode,
     failureMessage,
     notes,
@@ -669,6 +697,24 @@ class $ScanRecordsTable extends ScanRecords
         cameraHeightCm.isAcceptableOrUnknown(
           data['camera_height_cm']!,
           _cameraHeightCmMeta,
+        ),
+      );
+    }
+    if (data.containsKey('capture_orientation')) {
+      context.handle(
+        _captureOrientationMeta,
+        captureOrientation.isAcceptableOrUnknown(
+          data['capture_orientation']!,
+          _captureOrientationMeta,
+        ),
+      );
+    }
+    if (data.containsKey('head_orientation_attested')) {
+      context.handle(
+        _headOrientationAttestedMeta,
+        headOrientationAttested.isAcceptableOrUnknown(
+          data['head_orientation_attested']!,
+          _headOrientationAttestedMeta,
         ),
       );
     }
@@ -769,6 +815,14 @@ class $ScanRecordsTable extends ScanRecords
         DriftSqlType.double,
         data['${effectivePrefix}camera_height_cm'],
       ),
+      captureOrientation: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}capture_orientation'],
+      ),
+      headOrientationAttested: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}head_orientation_attested'],
+      )!,
       failureCode: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}failure_code'],
@@ -822,6 +876,8 @@ class ScanRecord extends DataClass implements Insertable<ScanRecord> {
   final String? imagePath;
   final String? measurementMode;
   final double? cameraHeightCm;
+  final String? captureOrientation;
+  final bool headOrientationAttested;
   final String? failureCode;
   final String? failureMessage;
   final String? notes;
@@ -839,6 +895,8 @@ class ScanRecord extends DataClass implements Insertable<ScanRecord> {
     this.imagePath,
     this.measurementMode,
     this.cameraHeightCm,
+    this.captureOrientation,
+    required this.headOrientationAttested,
     this.failureCode,
     this.failureMessage,
     this.notes,
@@ -867,6 +925,10 @@ class ScanRecord extends DataClass implements Insertable<ScanRecord> {
     if (!nullToAbsent || cameraHeightCm != null) {
       map['camera_height_cm'] = Variable<double>(cameraHeightCm);
     }
+    if (!nullToAbsent || captureOrientation != null) {
+      map['capture_orientation'] = Variable<String>(captureOrientation);
+    }
+    map['head_orientation_attested'] = Variable<bool>(headOrientationAttested);
     if (!nullToAbsent || failureCode != null) {
       map['failure_code'] = Variable<String>(failureCode);
     }
@@ -908,6 +970,10 @@ class ScanRecord extends DataClass implements Insertable<ScanRecord> {
       cameraHeightCm: cameraHeightCm == null && nullToAbsent
           ? const Value.absent()
           : Value(cameraHeightCm),
+      captureOrientation: captureOrientation == null && nullToAbsent
+          ? const Value.absent()
+          : Value(captureOrientation),
+      headOrientationAttested: Value(headOrientationAttested),
       failureCode: failureCode == null && nullToAbsent
           ? const Value.absent()
           : Value(failureCode),
@@ -945,6 +1011,12 @@ class ScanRecord extends DataClass implements Insertable<ScanRecord> {
       imagePath: serializer.fromJson<String?>(json['imagePath']),
       measurementMode: serializer.fromJson<String?>(json['measurementMode']),
       cameraHeightCm: serializer.fromJson<double?>(json['cameraHeightCm']),
+      captureOrientation: serializer.fromJson<String?>(
+        json['captureOrientation'],
+      ),
+      headOrientationAttested: serializer.fromJson<bool>(
+        json['headOrientationAttested'],
+      ),
       failureCode: serializer.fromJson<String?>(json['failureCode']),
       failureMessage: serializer.fromJson<String?>(json['failureMessage']),
       notes: serializer.fromJson<String?>(json['notes']),
@@ -967,6 +1039,10 @@ class ScanRecord extends DataClass implements Insertable<ScanRecord> {
       'imagePath': serializer.toJson<String?>(imagePath),
       'measurementMode': serializer.toJson<String?>(measurementMode),
       'cameraHeightCm': serializer.toJson<double?>(cameraHeightCm),
+      'captureOrientation': serializer.toJson<String?>(captureOrientation),
+      'headOrientationAttested': serializer.toJson<bool>(
+        headOrientationAttested,
+      ),
       'failureCode': serializer.toJson<String?>(failureCode),
       'failureMessage': serializer.toJson<String?>(failureMessage),
       'notes': serializer.toJson<String?>(notes),
@@ -987,6 +1063,8 @@ class ScanRecord extends DataClass implements Insertable<ScanRecord> {
     Value<String?> imagePath = const Value.absent(),
     Value<String?> measurementMode = const Value.absent(),
     Value<double?> cameraHeightCm = const Value.absent(),
+    Value<String?> captureOrientation = const Value.absent(),
+    bool? headOrientationAttested,
     Value<String?> failureCode = const Value.absent(),
     Value<String?> failureMessage = const Value.absent(),
     Value<String?> notes = const Value.absent(),
@@ -1008,6 +1086,11 @@ class ScanRecord extends DataClass implements Insertable<ScanRecord> {
     cameraHeightCm: cameraHeightCm.present
         ? cameraHeightCm.value
         : this.cameraHeightCm,
+    captureOrientation: captureOrientation.present
+        ? captureOrientation.value
+        : this.captureOrientation,
+    headOrientationAttested:
+        headOrientationAttested ?? this.headOrientationAttested,
     failureCode: failureCode.present ? failureCode.value : this.failureCode,
     failureMessage: failureMessage.present
         ? failureMessage.value
@@ -1033,6 +1116,12 @@ class ScanRecord extends DataClass implements Insertable<ScanRecord> {
       cameraHeightCm: data.cameraHeightCm.present
           ? data.cameraHeightCm.value
           : this.cameraHeightCm,
+      captureOrientation: data.captureOrientation.present
+          ? data.captureOrientation.value
+          : this.captureOrientation,
+      headOrientationAttested: data.headOrientationAttested.present
+          ? data.headOrientationAttested.value
+          : this.headOrientationAttested,
       failureCode: data.failureCode.present
           ? data.failureCode.value
           : this.failureCode,
@@ -1061,6 +1150,8 @@ class ScanRecord extends DataClass implements Insertable<ScanRecord> {
           ..write('imagePath: $imagePath, ')
           ..write('measurementMode: $measurementMode, ')
           ..write('cameraHeightCm: $cameraHeightCm, ')
+          ..write('captureOrientation: $captureOrientation, ')
+          ..write('headOrientationAttested: $headOrientationAttested, ')
           ..write('failureCode: $failureCode, ')
           ..write('failureMessage: $failureMessage, ')
           ..write('notes: $notes, ')
@@ -1083,6 +1174,8 @@ class ScanRecord extends DataClass implements Insertable<ScanRecord> {
     imagePath,
     measurementMode,
     cameraHeightCm,
+    captureOrientation,
+    headOrientationAttested,
     failureCode,
     failureMessage,
     notes,
@@ -1104,6 +1197,8 @@ class ScanRecord extends DataClass implements Insertable<ScanRecord> {
           other.imagePath == this.imagePath &&
           other.measurementMode == this.measurementMode &&
           other.cameraHeightCm == this.cameraHeightCm &&
+          other.captureOrientation == this.captureOrientation &&
+          other.headOrientationAttested == this.headOrientationAttested &&
           other.failureCode == this.failureCode &&
           other.failureMessage == this.failureMessage &&
           other.notes == this.notes &&
@@ -1123,6 +1218,8 @@ class ScanRecordsCompanion extends UpdateCompanion<ScanRecord> {
   final Value<String?> imagePath;
   final Value<String?> measurementMode;
   final Value<double?> cameraHeightCm;
+  final Value<String?> captureOrientation;
+  final Value<bool> headOrientationAttested;
   final Value<String?> failureCode;
   final Value<String?> failureMessage;
   final Value<String?> notes;
@@ -1141,6 +1238,8 @@ class ScanRecordsCompanion extends UpdateCompanion<ScanRecord> {
     this.imagePath = const Value.absent(),
     this.measurementMode = const Value.absent(),
     this.cameraHeightCm = const Value.absent(),
+    this.captureOrientation = const Value.absent(),
+    this.headOrientationAttested = const Value.absent(),
     this.failureCode = const Value.absent(),
     this.failureMessage = const Value.absent(),
     this.notes = const Value.absent(),
@@ -1160,6 +1259,8 @@ class ScanRecordsCompanion extends UpdateCompanion<ScanRecord> {
     this.imagePath = const Value.absent(),
     this.measurementMode = const Value.absent(),
     this.cameraHeightCm = const Value.absent(),
+    this.captureOrientation = const Value.absent(),
+    this.headOrientationAttested = const Value.absent(),
     this.failureCode = const Value.absent(),
     this.failureMessage = const Value.absent(),
     this.notes = const Value.absent(),
@@ -1180,6 +1281,8 @@ class ScanRecordsCompanion extends UpdateCompanion<ScanRecord> {
     Expression<String>? imagePath,
     Expression<String>? measurementMode,
     Expression<double>? cameraHeightCm,
+    Expression<String>? captureOrientation,
+    Expression<bool>? headOrientationAttested,
     Expression<String>? failureCode,
     Expression<String>? failureMessage,
     Expression<String>? notes,
@@ -1199,6 +1302,9 @@ class ScanRecordsCompanion extends UpdateCompanion<ScanRecord> {
       if (imagePath != null) 'image_path': imagePath,
       if (measurementMode != null) 'measurement_mode': measurementMode,
       if (cameraHeightCm != null) 'camera_height_cm': cameraHeightCm,
+      if (captureOrientation != null) 'capture_orientation': captureOrientation,
+      if (headOrientationAttested != null)
+        'head_orientation_attested': headOrientationAttested,
       if (failureCode != null) 'failure_code': failureCode,
       if (failureMessage != null) 'failure_message': failureMessage,
       if (notes != null) 'notes': notes,
@@ -1220,6 +1326,8 @@ class ScanRecordsCompanion extends UpdateCompanion<ScanRecord> {
     Value<String?>? imagePath,
     Value<String?>? measurementMode,
     Value<double?>? cameraHeightCm,
+    Value<String?>? captureOrientation,
+    Value<bool>? headOrientationAttested,
     Value<String?>? failureCode,
     Value<String?>? failureMessage,
     Value<String?>? notes,
@@ -1239,6 +1347,9 @@ class ScanRecordsCompanion extends UpdateCompanion<ScanRecord> {
       imagePath: imagePath ?? this.imagePath,
       measurementMode: measurementMode ?? this.measurementMode,
       cameraHeightCm: cameraHeightCm ?? this.cameraHeightCm,
+      captureOrientation: captureOrientation ?? this.captureOrientation,
+      headOrientationAttested:
+          headOrientationAttested ?? this.headOrientationAttested,
       failureCode: failureCode ?? this.failureCode,
       failureMessage: failureMessage ?? this.failureMessage,
       notes: notes ?? this.notes,
@@ -1275,6 +1386,14 @@ class ScanRecordsCompanion extends UpdateCompanion<ScanRecord> {
     }
     if (cameraHeightCm.present) {
       map['camera_height_cm'] = Variable<double>(cameraHeightCm.value);
+    }
+    if (captureOrientation.present) {
+      map['capture_orientation'] = Variable<String>(captureOrientation.value);
+    }
+    if (headOrientationAttested.present) {
+      map['head_orientation_attested'] = Variable<bool>(
+        headOrientationAttested.value,
+      );
     }
     if (failureCode.present) {
       map['failure_code'] = Variable<String>(failureCode.value);
@@ -1319,6 +1438,8 @@ class ScanRecordsCompanion extends UpdateCompanion<ScanRecord> {
           ..write('imagePath: $imagePath, ')
           ..write('measurementMode: $measurementMode, ')
           ..write('cameraHeightCm: $cameraHeightCm, ')
+          ..write('captureOrientation: $captureOrientation, ')
+          ..write('headOrientationAttested: $headOrientationAttested, ')
           ..write('failureCode: $failureCode, ')
           ..write('failureMessage: $failureMessage, ')
           ..write('notes: $notes, ')
@@ -4137,6 +4258,17 @@ class $PipelineEventsTable extends PipelineEvents
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _imageIdentityMeta = const VerificationMeta(
+    'imageIdentity',
+  );
+  @override
+  late final GeneratedColumn<String> imageIdentity = GeneratedColumn<String>(
+    'image_identity',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -4156,6 +4288,7 @@ class $PipelineEventsTable extends PipelineEvents
     stage,
     status,
     message,
+    imageIdentity,
     createdAt,
   ];
   @override
@@ -4203,6 +4336,15 @@ class $PipelineEventsTable extends PipelineEvents
         message.isAcceptableOrUnknown(data['message']!, _messageMeta),
       );
     }
+    if (data.containsKey('image_identity')) {
+      context.handle(
+        _imageIdentityMeta,
+        imageIdentity.isAcceptableOrUnknown(
+          data['image_identity']!,
+          _imageIdentityMeta,
+        ),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -4238,6 +4380,10 @@ class $PipelineEventsTable extends PipelineEvents
         DriftSqlType.string,
         data['${effectivePrefix}message'],
       ),
+      imageIdentity: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}image_identity'],
+      ),
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -4257,6 +4403,7 @@ class PipelineEvent extends DataClass implements Insertable<PipelineEvent> {
   final String stage;
   final String status;
   final String? message;
+  final String? imageIdentity;
   final DateTime createdAt;
   const PipelineEvent({
     required this.id,
@@ -4264,6 +4411,7 @@ class PipelineEvent extends DataClass implements Insertable<PipelineEvent> {
     required this.stage,
     required this.status,
     this.message,
+    this.imageIdentity,
     required this.createdAt,
   });
   @override
@@ -4275,6 +4423,9 @@ class PipelineEvent extends DataClass implements Insertable<PipelineEvent> {
     map['status'] = Variable<String>(status);
     if (!nullToAbsent || message != null) {
       map['message'] = Variable<String>(message);
+    }
+    if (!nullToAbsent || imageIdentity != null) {
+      map['image_identity'] = Variable<String>(imageIdentity);
     }
     map['created_at'] = Variable<DateTime>(createdAt);
     return map;
@@ -4289,6 +4440,9 @@ class PipelineEvent extends DataClass implements Insertable<PipelineEvent> {
       message: message == null && nullToAbsent
           ? const Value.absent()
           : Value(message),
+      imageIdentity: imageIdentity == null && nullToAbsent
+          ? const Value.absent()
+          : Value(imageIdentity),
       createdAt: Value(createdAt),
     );
   }
@@ -4304,6 +4458,7 @@ class PipelineEvent extends DataClass implements Insertable<PipelineEvent> {
       stage: serializer.fromJson<String>(json['stage']),
       status: serializer.fromJson<String>(json['status']),
       message: serializer.fromJson<String?>(json['message']),
+      imageIdentity: serializer.fromJson<String?>(json['imageIdentity']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
     );
   }
@@ -4316,6 +4471,7 @@ class PipelineEvent extends DataClass implements Insertable<PipelineEvent> {
       'stage': serializer.toJson<String>(stage),
       'status': serializer.toJson<String>(status),
       'message': serializer.toJson<String?>(message),
+      'imageIdentity': serializer.toJson<String?>(imageIdentity),
       'createdAt': serializer.toJson<DateTime>(createdAt),
     };
   }
@@ -4326,6 +4482,7 @@ class PipelineEvent extends DataClass implements Insertable<PipelineEvent> {
     String? stage,
     String? status,
     Value<String?> message = const Value.absent(),
+    Value<String?> imageIdentity = const Value.absent(),
     DateTime? createdAt,
   }) => PipelineEvent(
     id: id ?? this.id,
@@ -4333,6 +4490,9 @@ class PipelineEvent extends DataClass implements Insertable<PipelineEvent> {
     stage: stage ?? this.stage,
     status: status ?? this.status,
     message: message.present ? message.value : this.message,
+    imageIdentity: imageIdentity.present
+        ? imageIdentity.value
+        : this.imageIdentity,
     createdAt: createdAt ?? this.createdAt,
   );
   PipelineEvent copyWithCompanion(PipelineEventsCompanion data) {
@@ -4342,6 +4502,9 @@ class PipelineEvent extends DataClass implements Insertable<PipelineEvent> {
       stage: data.stage.present ? data.stage.value : this.stage,
       status: data.status.present ? data.status.value : this.status,
       message: data.message.present ? data.message.value : this.message,
+      imageIdentity: data.imageIdentity.present
+          ? data.imageIdentity.value
+          : this.imageIdentity,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
     );
   }
@@ -4354,6 +4517,7 @@ class PipelineEvent extends DataClass implements Insertable<PipelineEvent> {
           ..write('stage: $stage, ')
           ..write('status: $status, ')
           ..write('message: $message, ')
+          ..write('imageIdentity: $imageIdentity, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
@@ -4361,7 +4525,7 @@ class PipelineEvent extends DataClass implements Insertable<PipelineEvent> {
 
   @override
   int get hashCode =>
-      Object.hash(id, scanId, stage, status, message, createdAt);
+      Object.hash(id, scanId, stage, status, message, imageIdentity, createdAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -4371,6 +4535,7 @@ class PipelineEvent extends DataClass implements Insertable<PipelineEvent> {
           other.stage == this.stage &&
           other.status == this.status &&
           other.message == this.message &&
+          other.imageIdentity == this.imageIdentity &&
           other.createdAt == this.createdAt);
 }
 
@@ -4380,6 +4545,7 @@ class PipelineEventsCompanion extends UpdateCompanion<PipelineEvent> {
   final Value<String> stage;
   final Value<String> status;
   final Value<String?> message;
+  final Value<String?> imageIdentity;
   final Value<DateTime> createdAt;
   const PipelineEventsCompanion({
     this.id = const Value.absent(),
@@ -4387,6 +4553,7 @@ class PipelineEventsCompanion extends UpdateCompanion<PipelineEvent> {
     this.stage = const Value.absent(),
     this.status = const Value.absent(),
     this.message = const Value.absent(),
+    this.imageIdentity = const Value.absent(),
     this.createdAt = const Value.absent(),
   });
   PipelineEventsCompanion.insert({
@@ -4395,6 +4562,7 @@ class PipelineEventsCompanion extends UpdateCompanion<PipelineEvent> {
     required String stage,
     required String status,
     this.message = const Value.absent(),
+    this.imageIdentity = const Value.absent(),
     this.createdAt = const Value.absent(),
   }) : scanId = Value(scanId),
        stage = Value(stage),
@@ -4405,6 +4573,7 @@ class PipelineEventsCompanion extends UpdateCompanion<PipelineEvent> {
     Expression<String>? stage,
     Expression<String>? status,
     Expression<String>? message,
+    Expression<String>? imageIdentity,
     Expression<DateTime>? createdAt,
   }) {
     return RawValuesInsertable({
@@ -4413,6 +4582,7 @@ class PipelineEventsCompanion extends UpdateCompanion<PipelineEvent> {
       if (stage != null) 'stage': stage,
       if (status != null) 'status': status,
       if (message != null) 'message': message,
+      if (imageIdentity != null) 'image_identity': imageIdentity,
       if (createdAt != null) 'created_at': createdAt,
     });
   }
@@ -4423,6 +4593,7 @@ class PipelineEventsCompanion extends UpdateCompanion<PipelineEvent> {
     Value<String>? stage,
     Value<String>? status,
     Value<String?>? message,
+    Value<String?>? imageIdentity,
     Value<DateTime>? createdAt,
   }) {
     return PipelineEventsCompanion(
@@ -4431,6 +4602,7 @@ class PipelineEventsCompanion extends UpdateCompanion<PipelineEvent> {
       stage: stage ?? this.stage,
       status: status ?? this.status,
       message: message ?? this.message,
+      imageIdentity: imageIdentity ?? this.imageIdentity,
       createdAt: createdAt ?? this.createdAt,
     );
   }
@@ -4453,6 +4625,9 @@ class PipelineEventsCompanion extends UpdateCompanion<PipelineEvent> {
     if (message.present) {
       map['message'] = Variable<String>(message.value);
     }
+    if (imageIdentity.present) {
+      map['image_identity'] = Variable<String>(imageIdentity.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -4467,6 +4642,7 @@ class PipelineEventsCompanion extends UpdateCompanion<PipelineEvent> {
           ..write('stage: $stage, ')
           ..write('status: $status, ')
           ..write('message: $message, ')
+          ..write('imageIdentity: $imageIdentity, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
@@ -6162,6 +6338,8 @@ typedef $$ScanRecordsTableCreateCompanionBuilder =
       Value<String?> imagePath,
       Value<String?> measurementMode,
       Value<double?> cameraHeightCm,
+      Value<String?> captureOrientation,
+      Value<bool> headOrientationAttested,
       Value<String?> failureCode,
       Value<String?> failureMessage,
       Value<String?> notes,
@@ -6182,6 +6360,8 @@ typedef $$ScanRecordsTableUpdateCompanionBuilder =
       Value<String?> imagePath,
       Value<String?> measurementMode,
       Value<double?> cameraHeightCm,
+      Value<String?> captureOrientation,
+      Value<bool> headOrientationAttested,
       Value<String?> failureCode,
       Value<String?> failureMessage,
       Value<String?> notes,
@@ -6338,6 +6518,16 @@ class $$ScanRecordsTableFilterComposer
 
   ColumnFilters<double> get cameraHeightCm => $composableBuilder(
     column: $table.cameraHeightCm,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get captureOrientation => $composableBuilder(
+    column: $table.captureOrientation,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get headOrientationAttested => $composableBuilder(
+    column: $table.headOrientationAttested,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -6549,6 +6739,16 @@ class $$ScanRecordsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get captureOrientation => $composableBuilder(
+    column: $table.captureOrientation,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get headOrientationAttested => $composableBuilder(
+    column: $table.headOrientationAttested,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get failureCode => $composableBuilder(
     column: $table.failureCode,
     builder: (column) => ColumnOrderings(column),
@@ -6646,6 +6846,16 @@ class $$ScanRecordsTableAnnotationComposer
 
   GeneratedColumn<double> get cameraHeightCm => $composableBuilder(
     column: $table.cameraHeightCm,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get captureOrientation => $composableBuilder(
+    column: $table.captureOrientation,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get headOrientationAttested => $composableBuilder(
+    column: $table.headOrientationAttested,
     builder: (column) => column,
   );
 
@@ -6848,6 +7058,8 @@ class $$ScanRecordsTableTableManager
                 Value<String?> imagePath = const Value.absent(),
                 Value<String?> measurementMode = const Value.absent(),
                 Value<double?> cameraHeightCm = const Value.absent(),
+                Value<String?> captureOrientation = const Value.absent(),
+                Value<bool> headOrientationAttested = const Value.absent(),
                 Value<String?> failureCode = const Value.absent(),
                 Value<String?> failureMessage = const Value.absent(),
                 Value<String?> notes = const Value.absent(),
@@ -6866,6 +7078,8 @@ class $$ScanRecordsTableTableManager
                 imagePath: imagePath,
                 measurementMode: measurementMode,
                 cameraHeightCm: cameraHeightCm,
+                captureOrientation: captureOrientation,
+                headOrientationAttested: headOrientationAttested,
                 failureCode: failureCode,
                 failureMessage: failureMessage,
                 notes: notes,
@@ -6886,6 +7100,8 @@ class $$ScanRecordsTableTableManager
                 Value<String?> imagePath = const Value.absent(),
                 Value<String?> measurementMode = const Value.absent(),
                 Value<double?> cameraHeightCm = const Value.absent(),
+                Value<String?> captureOrientation = const Value.absent(),
+                Value<bool> headOrientationAttested = const Value.absent(),
                 Value<String?> failureCode = const Value.absent(),
                 Value<String?> failureMessage = const Value.absent(),
                 Value<String?> notes = const Value.absent(),
@@ -6904,6 +7120,8 @@ class $$ScanRecordsTableTableManager
                 imagePath: imagePath,
                 measurementMode: measurementMode,
                 cameraHeightCm: cameraHeightCm,
+                captureOrientation: captureOrientation,
+                headOrientationAttested: headOrientationAttested,
                 failureCode: failureCode,
                 failureMessage: failureMessage,
                 notes: notes,
@@ -8694,6 +8912,7 @@ typedef $$PipelineEventsTableCreateCompanionBuilder =
       required String stage,
       required String status,
       Value<String?> message,
+      Value<String?> imageIdentity,
       Value<DateTime> createdAt,
     });
 typedef $$PipelineEventsTableUpdateCompanionBuilder =
@@ -8703,6 +8922,7 @@ typedef $$PipelineEventsTableUpdateCompanionBuilder =
       Value<String> stage,
       Value<String> status,
       Value<String?> message,
+      Value<String?> imageIdentity,
       Value<DateTime> createdAt,
     });
 
@@ -8760,6 +8980,11 @@ class $$PipelineEventsTableFilterComposer
 
   ColumnFilters<String> get message => $composableBuilder(
     column: $table.message,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get imageIdentity => $composableBuilder(
+    column: $table.imageIdentity,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8821,6 +9046,11 @@ class $$PipelineEventsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get imageIdentity => $composableBuilder(
+    column: $table.imageIdentity,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -8870,6 +9100,11 @@ class $$PipelineEventsTableAnnotationComposer
 
   GeneratedColumn<String> get message =>
       $composableBuilder(column: $table.message, builder: (column) => column);
+
+  GeneratedColumn<String> get imageIdentity => $composableBuilder(
+    column: $table.imageIdentity,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
@@ -8933,6 +9168,7 @@ class $$PipelineEventsTableTableManager
                 Value<String> stage = const Value.absent(),
                 Value<String> status = const Value.absent(),
                 Value<String?> message = const Value.absent(),
+                Value<String?> imageIdentity = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
               }) => PipelineEventsCompanion(
                 id: id,
@@ -8940,6 +9176,7 @@ class $$PipelineEventsTableTableManager
                 stage: stage,
                 status: status,
                 message: message,
+                imageIdentity: imageIdentity,
                 createdAt: createdAt,
               ),
           createCompanionCallback:
@@ -8949,6 +9186,7 @@ class $$PipelineEventsTableTableManager
                 required String stage,
                 required String status,
                 Value<String?> message = const Value.absent(),
+                Value<String?> imageIdentity = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
               }) => PipelineEventsCompanion.insert(
                 id: id,
@@ -8956,6 +9194,7 @@ class $$PipelineEventsTableTableManager
                 stage: stage,
                 status: status,
                 message: message,
+                imageIdentity: imageIdentity,
                 createdAt: createdAt,
               ),
           withReferenceMapper: (p0) => p0

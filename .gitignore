@@ -101,3 +101,5 @@ instaham.sqlite
 # native crash dump, 4.9 MB, regenerable
 crash.txt
 old_mds
+# Round 3 mask overlay dumps (~51 MB of BMPs), kept locally for visual checks only
+docs/logs/phase3-mask-dumps/

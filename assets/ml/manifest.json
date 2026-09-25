@@ -27,6 +27,12 @@
           "segmentation_masked"
         ]
       },
+      "cascade": {
+        "enabled": true,
+        "healthy_label": "Healthy",
+        "second_stage_protocol": "segmentation_masked",
+        "evidence": "docs/logs/phase3-health-protocol-measurement.md; docs/plan-4.md"
+      },
       "model": {
         "arch_source": "timm==1.0.29",
         "architecture": "ghostnetv3_100",
@@ -72,16 +78,6 @@
       "export_mode": "onnx_native",
       "gate_b_note": "no fixture corpus in repo yet (section 11.3.1, slice -1); available=true rests on the onnx_native self-check below, not gate B",
       "gate_b_status": "not_run",
-      "input_scale": {
-        "cm_per_px": 1.1,
-        "ladder_multipliers": [
-          1.0,
-          1.32,
-          1.68,
-          0.77
-        ],
-        "retry_conf_threshold": 0.1
-      },
       "model": {
         "architecture": "yolo11s-seg-ldconv-acmix",
         "input": {

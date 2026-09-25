@@ -65,7 +65,10 @@ set_target_properties(host_onnxruntime PROPERTIES
   IMPORTED_IMPLIB "${ORT_ROOT}/onnxruntime.lib")
 
 # ---- OpenCV (vcpkg) -------------------------------------------------------------------
-find_package(OpenCV CONFIG REQUIRED COMPONENTS core imgproc)
+# imgcodecs: docs/fix-phase-4/5-debug-and-assertions.md's README section 16 image dumps
+# (normalized RGB / BASE_MASK / FINAL_MASK), host-only per that phase's scoping -- core and
+# imgproc alone (the app's own dependency set) cannot write a PNG.
+find_package(OpenCV CONFIG REQUIRED COMPONENTS core imgproc imgcodecs)
 
 # ---- phase 1: trivial smoke-test binary -----------------------------------------------
 # Proves the toolchain (vcpkg OpenCV + generated ORT import lib + vendor sources) links.
@@ -97,7 +100,7 @@ add_executable(weight_branch_cli
 )
 target_include_directories(weight_branch_cli PRIVATE ${APP_INCLUDE_DIRS})
 target_compile_definitions(weight_branch_cli PRIVATE INSTAHAM_ML_HAS_OPENCV=1 INSTAHAM_ML_HAS_JSON=1)
-target_link_libraries(weight_branch_cli PRIVATE opencv_core opencv_imgproc host_onnxruntime)
+target_link_libraries(weight_branch_cli PRIVATE opencv_core opencv_imgproc opencv_imgcodecs host_onnxruntime)
 
 add_custom_command(TARGET weight_branch_cli POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different

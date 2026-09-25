@@ -1,9 +1,11 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show DeviceOrientation;
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/database/app_database.dart';
 import '../../../../core/database/database_scope.dart';
+import '../../../../core/models/capture_orientation.dart';
 import '../../../../core/models/measurement_mode.dart';
 import '../../../../core/models/scan_flow.dart';
 import '../../../../core/theme/app_colors.dart';
@@ -46,6 +48,10 @@ class _CaptureScreenState extends State<CaptureScreen>
   bool _isCameraInitializing = true;
   bool _cameraError = false;
   CapturedImageResult? _capturedResult;
+
+  // docs/fix-phase-4/6-capture-orientation.md: the confirm step's attestation, reset to false
+  // for every new capture. Never pre-ticked.
+  bool _orientationAttested = false;
 
   @override
   void initState() {
@@ -126,10 +132,11 @@ class _CaptureScreenState extends State<CaptureScreen>
     if (_initialized) return;
     _initialized = true;
     _database = DatabaseScope.of(context);
+    // plan-phase-2/2.1-capture-screen-guards.md finding 3: do not create a draft scan just
+    // for opening this screen. A session is created lazily, the first time a photo actually
+    // succeeds (via _ensureSession in _capture/_pickFromGallery/_usePhoto) -- a user who
+    // opens the camera and leaves without capturing anything must leave no row behind.
     _sessionId = widget.initialArgs?.sessionId;
-    if (_sessionId == null) {
-      _createSession();
-    }
     _loadPreferences();
   }
 
@@ -249,11 +256,16 @@ class _CaptureScreenState extends State<CaptureScreen>
         return;
       }
 
+      // plan-phase-2/2.1-capture-screen-guards.md finding 3: nothing is written to the
+      // database until the widget is confirmed still mounted -- a capture the user quits
+      // out of before this point leaves no scan behind.
+      if (!mounted) return;
       final id = await _ensureSession();
       await _database!.markCaptured(
         id,
         imagePath: result.localPath,
         measurementMode: _mode,
+        captureOrientation: result.orientation,
       );
 
       if (!mounted) return;
@@ -261,6 +273,7 @@ class _CaptureScreenState extends State<CaptureScreen>
         _saving = false;
         _capturedResult = result;
         _reviewingPhoto = true;
+        _orientationAttested = false;
       });
     } catch (e) {
       debugPrint('Capture error: $e');
@@ -295,11 +308,16 @@ class _CaptureScreenState extends State<CaptureScreen>
         return;
       }
 
+      // plan-phase-2/2.1-capture-screen-guards.md finding 3: nothing is written to the
+      // database until the widget is confirmed still mounted -- a pick the user quits out
+      // of before this point leaves no scan behind.
+      if (!mounted) return;
       final id = await _ensureSession();
       await _database!.markCaptured(
         id,
         imagePath: result.localPath,
         measurementMode: _mode,
+        captureOrientation: result.orientation,
       );
 
       if (!mounted) return;
@@ -307,6 +325,7 @@ class _CaptureScreenState extends State<CaptureScreen>
         _saving = false;
         _capturedResult = result;
         _reviewingPhoto = true;
+        _orientationAttested = false;
       });
     } catch (e) {
       debugPrint('Gallery pick error: $e');
@@ -325,8 +344,40 @@ class _CaptureScreenState extends State<CaptureScreen>
   /// that exists only to serve the weight branch). A native/inference failure here falls
   /// back to the pre-P0 routing (proceed as if the gate had not run) rather than trapping
   /// the user on the review screen.
+  /// The orientation shown/attested on the review step, derived the same way regardless of
+  /// whether this capture came from the live camera, gallery pick or a re-entered flow: from
+  /// the actual image dimensions, never from the live sensor reading at review time (the phone
+  /// may have rotated since the shutter fired).
+  CaptureOrientation? get _capturedOrientation {
+    if (_capturedResult != null) return _capturedResult!.orientation;
+    final w = widget.initialArgs?.imageWidthPx;
+    final h = widget.initialArgs?.imageHeightPx;
+    if (w == null || h == null) return null;
+    return CaptureOrientation.fromDimensions(w, h);
+  }
+
   Future<void> _usePhoto() async {
+    final orientation = _capturedOrientation;
+    if (orientation != null && !_orientationAttested) {
+      // Confirm step (point 3): the app cannot verify head direction, so it cannot proceed on
+      // a default action without the explicit attestation.
+      return;
+    }
+    // plan-phase-2/2.1-capture-screen-guards.md finding 5: armed here, not after the two
+    // awaits below. The button's onPressed already checks `_saving`, but that check is at
+    // least one frame behind -- a fast double-tap can enter this method twice before the
+    // first call's setState takes effect, each creating its own session via _ensureSession.
+    if (_saving) return;
+    setState(() => _saving = true);
+
     final id = await _ensureSession();
+    if (orientation != null) {
+      await _database!.recordOrientationAttestation(
+        id,
+        orientation: orientation,
+        attested: _orientationAttested,
+      );
+    }
     final imagePath =
         _capturedResult?.localPath ?? widget.initialArgs?.imagePath;
     final args = ScanFlowArgs(
@@ -344,8 +395,8 @@ class _CaptureScreenState extends State<CaptureScreen>
     );
     if (!mounted) return;
 
-    setState(() => _saving = true);
     String? viewLabel;
+    double viewConfidence = 0.0;
     if (imagePath != null) {
       try {
         final view = await RunAndPersistPipelineUseCase.resolveViewGate(
@@ -354,6 +405,7 @@ class _CaptureScreenState extends State<CaptureScreen>
           imagePath,
         );
         viewLabel = view.label;
+        viewConfidence = view.confidence;
       } catch (e) {
         debugPrint('View gate failed, falling back to unfiltered routing: $e');
       }
@@ -361,34 +413,63 @@ class _CaptureScreenState extends State<CaptureScreen>
     if (!mounted) return;
     setState(() => _saving = false);
 
-    if (viewLabel == 'reject') {
-      await _database!.updateScanStatus(id, ScanStatuses.rejected);
+    // docs/fix-phase-6/2-dialog-and-routing.md (F68/F70): both a `reject` and a
+    // `health_only` verdict can be wrong, so both now show the same three-option dialog
+    // instead of only `reject` getting a dialog, and only ever toward one route.
+    String? routeOverride;
+    if (viewLabel == 'reject' || viewLabel == 'health_only') {
       if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Photo not usable'),
-          content: const Text(
-            'This photo was not recognized as a clear, usable pig photo. Please retake it '
-            'with the whole pig visible and well lit.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Retake'),
-            ),
-          ],
-        ),
+      final choice = await showViewChoiceDialog(
+        context,
+        isHealthOnly: viewLabel == 'health_only',
       );
-      if (mounted) setState(() => _reviewingPhoto = false);
-      return;
+      switch (choice) {
+        case ViewChoice.retake:
+          // Answered 2026-09-25 (fix-6.md open question 2): Retake on a `health_only`
+          // photo marks the scan rejected too, the same as the existing Retake on
+          // `reject`. No override is recorded for a Retake, either verdict.
+          await _database!.updateScanStatus(id, ScanStatuses.rejected);
+          if (mounted) setState(() => _reviewingPhoto = false);
+          return;
+        case ViewChoice.healthOnly:
+          if (viewLabel == 'reject') {
+            // A `health_only` verdict + "Check health only" is today's path with no
+            // override recorded (fix-6.md's table) -- only a `reject` overridden toward
+            // health-only needs a recorded override.
+            routeOverride = 'health_only';
+            await RunAndPersistPipelineUseCase.recordViewGateOverride(
+              _database!,
+              id,
+              route: 'health_only',
+              overriddenLabel: viewLabel!,
+              overriddenConfidence: viewConfidence,
+              imageIdentity: await RunAndPersistPipelineUseCase.imageIdentityOf(
+                imagePath!,
+              ),
+            );
+          }
+        case ViewChoice.weightAndHealth:
+          routeOverride = 'dorsal_valid';
+          await RunAndPersistPipelineUseCase.recordViewGateOverride(
+            _database!,
+            id,
+            route: 'dorsal_valid',
+            overriddenLabel: viewLabel!,
+            overriddenConfidence: viewConfidence,
+            imageIdentity: await RunAndPersistPipelineUseCase.imageIdentityOf(
+              imagePath!,
+            ),
+          );
+      }
+      // Falls through: the chosen route is routed exactly like that verdict below.
     }
 
-    // health_only skips reference marking entirely -- there is no dorsal view to measure,
-    // so the reference-object step (which exists only to scale a weight estimate) has
-    // nothing to serve. dorsal_valid (or an unresolved gate, viewLabel == null) proceeds
-    // exactly as before this change.
-    final skipReference = viewLabel == 'health_only';
+    // health_only (verdict or override) skips reference marking entirely -- there is no
+    // dorsal view to measure, so the reference-object step (which exists only to scale a
+    // weight estimate) has nothing to serve. dorsal_valid (verdict or override), or an
+    // unresolved gate (viewLabel == null), proceeds exactly as before this change.
+    final effectiveRoute = routeOverride ?? viewLabel;
+    final skipReference = effectiveRoute == 'health_only';
 
     if (!skipReference) {
       await _database!.updateScanStatus(id, ScanStatuses.referenceReview);
@@ -442,7 +523,7 @@ class _CaptureScreenState extends State<CaptureScreen>
                 ),
                 IconButton(
                   tooltip: 'Capture tips',
-                  onPressed: _showGuidance,
+                  onPressed: _saving ? null : _showGuidance,
                   icon: const Icon(Icons.help_outline, color: Colors.white),
                 ),
               ],
@@ -497,7 +578,7 @@ class _CaptureScreenState extends State<CaptureScreen>
                         ),
                         const SizedBox(height: 12),
                         TextButton.icon(
-                          onPressed: _pickFromGallery,
+                          onPressed: _saving ? null : _pickFromGallery,
                           icon: const Icon(
                             Icons.photo_library_outlined,
                             color: Colors.white70,
@@ -533,38 +614,19 @@ class _CaptureScreenState extends State<CaptureScreen>
                               ? 'Set reference'
                               : '${_reference!.name} · ${_unit.format(_reference!.lengthCm)} ${_unit.label}',
                         ),
-                        onPressed: _openReferenceConfig,
+                        onPressed: _saving ? null : _openReferenceConfig,
                         backgroundColor: Colors.white,
                         side: BorderSide.none,
                       ),
                     ],
                   ),
                 ),
-                /*Positioned(
+                Positioned(
                   left: 20,
                   right: 20,
                   bottom: 18,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.68),
-                      borderRadius: BorderRadius.circular(AppRadius.lg),
-                    ),
-                    child: Text(
-                      _mode == MeasurementMode.referenceObject
-                          ? 'One pig · dorsal view · full body and reference visible'
-                          : 'Hold camera ${_cameraHeight != null ? _unit.format(_cameraHeight!) : '?'} ${_unit.label} above the pig',
-                      textAlign: TextAlign.center,
-                      style: AppTextStyles.label.copyWith(
-                        color: Colors.white,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                ),*/
+                  child: _buildOrientationPrompt(),
+                ),
               ],
             ),
           ),
@@ -624,7 +686,7 @@ class _CaptureScreenState extends State<CaptureScreen>
                   width: 64,
                   child: IconButton(
                     tooltip: 'Change reference',
-                    onPressed: _openReferenceConfig,
+                    onPressed: _saving ? null : _openReferenceConfig,
                     icon: const Icon(Icons.straighten, color: Colors.white70),
                   ),
                 ),
@@ -632,6 +694,113 @@ class _CaptureScreenState extends State<CaptureScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// docs/fix-phase-4/6-capture-orientation.md point 2: an orientation-aware prompt driven by
+  /// the live sensor orientation the `CameraController` already tracks
+  /// (`CameraValue.deviceOrientation`), not `MediaQuery` -- the two can disagree with rotation
+  /// lock on. Falls back to nothing when there is no live controller (web/desktop path, which
+  /// captures via the picker instead).
+  Widget _buildOrientationPrompt() {
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) {
+      return const SizedBox.shrink();
+    }
+    return ValueListenableBuilder<CameraValue>(
+      valueListenable: controller,
+      builder: (context, value, _) {
+        final orientation = _orientationFor(value.deviceOrientation);
+        return Semantics(
+          label: orientation.headDirectionInstruction,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 44),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.68),
+              borderRadius: BorderRadius.circular(AppRadius.lg),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.rotate_90_degrees_ccw,
+                  color: Colors.white,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    orientation.headDirectionInstruction,
+                    textAlign: TextAlign.center,
+                    style: AppTextStyles.label.copyWith(
+                      color: Colors.white,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  CaptureOrientation _orientationFor(DeviceOrientation deviceOrientation) {
+    switch (deviceOrientation) {
+      case DeviceOrientation.landscapeLeft:
+      case DeviceOrientation.landscapeRight:
+        return CaptureOrientation.landscape;
+      case DeviceOrientation.portraitUp:
+      case DeviceOrientation.portraitDown:
+        return CaptureOrientation.portrait;
+    }
+  }
+
+  /// docs/fix-phase-4/6-capture-orientation.md point 3: an explicit, un-pre-ticked confirm
+  /// step naming the rule for the captured orientation. The app cannot verify head direction
+  /// itself, so "forced" means the user attests and the attestation is recorded, not that the
+  /// app silently believes it -- `_usePhoto`'s button stays disabled until this is checked.
+  Widget _buildAttestationCheckbox(CaptureOrientation orientation) {
+    return Semantics(
+      label: orientation.attestationLabel,
+      checked: _orientationAttested,
+      child: Material(
+        color: AppColors.pinkTint,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          onTap: () =>
+              setState(() => _orientationAttested = !_orientationAttested),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 44),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                children: [
+                  ExcludeSemantics(
+                    child: Checkbox(
+                      value: _orientationAttested,
+                      onChanged: (checked) => setState(
+                        () => _orientationAttested = checked ?? false,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      orientation.attestationLabel,
+                      style: AppTextStyles.body,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -712,30 +881,156 @@ class _CaptureScreenState extends State<CaptureScreen>
                   ),
                 ],
               ),
+              if (_capturedOrientation case final orientation?) ...[
+                const SizedBox(height: 14),
+                _buildAttestationCheckbox(orientation),
+              ],
               const SizedBox(height: 14),
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: () => setState(() => _reviewingPhoto = false),
+                      onPressed: _saving
+                          ? null
+                          : () => setState(() => _reviewingPhoto = false),
                       child: const Text('Retake'),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: ElevatedButton(
-                      onPressed: _usePhoto,
-                      child: const Text('Verify reference'),
+                      onPressed:
+                          !_saving &&
+                              (_capturedOrientation == null ||
+                                  _orientationAttested)
+                          ? _usePhoto
+                          : null,
+                      child: _saving
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text('Verify reference'),
                     ),
                   ),
                 ],
               ),
+              if (_saving) ...[
+                const SizedBox(height: 10),
+                Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    'Checking the photo…',
+                    textAlign: TextAlign.center,
+                    style: AppTextStyles.subtext.copyWith(
+                      color: AppColors.mutedForeground,
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
       ],
     );
   }
+}
+
+/// docs/fix-phase-6/2-dialog-and-routing.md: the three-way choice both a `reject` and a
+/// `health_only` verdict now offer. Public (not nested in `_CaptureScreenState`) so
+/// [showViewChoiceDialog] is directly widget-testable without spinning up the camera.
+enum ViewChoice { retake, healthOnly, weightAndHealth }
+
+/// docs/fix-phase-6/2-dialog-and-routing.md: one shared dialog for both `reject` and
+/// `health_only` verdicts (F68) -- the photo check can be wrong in either direction, so
+/// both offer the same three choices instead of only `reject` getting a dialog at all,
+/// and only ever toward the full route. A dismissal (tap outside, back gesture) counts as
+/// Retake photo, the same as round 9's two-button dialog did. Buttons are stacked
+/// full-width rather than left to `AlertDialog`'s default row/overflow layout: three
+/// labels this long do not fit on one row on a small phone, and each must stay at least
+/// 44 px tall. A top-level function (not a `_CaptureScreenState` method) so it is directly
+/// widget-testable: a test pumps a bare `MaterialApp` and calls this with its own
+/// `BuildContext`, with no camera involved.
+Future<ViewChoice> showViewChoiceDialog(
+  BuildContext context, {
+  required bool isHealthOnly,
+}) async {
+  final choice = await showDialog<ViewChoice>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text(
+        isHealthOnly ? 'Weight may not be measurable' : 'Photo not recognized',
+      ),
+      content: Text(
+        isHealthOnly
+            ? "This photo looks right for a health check, but not for a weight "
+                  "estimate, which needs the pig's whole back seen from above. The "
+                  'check can be wrong, so you can choose how to continue.'
+            : "This photo wasn't recognized as a clear pig photo. The check can be "
+                  'wrong, so you can choose how to continue.',
+      ),
+      actions: [
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _dialogChoiceButton(
+              dialogContext,
+              label: 'Retake photo',
+              value: ViewChoice.retake,
+              filled: false,
+            ),
+            const SizedBox(height: 8),
+            _dialogChoiceButton(
+              dialogContext,
+              label: 'Check health only',
+              value: ViewChoice.healthOnly,
+              filled: false,
+            ),
+            const SizedBox(height: 8),
+            _dialogChoiceButton(
+              dialogContext,
+              label: 'Check weight and health',
+              value: ViewChoice.weightAndHealth,
+              filled: true,
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+  return choice ?? ViewChoice.retake;
+}
+
+Widget _dialogChoiceButton(
+  BuildContext dialogContext, {
+  required String label,
+  required ViewChoice value,
+  required bool filled,
+}) {
+  return Semantics(
+    button: true,
+    label: label,
+    child: filled
+        ? ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              minimumSize: const Size.fromHeight(44),
+            ),
+            onPressed: () => Navigator.pop(dialogContext, value),
+            child: Text(label),
+          )
+        : OutlinedButton(
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(44),
+            ),
+            onPressed: () => Navigator.pop(dialogContext, value),
+            child: Text(label),
+          ),
+  );
 }
 
 class _DorsalGuidePainter extends CustomPainter {

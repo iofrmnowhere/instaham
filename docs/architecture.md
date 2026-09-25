@@ -87,21 +87,39 @@ flowchart LR
   ratio, which carries the scale squared, so a 1% scale error becomes a 2.8–4.0% weight
   error — see [pipeline/prediction-2.md](pipeline/prediction-2.md).
 - **The view classifier gates the graph.** `reject` stops the pipeline; `health_only` skips
-  segmentation entirely (health's region protocols are stubs that degrade to full-frame, so
-  the YOLO pass would feed nothing); `dorsal_valid` runs the full graph. An unrecognised or
-  unavailable label fails closed — every downstream stage reports `skipped`.
+  segmentation entirely (health runs on the whole photo there, and without a mask it has no
+  second stage to feed); `dorsal_valid` runs the full graph. An unrecognised or
+  unavailable label fails closed — every downstream stage reports `skipped`. **The view
+  gate is the one gate a user can override**, per-photograph and only by explicit choice
+  ([adr/017](adr/017-user-consent-view-gate-override.md), widened by
+  [adr/020](adr/020-view-route-override-either-route.md)): a `reject` can be sent down either
+  the `health_only` or the `dorsal_valid` route, and a `health_only` can be raised to
+  `dorsal_valid`. A `dorsal_valid` verdict is never changed. When the route changes, the
+  envelope's `view` block carries `"override": true` and `"override_route"`. No other gate is
+  overridable.
 - **One native call per scan.** The whole-graph entrypoint exists so the single constructed
   mask feeds both the health and weight branches instead of three per-capability calls each
   re-segmenting from the image path.
-- **That call is synchronous on the Dart main isolate.** `Isolate.run`, `Isolate.spawn` and
-  `compute(` appear nowhere in `lib/`, so the whole native graph — segmentation, cutter,
-  features, both models — runs on the UI thread and blocks it for the duration. Measured at
-  about 5 s on device, against Android's 10 s input-dispatch timeout. This is why a slow
-  native stage presents to the user as a crash rather than as a long spinner: the first field
-  build with the real cutter blew that budget and was killed as an ANR, which is what
-  [ADR-008](adr/008-unscaled-cutter-input-is-capped-not-gated.md) bounds. The margin is
-  currently adequate and deliberately not defended by anything; moving the call off the main
-  isolate is the standing remedy if it is ever wanted back.
+- **Health can run the model twice in that one call.** The whole photo decides whether the
+  pig is `Healthy`. Any other label is classified again on the masked pig, and that second
+  result is final. The manifest switches this on (`health.cascade`), and with it off the
+  output is the single pass exactly. See [pipeline/health.md](pipeline/health.md) and
+  [ADR-019](adr/019-whole-photo-decides-healthy-masked-pig-rechecks.md).
+- **That call blocks, but it blocks a worker isolate, not the UI one.**
+  ([ADR-018](adr/018-native-calls-run-on-a-worker-isolate.md)) `MlRuntime` runs the three
+  user-facing entrypoints — the whole-graph call, its request-shaped form, and the view gate —
+  inside `Isolate.run`, and serializes every call through a single-slot `CallQueue` so at most
+  one is ever in flight against the one native context. The whole graph is still one long
+  synchronous C++ call; what changed is which thread waits on it.
+
+  This matters because the wait is long: 11.7 s median on `tokay`, 17.0 s on `oriole`, 70.9 s
+  on `lion` ([device-metrics-results.md](device-metrics-results.md)). Run on the UI isolate it
+  pumped no frames for that whole window and sat inside Android ANR territory on low-tier
+  hardware — the first field build with the real cutter was killed exactly that way, which is
+  what [ADR-008](adr/008-unscaled-cutter-input-is-capped-not-gated.md) bounds. Two consequences
+  follow for anyone touching this seam: `instaham_ml_last_error()` is `thread_local` and must
+  be read inside the worker or it reads back empty, and callers must not bypass the queue.
+  Both are contract, not style — see [ffi-bridge.md](ffi-bridge.md).
 
 > Continued in [architecture-2.md](architecture-2.md) — the Flutter module layout: `lib/`
 > boundaries, layering, naming conventions, and the single FFI seam.

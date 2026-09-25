@@ -101,6 +101,26 @@ inline std::vector<uint8_t> rotate90_ccw(const std::vector<uint8_t>& src, int w,
   return dst;
 }
 
+// ref_fix.md F16/F23: the selected mask's bbox diagonal as a fraction of its own frame's
+// diagonal -- pipeline.cpp reads this against manifest.weight.min_mask_diagonal_fraction
+// (0.35) to reject an implausibly small mask before the cutter/feature stages run.
+// `frame_w`/`frame_h` are the mask's OWN frame (construct_pig_mask() sizes the mask to
+// `(seg.orig_w, seg.orig_h)`, which after phase 1.1 is the normalize-first `content`
+// rectangle -- the resized, optionally-rotated photo BEFORE it is centred on the 960x540
+// canvas, per stages/segmentation.cpp). It is deliberately NOT `manifest.weight
+// .training_frame_px` (720x720) or the 960x540 canvas -- neither is read here. Extracted
+// to its own function (docs/fix-phase-4/3-constants.md phase 3) so the README's canvas
+// change could be checked against it directly: test_segmentation_canvas.cpp measures this
+// formula at both the pre-README 720x720-diagonal frame and the README's 960x540 one and
+// finds the 0.35 threshold's verdict on real corpus-shaped masks unchanged either way, so
+// F62's premise -- that adopting the README's canvas silently reweights this gate -- does
+// not hold for this function; training_frame_px stays 720x720 unmodified.
+inline double mask_diagonal_fraction(int bbox_w, int bbox_h, int frame_w, int frame_h) {
+  const double mask_diag = std::sqrt(double(bbox_w) * bbox_w + double(bbox_h) * bbox_h);
+  const double frame_diag = std::sqrt(double(frame_w) * frame_w + double(frame_h) * frame_h);
+  return frame_diag > 0.0 ? mask_diag / frame_diag : 0.0;
+}
+
 }  // namespace stages
 }  // namespace instaham_ml
 

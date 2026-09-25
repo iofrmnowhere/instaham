@@ -163,3 +163,37 @@ The live in-app camera path was not swept and its capture resolution was not rea
 has neither a pig nor the reference stick on hand for a live capture. Every figure in rounds
 1–3 is the gallery-import path at 2250 x 3000. Round 4 (above) is a host replication on
 PIGRGB training images, not a device capture at all.
+
+## Round 5 — device run on the phase 4 build, four photos, one mark each
+
+Reported by the user on 2026-09-21 after sideloading the phase 4 APK (README normalize-first
+single pass at `cm_per_px_target`, `k` fixed at 1.0, retry ladder removed). One scan per photo,
+marked at the reference pixel lengths this file and
+`ML/host_scale_test/run_phase2_mode_ab.py`'s `CORPUS_A_IMAGES` record: 1582 px / 100 cm for the
+75 kg photo, 1547.62 px / 100 cm for the 92 kg photo, 2066.20 px / 131 cm for the 96 kg photo,
+and 2005.63 px / 131 cm for the 118 kg photo. Envelope dumps were not captured, so only the
+predicted weight is available per scan.
+
+The host column is the `normalize_first` arm of `ML/host_scale_test/out/phase2_results.csv`,
+which is the same code path the phase 4 build ships; the 75 kg value there
+(88.9058837890625 kg) is the one phase 4's own verification matched bit-for-bit through
+`instaham_ml_run_pipeline_request_json()`.
+
+| photo | true kg | device kg | host `normalize_first` kg | device − host |
+|---|---|---|---|---|
+| 75kg_pig_meter_stick | 75 | 89.9 | 88.91 | +0.99 |
+| 92kg_pig_meter_stick | 92 | 89.7 | 90.06 | −0.36 |
+| 96kg_pig_porac_stick | 96 | 89.8 | 89.51 | +0.29 |
+| 118kg_pig_porac_stick | 118 | 113.2 | 115.00 | −1.80 |
+
+Device and host agree to within 2 kg on every photo, and the three photos with a round-2/3
+jitter band disagree by far less than that band (5.18–12.55%), so the disagreement is
+consistent with single-mark placement noise rather than with a device-vs-host arithmetic
+difference. This is what the run was for: it checks parity, and it does not answer whether
+removing the retry ladder cost any detection accuracy, because no fresh captures were
+possible.
+
+Accuracy is a separate matter from parity. Three of the four predictions cluster at 89–90 kg
+regardless of the true weight (75, 92 and 96 kg), which is the same compression toward the
+regressor's middle that rounds 2–4 show, and the 75 kg photo is the clearest case: it reads
++19.9% high on both device and host.

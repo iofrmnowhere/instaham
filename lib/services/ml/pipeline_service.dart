@@ -25,9 +25,17 @@ abstract interface class IPipelineService {
   /// for this scan -- pass it only when the caller has already verified the annotation is
   /// user-confirmed and coplanar-confirmed (AGENTS.md rule 7). Omitted, the weight branch
   /// degrades exactly as it did before this feature existed.
+  ///
+  /// `viewRouteOverride` (docs/fix-phase-6/2-dialog-and-routing.md, F68 -- widens
+  /// fix-phase-5/2-view-reject-override.md's F67 boolean): 'dorsal_valid', 'health_only',
+  /// or null, set only when RunAndPersistPipelineUseCase.execute() found a recorded
+  /// 'view_override' event keyed to this exact image. Routes a `reject` or `health_only`
+  /// verdict through the chosen branches instead of the verdict alone deciding. Null is
+  /// the default, unchanged behaviour.
   Future<(MlStatus, Map<String, dynamic>)> run(
     String imagePath, {
     double? cmPerPixel,
+    String? viewRouteOverride,
   });
 }
 
@@ -43,8 +51,13 @@ class PipelineServiceImpl implements IPipelineService {
   Future<(MlStatus, Map<String, dynamic>)> run(
     String imagePath, {
     double? cmPerPixel,
+    String? viewRouteOverride,
   }) async {
     final runtime = await MlRuntime.instance();
-    return runtime.runPipeline(imagePath, cmPerPixel: cmPerPixel);
+    return runtime.runPipeline(
+      imagePath,
+      cmPerPixel: cmPerPixel,
+      viewRouteOverride: viewRouteOverride,
+    );
   }
 }
