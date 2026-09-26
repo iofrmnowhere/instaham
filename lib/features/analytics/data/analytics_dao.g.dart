@@ -4,6 +4,7 @@ part of 'analytics_dao.dart';
 
 // ignore_for_file: type=lint
 mixin _$AnalyticsDaoMixin on DatabaseAccessor<AppDatabase> {
+  $PigFoldersTable get pigFolders => attachedDatabase.pigFolders;
   $PigsTable get pigs => attachedDatabase.pigs;
   $ScanRecordsTable get scanRecords => attachedDatabase.scanRecords;
   $WeightResultsTable get weightResults => attachedDatabase.weightResults;
@@ -14,6 +15,8 @@ mixin _$AnalyticsDaoMixin on DatabaseAccessor<AppDatabase> {
 class AnalyticsDaoManager {
   final _$AnalyticsDaoMixin _db;
   AnalyticsDaoManager(this._db);
+  $$PigFoldersTableTableManager get pigFolders =>
+      $$PigFoldersTableTableManager(_db.attachedDatabase, _db.pigFolders);
   $$PigsTableTableManager get pigs =>
       $$PigsTableTableManager(_db.attachedDatabase, _db.pigs);
   $$ScanRecordsTableTableManager get scanRecords =>

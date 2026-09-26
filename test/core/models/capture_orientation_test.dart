@@ -25,33 +25,22 @@ void main() {
     });
   });
 
-  group('per-orientation prompt and attestation text', () {
-    // docs/fix-phase-4/6-capture-orientation.md: the prompt and attestation text must switch
-    // with orientation and must name the direction, not just "correct"/"incorrect".
-    test('portrait names head-up in both the prompt and the attestation', () {
-      expect(
-        CaptureOrientation.portrait.headDirectionInstruction,
-        contains('up'),
-      );
+  group('per-orientation attestation text', () {
+    // docs/fix-7.md F71: the live orientation prompt is removed, but the attestation text
+    // must still switch with orientation and name the direction, not just "correct"/"incorrect".
+    test('portrait attestation names head-up', () {
       expect(
         CaptureOrientation.portrait.attestationLabel,
         contains('facing up'),
       );
     });
 
-    test(
-      'landscape names head-right in both the prompt and the attestation',
-      () {
-        expect(
-          CaptureOrientation.landscape.headDirectionInstruction,
-          contains('right'),
-        );
-        expect(
-          CaptureOrientation.landscape.attestationLabel,
-          contains('facing right'),
-        );
-      },
-    );
+    test('landscape attestation names head-right', () {
+      expect(
+        CaptureOrientation.landscape.attestationLabel,
+        contains('facing right'),
+      );
+    });
 
     test('storage value round-trips through captureOrientationFromStorage', () {
       for (final orientation in CaptureOrientation.values) {

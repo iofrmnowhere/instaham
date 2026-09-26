@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../database/app_database.dart';
 import '../database/database_scope.dart';
+import '../services/photo_cleanup_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../theme/widgets/app_card.dart';
@@ -68,7 +69,7 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Delete all local records?'),
         content: const Text(
-          'This permanently removes saved pigs, scan sessions, reference annotations, results, and pending sync items from this device. Privacy preferences are kept.',
+          'This permanently removes saved pigs, scan sessions, reference annotations, results, pending sync items, and captured photos from this device. Custom references and privacy preferences are kept.',
         ),
         actions: [
           TextButton(
@@ -87,6 +88,7 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
     );
     if (confirmed != true) return;
     await _database!.deleteAllUserRecords();
+    await PhotoCleanupService.deleteAllCapturedPhotos();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('All local records were deleted.')),

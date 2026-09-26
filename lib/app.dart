@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'core/data/repositories/drift_folders_repository.dart';
 import 'core/database/app_database.dart';
 import 'core/database/database_scope.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
+import 'core/widgets/folders_scope.dart';
 import 'features/analytics/data/repositories/drift_analytics_repository.dart';
 import 'features/analytics/presentation/analytics_scope.dart';
 
@@ -36,13 +38,16 @@ class _AppState extends State<App> {
       database: _database,
       child: RecordsScope(
         repository: DriftRecordsRepository(_database.recordsDao),
-        child: AnalyticsScope(
-          repository: DriftAnalyticsRepository(_database.analyticsDao),
-          child: MaterialApp.router(
-            title: 'INSTAHAM',
-            theme: AppTheme.light,
-            routerConfig: AppRouter.router,
-            debugShowCheckedModeBanner: false,
+        child: FoldersScope(
+          repository: DriftFoldersRepository(_database.foldersDao),
+          child: AnalyticsScope(
+            repository: DriftAnalyticsRepository(_database.analyticsDao),
+            child: MaterialApp.router(
+              title: 'INSTAHAM',
+              theme: AppTheme.light,
+              routerConfig: AppRouter.router,
+              debugShowCheckedModeBanner: false,
+            ),
           ),
         ),
       ),

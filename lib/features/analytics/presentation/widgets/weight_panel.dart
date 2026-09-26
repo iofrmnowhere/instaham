@@ -67,13 +67,30 @@ class WeightPanel extends StatelessWidget {
             ),
           ],
         ),
-        if (data.blockedScans > 0) ...[
+        if (data.healthOnlyScans > 0 || data.blockedScans > 0) ...[
           const SizedBox(height: 8),
-          StatCard(
-            label: 'Ineligible / Blocked',
-            value: '${data.blockedScans}',
-            icon: const Icon(Icons.block_outlined),
-            status: StatCardStatus.warning,
+          Row(
+            children: [
+              if (data.healthOnlyScans > 0) ...[
+                Expanded(
+                  child: StatCard(
+                    label: 'Health only',
+                    value: '${data.healthOnlyScans}',
+                    icon: const Icon(Icons.health_and_safety_outlined),
+                  ),
+                ),
+                if (data.blockedScans > 0) const SizedBox(width: 8),
+              ],
+              if (data.blockedScans > 0)
+                Expanded(
+                  child: StatCard(
+                    label: 'Blocked',
+                    value: '${data.blockedScans}',
+                    icon: const Icon(Icons.block_outlined),
+                    status: StatCardStatus.warning,
+                  ),
+                ),
+            ],
           ),
         ],
         if (timeSeries.isNotEmpty) ...[

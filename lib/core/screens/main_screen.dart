@@ -51,11 +51,12 @@ class MainScreen extends StatelessWidget {
                 date.month == today.month &&
                 date.day == today.day;
           }).length;
+          // docs/fix-7.md F73: "Health only" scans are not "Needs Review".
           final needsReview = items
               .where(
                 (item) =>
-                    item.scan.status == ScanStatuses.blocked ||
-                    item.scan.status == ScanStatuses.rejected,
+                    item.displayStatus == ScanStatuses.blocked ||
+                    item.displayStatus == ScanStatuses.rejected,
               )
               .length;
 

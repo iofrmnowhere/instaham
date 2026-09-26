@@ -4,6 +4,7 @@ part of 'records_dao.dart';
 
 // ignore_for_file: type=lint
 mixin _$RecordsDaoMixin on DatabaseAccessor<AppDatabase> {
+  $PigFoldersTable get pigFolders => attachedDatabase.pigFolders;
   $PigsTable get pigs => attachedDatabase.pigs;
   $ScanRecordsTable get scanRecords => attachedDatabase.scanRecords;
   $ReferenceAnnotationsTable get referenceAnnotations =>
@@ -16,6 +17,8 @@ mixin _$RecordsDaoMixin on DatabaseAccessor<AppDatabase> {
 class RecordsDaoManager {
   final _$RecordsDaoMixin _db;
   RecordsDaoManager(this._db);
+  $$PigFoldersTableTableManager get pigFolders =>
+      $$PigFoldersTableTableManager(_db.attachedDatabase, _db.pigFolders);
   $$PigsTableTableManager get pigs =>
       $$PigsTableTableManager(_db.attachedDatabase, _db.pigs);
   $$ScanRecordsTableTableManager get scanRecords =>

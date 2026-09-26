@@ -20,9 +20,19 @@ class RecordsDao extends DatabaseAccessor<AppDatabase> with _$RecordsDaoMixin {
   RecordsDao(super.db);
 
   Stream<List<ScanWithPig>> watchRecentScans({int limit = 100}) {
+    // docs/fix-7.md F73: left-joined so the display-status split (Health only vs. Blocked)
+    // can be worked out per row without a second query per scan.
     final query =
         select(db.scanRecords).join([
             leftOuterJoin(db.pigs, db.pigs.id.equalsExp(db.scanRecords.pigId)),
+            leftOuterJoin(
+              db.weightResults,
+              db.weightResults.scanId.equalsExp(db.scanRecords.id),
+            ),
+            leftOuterJoin(
+              db.healthResults,
+              db.healthResults.scanId.equalsExp(db.scanRecords.id),
+            ),
           ])
           ..where(db.scanRecords.deletedAt.isNull())
           ..orderBy([OrderingTerm.desc(db.scanRecords.updatedAt)])
@@ -30,9 +40,13 @@ class RecordsDao extends DatabaseAccessor<AppDatabase> with _$RecordsDaoMixin {
 
     return query.watch().map((rows) {
       return rows.map((row) {
+        final weight = row.readTableOrNull(db.weightResults);
+        final health = row.readTableOrNull(db.healthResults);
         return ScanWithPig(
           scan: row.readTable(db.scanRecords),
           pig: row.readTableOrNull(db.pigs),
+          hasWeightValue: weight?.valueKg != null,
+          hasEligibleHealth: health?.eligible ?? false,
         );
       }).toList();
     });

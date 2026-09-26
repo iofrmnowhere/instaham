@@ -2,6 +2,7 @@ import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:instaham/core/database/app_database.dart';
+import 'package:instaham/core/models/scan_display_status.dart';
 import 'package:instaham/core/models/scan_flow.dart';
 import 'package:instaham/features/records/data/records_dao.dart';
 
@@ -59,7 +60,7 @@ void main() {
       bundle.scan.status,
       isIn([ScanStatuses.completed, ScanStatuses.blocked]),
     );
-    expect(bundle.pig?.tag, startsWith('TAG-'));
+    expect(bundle.pig?.tag, startsWith('PIG-'));
     final goal = scanGoalFromStorage(bundle.scan.goal);
     if (goal.requiresReference) {
       expect(bundle.reference, isNotNull);
@@ -67,13 +68,65 @@ void main() {
   });
 
   test(
+    // docs/fix-7.md F73.
+    'watchRecentScans reports Health only for a weight-failed, health-ok scan',
+    () async {
+      final scanId = await database.createDraftScan(
+        goal: ScanGoal.weightAndHealth,
+      );
+      await database.saveWeightResult(
+        scanId: scanId,
+        eligible: false,
+        failureReason: 'No reference',
+      );
+      await database.saveHealthResult(
+        scanId: scanId,
+        eligible: true,
+        className: 'Healthy',
+      );
+      await database.updateScanStatus(scanId, ScanStatuses.blocked);
+
+      final scans = await dao.watchRecentScans().first;
+      final item = scans.singleWhere((s) => s.scan.id == scanId);
+      expect(item.hasWeightValue, isFalse);
+      expect(item.hasEligibleHealth, isTrue);
+      expect(item.displayStatus, ScanDisplayStatuses.healthOnly);
+    },
+  );
+
+  test(
+    // docs/fix-7.md F73.
+    'watchRecentScans reports Blocked when neither branch produced a value',
+    () async {
+      final scanId = await database.createDraftScan(
+        goal: ScanGoal.weightAndHealth,
+      );
+      await database.saveWeightResult(
+        scanId: scanId,
+        eligible: false,
+        failureReason: 'No reference',
+      );
+      await database.saveHealthResult(
+        scanId: scanId,
+        eligible: false,
+        failureReason: 'Blurry',
+      );
+      await database.updateScanStatus(scanId, ScanStatuses.blocked);
+
+      final scans = await dao.watchRecentScans().first;
+      final item = scans.singleWhere((s) => s.scan.id == scanId);
+      expect(item.displayStatus, ScanStatuses.blocked);
+    },
+  );
+
+  test(
     'watchPigSuggestions deduplicates pigs with same display name',
     () async {
       final s1 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
       final s2 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
 
-      await database.assignPig(scanId: s1, tag: 'TAG-1', displayName: 'Bella');
-      await database.assignPig(scanId: s2, tag: 'TAG-2', displayName: 'Bella');
+      await database.renamePigForScan(scanId: s1, displayName: 'Bella');
+      await database.renamePigForScan(scanId: s2, displayName: 'Bella');
 
       final suggestions = await dao.watchPigSuggestions('Bella').first;
       expect(suggestions.length, 1);

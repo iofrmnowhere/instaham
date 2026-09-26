@@ -6,9 +6,11 @@
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:instaham/core/data/repositories/drift_folders_repository.dart';
 import 'package:instaham/core/database/app_database.dart';
 import 'package:instaham/core/database/database_scope.dart';
 import 'package:instaham/core/models/scan_flow.dart';
+import 'package:instaham/core/widgets/folders_scope.dart';
 import 'package:instaham/features/results/presentation/screens/results_screen.dart';
 
 void main() {
@@ -55,11 +57,28 @@ void main() {
       MaterialApp(
         home: DatabaseScope(
           database: database,
-          child: ResultsScreen(args: ScanFlowArgs(sessionId: scanId)),
+          // docs/fix-8.md F74: every scan now has its own pig, so the pig card's Folder
+          // line always builds and needs a FoldersScope ancestor, same as
+          // results_screen_folder_line_test.dart.
+          child: FoldersScope(
+            repository: DriftFoldersRepository(database.foldersDao),
+            child: ResultsScreen(args: ScanFlowArgs(sessionId: scanId)),
+          ),
         ),
       ),
     );
     await tester.pumpAndSettle();
+  }
+
+  // docs/fix-8.md F74 / results_screen_folder_line_test.dart: the Folder line's
+  // StreamBuilder now runs in every one of these tests too (every scan has a pig), and it
+  // schedules a zero-duration Timer when its subscription is cancelled. flutter_test's own
+  // end-of-test teardown disposes the widget tree too late for that timer to be flushed,
+  // tripping its "no pending timers" invariant. Unmounting and pumping a real duration here,
+  // still inside the test body, lets the timer fire before that check runs.
+  Future<void> flushDriftStreamTimers(WidgetTester tester) async {
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(milliseconds: 1));
   }
 
   testWidgets(
@@ -87,6 +106,8 @@ void main() {
       // the second pass, and never "verified" either.
       expect(find.textContaining('is confirmed'), findsNothing);
       expect(find.textContaining('verified'), findsNothing);
+
+      await flushDriftStreamTimers(tester);
     },
   );
 
@@ -107,6 +128,8 @@ void main() {
         ),
         findsOneWidget,
       );
+
+      await flushDriftStreamTimers(tester);
     },
   );
 
@@ -123,6 +146,8 @@ void main() {
       expect(find.text('72% confidence'), findsOneWidget);
       expect(find.textContaining('re-checked on the pig alone'), findsNothing);
       expect(find.textContaining('confirmed diagnosis'), findsNothing);
+
+      await flushDriftStreamTimers(tester);
     },
   );
 
@@ -138,6 +163,8 @@ void main() {
 
       expect(find.text('72% confidence'), findsOneWidget);
       expect(find.textContaining('re-checked on the pig alone'), findsNothing);
+
+      await flushDriftStreamTimers(tester);
     },
   );
 }

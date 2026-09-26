@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../features/analytics/data/analytics_dao.dart';
 import '../../features/capture/data/custom_references_dao.dart';
 import '../../features/records/data/records_dao.dart';
+import '../data/folders_dao.dart';
 import '../models/capture_orientation.dart';
 import '../models/measurement_mode.dart';
 import '../models/scan_flow.dart';
@@ -18,9 +19,26 @@ class Pigs extends Table {
   TextColumn get id => text()();
   TextColumn get tag => text().nullable().unique()();
   TextColumn get displayName => text().nullable()();
+  // docs/plan-6.md (round 6, pig folders): null means the pig is ungrouped. No sync
+  // behaviour is added by this column.
+  TextColumn get folderId => text().nullable().references(PigFolders, #id)();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
   DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
   DateTimeColumn get deletedAt => dateTime().nullable()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+// docs/plan-6.md (round 6, pig folders): user-created groupings of pigs. The app never
+// creates one on its own. `remoteId` is nullable per the "stable local IDs, separate
+// remote IDs" rule, though no sync behaviour is added here.
+class PigFolders extends Table {
+  TextColumn get id => text()();
+  TextColumn get name => text()();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+  DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
+  TextColumn get remoteId => text().nullable()();
 
   @override
   Set<Column<Object>> get primaryKey => {id};
@@ -193,6 +211,7 @@ class CustomReferences extends Table {
 @DriftDatabase(
   tables: [
     Pigs,
+    PigFolders,
     ScanRecords,
     ReferenceAnnotations,
     WeightResults,
@@ -202,7 +221,7 @@ class CustomReferences extends Table {
     SyncOutboxEntries,
     CustomReferences,
   ],
-  daos: [AnalyticsDao, RecordsDao, CustomReferencesDao],
+  daos: [AnalyticsDao, RecordsDao, CustomReferencesDao, FoldersDao],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor]) : super(executor ?? _openConnection());
@@ -210,7 +229,7 @@ class AppDatabase extends _$AppDatabase {
   static final Random _random = Random.secure();
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -250,6 +269,19 @@ class AppDatabase extends _$AppDatabase {
         // so resolveViewGate treats them as a mismatch and re-classifies rather than
         // trusting a verdict it cannot attribute to an image.
         await migrator.addColumn(pipelineEvents, pipelineEvents.imageIdentity);
+      }
+      if (from < 7) {
+        // docs/plan-6.md (round 6, pig folders): new table plus a nullable FK column on
+        // pigs. No backfill -- every existing pig starts ungrouped.
+        await migrator.createTable(pigFolders);
+        await migrator.addColumn(pigs, pigs.folderId);
+      }
+      if (from < 8) {
+        // docs/fix-8.md F74: no structural change (no new table/column) -- every scan gets
+        // its own pig from here on, so this step only reshapes existing data: give every
+        // pigless scan a new auto-ID pig, then split any pig still shared by more than one
+        // scan so each scan ends up with exactly one pig.
+        await _splitPigsOneScanEach();
       }
     },
     beforeOpen: (_) async {
@@ -310,8 +342,102 @@ class AppDatabase extends _$AppDatabase {
         updatedAt: Value(now),
       ),
     );
+    // docs/fix-8.md F74: a scan is its own pig -- callers no longer type a tag, so one is
+    // generated here unless the caller already gave an existing pig to attach to (as the
+    // pig-folders "add pigs" flow does).
+    if (pigId == null) {
+      await _createPigAndAssign(scanId: id, createdAt: now);
+    }
     await addPipelineEvent(id, 'capture', 'started');
     return id;
+  }
+
+  /// docs/fix-8.md F74: the next unused `PIG-####` number, scanning every pig's tag
+  /// (including soft-deleted ones, which are never filtered out here) so a number already
+  /// on a row is never reused.
+  Future<int> _nextPigNumber() async {
+    final rows = await (select(
+      pigs,
+    )..where((row) => row.tag.like('PIG-%'))).get();
+    var maxNumber = 0;
+    final pattern = RegExp(r'^PIG-(\d+)$');
+    for (final row in rows) {
+      final match = pattern.firstMatch(row.tag ?? '');
+      if (match == null) continue;
+      final number = int.tryParse(match.group(1)!) ?? 0;
+      if (number > maxNumber) maxNumber = number;
+    }
+    return maxNumber + 1;
+  }
+
+  Future<String> _generatePigTag() async {
+    final number = await _nextPigNumber();
+    return 'PIG-${number.toString().padLeft(4, '0')}';
+  }
+
+  /// docs/fix-8.md F74: creates a new pig with an auto-generated tag and attaches it to
+  /// `scanId`. `displayName`/`folderId` let the v7->v8 migration carry over an existing
+  /// pig's name and folder when it splits that pig across its other scans.
+  Future<String> _createPigAndAssign({
+    required String scanId,
+    String? displayName,
+    String? folderId,
+    DateTime? createdAt,
+  }) async {
+    final pigId = newLocalId('pig');
+    final tag = await _generatePigTag();
+    final now = createdAt ?? DateTime.now();
+    await into(pigs).insert(
+      PigsCompanion.insert(
+        id: pigId,
+        tag: Value(tag),
+        displayName: Value(displayName),
+        folderId: Value(folderId),
+        createdAt: Value(now),
+        updatedAt: Value(now),
+      ),
+    );
+    await (update(scanRecords)..where((row) => row.id.equals(scanId))).write(
+      ScanRecordsCompanion(pigId: Value(pigId)),
+    );
+    return pigId;
+  }
+
+  /// docs/fix-8.md F74, schemaVersion 7 -> 8 data step: every scan ends up with its own
+  /// pig. First, every scan with no pig gets a new one. Then, for every pig still shared by
+  /// more than one scan, its oldest scan (by `capturedAt`, falling back to `createdAt` --
+  /// same rule plan-6.md uses for "latest eligible weight") keeps the pig, and every other
+  /// scan of that pig gets a new pig that copies its display name and folder, so folder
+  /// membership survives the split.
+  Future<void> _splitPigsOneScanEach() async {
+    final pigless = await (select(
+      scanRecords,
+    )..where((row) => row.pigId.isNull())).get();
+    for (final scan in pigless) {
+      await _createPigAndAssign(scanId: scan.id, createdAt: scan.createdAt);
+    }
+
+    final allPigs = await select(pigs).get();
+    for (final pig in allPigs) {
+      final scansForPig =
+          await (select(
+              scanRecords,
+            )..where((row) => row.pigId.equals(pig.id))).get()
+            ..sort((a, b) {
+              final aTime = a.capturedAt ?? a.createdAt;
+              final bTime = b.capturedAt ?? b.createdAt;
+              return aTime.compareTo(bTime);
+            });
+      if (scansForPig.length <= 1) continue;
+      for (final scan in scansForPig.skip(1)) {
+        await _createPigAndAssign(
+          scanId: scan.id,
+          displayName: pig.displayName,
+          folderId: pig.folderId,
+          createdAt: scan.createdAt,
+        );
+      }
+    }
   }
 
   Future<void> markCaptured(
@@ -425,31 +551,29 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
-  Future<String> assignPig({
+  /// docs/fix-8.md F74: renames the pig already attached to `scanId` (every scan has one
+  /// from [createDraftScan] onward). The pig's tag is not editable here -- it is the
+  /// auto-generated ID. An empty/blank name clears the display name, falling back to the
+  /// tag wherever the UI shows the pig.
+  Future<String> renamePigForScan({
     required String scanId,
-    required String tag,
     String? displayName,
   }) async {
-    final normalizedTag = tag.trim();
-    final existing = await (select(
-      pigs,
-    )..where((row) => row.tag.equals(normalizedTag))).getSingleOrNull();
-    final pigId = existing?.id ?? newLocalId('pig');
-    final now = DateTime.now();
+    final scan = await (select(
+      scanRecords,
+    )..where((row) => row.id.equals(scanId))).getSingleOrNull();
+    final pigId = scan?.pigId;
+    if (pigId == null) {
+      throw StateError('Scan $scanId has no pig to rename.');
+    }
     final resolvedName = displayName?.trim().isNotEmpty == true
         ? displayName!.trim()
-        : normalizedTag;
-    await into(pigs).insertOnConflictUpdate(
+        : null;
+    await (update(pigs)..where((row) => row.id.equals(pigId))).write(
       PigsCompanion(
-        id: Value(pigId),
-        tag: Value(normalizedTag),
         displayName: Value(resolvedName),
-        createdAt: Value(existing?.createdAt ?? now),
-        updatedAt: Value(now),
+        updatedAt: Value(DateTime.now()),
       ),
-    );
-    await (update(scanRecords)..where((row) => row.id.equals(scanId))).write(
-      ScanRecordsCompanion(pigId: Value(pigId), updatedAt: Value(now)),
     );
     return pigId;
   }
@@ -610,12 +734,7 @@ class AppDatabase extends _$AppDatabase {
     );
 
     final tagNum = 100 + _random.nextInt(900);
-    final tag = 'TAG-$tagNum';
-    await assignPig(
-      scanId: scanId,
-      tag: tag,
-      displayName: 'Sample Pig #$tagNum',
-    );
+    await renamePigForScan(scanId: scanId, displayName: 'Sample Pig #$tagNum');
 
     final finalStatus = isWeightEligible
         ? ScanStatuses.completed
@@ -650,6 +769,11 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  /// docs/fix-7.md F72: wipes every user record table, then reclaims the freed pages with
+  /// `VACUUM` so deleted rows do not stay readable in the SQLite file's free pages. `VACUUM`
+  /// cannot run inside a transaction, so it runs after the delete transaction commits.
+  /// `CustomReferences` and `PrivacyPreferences` are untouched by design -- the user keeps
+  /// both. Captured photos on disk are a separate concern; see `PhotoCleanupService`.
   Future<void> deleteAllUserRecords() async {
     await transaction(() async {
       await delete(syncOutboxEntries).go();
@@ -659,7 +783,9 @@ class AppDatabase extends _$AppDatabase {
       await delete(referenceAnnotations).go();
       await delete(scanRecords).go();
       await delete(pigs).go();
+      await delete(pigFolders).go();
     });
+    await customStatement('VACUUM');
   }
 
   Future<int> enqueueSync({

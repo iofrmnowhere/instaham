@@ -120,10 +120,89 @@ void main() {
   );
 
   test(
+    // docs/fix-7.md F73.
+    'watchWeightAnalytics splits weight-ineligible scans into Health only and Blocked',
+    () async {
+      final s1 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
+      await database.saveWeightResult(scanId: s1, eligible: true, valueKg: 80);
+      await database.saveHealthResult(
+        scanId: s1,
+        eligible: true,
+        className: 'Healthy',
+      );
+
+      // Weight failed, health succeeded -> Health only.
+      final s2 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
+      await database.saveWeightResult(
+        scanId: s2,
+        eligible: false,
+        failureReason: 'No reference',
+      );
+      await database.saveHealthResult(
+        scanId: s2,
+        eligible: true,
+        className: 'Healthy',
+      );
+
+      // Weight failed, health also failed -> Blocked.
+      final s3 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
+      await database.saveWeightResult(
+        scanId: s3,
+        eligible: false,
+        failureReason: 'No reference',
+      );
+      await database.saveHealthResult(
+        scanId: s3,
+        eligible: false,
+        failureReason: 'Blurry',
+      );
+
+      final stats = await dao.watchWeightAnalytics().first;
+      expect(stats.totalScans, 3);
+      expect(stats.eligibleScans, 1);
+      expect(stats.healthOnlyScans, 1);
+      expect(stats.blockedScans, 1);
+    },
+  );
+
+  test(
+    // docs/fix-7.md F73.
+    'watchHealthAnalytics Blocked only counts scans where weight also failed',
+    () async {
+      // Health failed, weight succeeded -> not counted as Blocked.
+      final s1 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
+      await database.saveHealthResult(
+        scanId: s1,
+        eligible: false,
+        failureReason: 'Blurry',
+      );
+      await database.saveWeightResult(scanId: s1, eligible: true, valueKg: 80);
+
+      // Health failed, weight also failed -> Blocked.
+      final s2 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
+      await database.saveHealthResult(
+        scanId: s2,
+        eligible: false,
+        failureReason: 'Blurry',
+      );
+      await database.saveWeightResult(
+        scanId: s2,
+        eligible: false,
+        failureReason: 'No reference',
+      );
+
+      final stats = await dao.watchHealthAnalytics().first;
+      expect(stats.totalScans, 2);
+      expect(stats.eligibleScans, 0);
+      expect(stats.blockedScans, 1);
+    },
+  );
+
+  test(
     'watchWeightAnalytics filters by pigDisplayName across multiple pigs',
     () async {
       final s1 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
-      await database.assignPig(scanId: s1, tag: 'TAG-1', displayName: 'Bella');
+      await database.renamePigForScan(scanId: s1, displayName: 'Bella');
       await database.saveWeightResult(
         scanId: s1,
         eligible: true,
@@ -131,7 +210,7 @@ void main() {
       );
 
       final s2 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
-      await database.assignPig(scanId: s2, tag: 'TAG-2', displayName: 'Bella');
+      await database.renamePigForScan(scanId: s2, displayName: 'Bella');
       await database.saveWeightResult(
         scanId: s2,
         eligible: true,
@@ -139,7 +218,7 @@ void main() {
       );
 
       final s3 = await database.createDraftScan(goal: ScanGoal.weightAndHealth);
-      await database.assignPig(scanId: s3, tag: 'TAG-3', displayName: 'Max');
+      await database.renamePigForScan(scanId: s3, displayName: 'Max');
       await database.saveWeightResult(
         scanId: s3,
         eligible: true,

@@ -7,6 +7,8 @@ import '../../features/capture/presentation/screens/capture_screen.dart';
 import '../../features/results/presentation/screens/results_screen.dart';
 import '../../features/weight_estimation/presentation/screens/reference_marking_screen.dart';
 import '../../features/analytics/presentation/screens/analytics_screen.dart';
+import '../../features/records/presentation/screens/folder_detail_screen.dart';
+import '../../features/records/presentation/screens/folders_list_screen.dart';
 import '../../features/records/presentation/screens/records_screen.dart';
 import '../models/scan_flow.dart';
 import 'app_routes.dart';
@@ -50,6 +52,15 @@ abstract final class AppRouter {
       GoRoute(
         path: AppRoutes.records,
         builder: (context, state) => const RecordsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.recordsFolders,
+        builder: (context, state) => const FoldersListScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.recordsFolderDetail,
+        builder: (context, state) =>
+            FolderDetailScreen(folderId: state.pathParameters['id']!),
       ),
       GoRoute(
         path: AppRoutes.referenceMarking,

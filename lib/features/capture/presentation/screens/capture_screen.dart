@@ -1,6 +1,5 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show DeviceOrientation;
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/database/app_database.dart';
@@ -621,12 +620,6 @@ class _CaptureScreenState extends State<CaptureScreen>
                     ],
                   ),
                 ),
-                Positioned(
-                  left: 20,
-                  right: 20,
-                  bottom: 18,
-                  child: _buildOrientationPrompt(),
-                ),
               ],
             ),
           ),
@@ -696,68 +689,6 @@ class _CaptureScreenState extends State<CaptureScreen>
         ],
       ),
     );
-  }
-
-  /// docs/fix-phase-4/6-capture-orientation.md point 2: an orientation-aware prompt driven by
-  /// the live sensor orientation the `CameraController` already tracks
-  /// (`CameraValue.deviceOrientation`), not `MediaQuery` -- the two can disagree with rotation
-  /// lock on. Falls back to nothing when there is no live controller (web/desktop path, which
-  /// captures via the picker instead).
-  Widget _buildOrientationPrompt() {
-    final controller = _cameraController;
-    if (controller == null || !controller.value.isInitialized) {
-      return const SizedBox.shrink();
-    }
-    return ValueListenableBuilder<CameraValue>(
-      valueListenable: controller,
-      builder: (context, value, _) {
-        final orientation = _orientationFor(value.deviceOrientation);
-        return Semantics(
-          label: orientation.headDirectionInstruction,
-          child: Container(
-            constraints: const BoxConstraints(minHeight: 44),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.68),
-              borderRadius: BorderRadius.circular(AppRadius.lg),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(
-                  Icons.rotate_90_degrees_ccw,
-                  color: Colors.white,
-                  size: 18,
-                ),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    orientation.headDirectionInstruction,
-                    textAlign: TextAlign.center,
-                    style: AppTextStyles.label.copyWith(
-                      color: Colors.white,
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  CaptureOrientation _orientationFor(DeviceOrientation deviceOrientation) {
-    switch (deviceOrientation) {
-      case DeviceOrientation.landscapeLeft:
-      case DeviceOrientation.landscapeRight:
-        return CaptureOrientation.landscape;
-      case DeviceOrientation.portraitUp:
-      case DeviceOrientation.portraitDown:
-        return CaptureOrientation.portrait;
-    }
   }
 
   /// docs/fix-phase-4/6-capture-orientation.md point 3: an explicit, un-pre-ticked confirm

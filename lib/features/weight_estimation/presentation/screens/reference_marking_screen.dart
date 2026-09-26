@@ -792,31 +792,35 @@ class _ReferenceJawPainter extends CustomPainter {
         canvas.drawLine(measuringEdgeTop, measuringEdgeBottom, paint);
 
     // Halo pass: wide white stroke so the jaw reads against any photo background.
+    // fix-8.md F75: the halo and outline are partly see-through (~50% opacity) so the
+    // marker does not hide the reference object's real end underneath it.
     drawOutline(
       Paint()
-        ..color = Colors.white
+        ..color = Colors.white.withValues(alpha: 0.5)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 3.5,
     );
     drawMeasuringEdge(
       Paint()
-        ..color = Colors.white
+        ..color = Colors.white.withValues(alpha: 0.7)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 4.5
         ..strokeCap = StrokeCap.round,
     );
     // Colour pass: the outline is a thin pink rectangle; the measuring edge (the side that
-    // sits exactly on the endpoint) is drawn heavier so it is visually unambiguous which
-    // of the four sides is the actual mark.
+    // sits exactly on the endpoint) is drawn heavier and less transparent (~70% opacity vs
+    // ~50% for the outline) so it is visually unambiguous which of the four sides is the
+    // actual mark, while still letting the underlying end of the reference object show
+    // through (fix-8.md F75).
     drawOutline(
       Paint()
-        ..color = AppColors.signalPink
+        ..color = AppColors.signalPink.withValues(alpha: 0.5)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2,
     );
     drawMeasuringEdge(
       Paint()
-        ..color = AppColors.signalPink
+        ..color = AppColors.signalPink.withValues(alpha: 0.7)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 3
         ..strokeCap = StrokeCap.round,
@@ -842,8 +846,9 @@ class _ReferenceLinePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // fix-8.md F75: ~40% opacity so the line does not fully cover the stick underneath it.
     final paint = Paint()
-      ..color = AppColors.signalPink
+      ..color = AppColors.signalPink.withValues(alpha: 0.4)
       ..strokeWidth = 3
       ..style = PaintingStyle.stroke;
     canvas.drawLine(start, end, paint);

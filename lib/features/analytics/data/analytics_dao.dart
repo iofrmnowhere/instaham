@@ -38,29 +38,48 @@ class AnalyticsDao extends DatabaseAccessor<AppDatabase>
     DateTime? since,
     String? pigDisplayName,
   }) {
+    // docs/fix-7.md F73: left-joined to HealthResults so a weight-ineligible scan can be
+    // split into "Health only" (health succeeded) vs. "Blocked" (both branches failed).
     final query = select(db.weightResults).join([
       innerJoin(
         db.scanRecords,
         db.scanRecords.id.equalsExp(db.weightResults.scanId),
       ),
+      leftOuterJoin(
+        db.healthResults,
+        db.healthResults.scanId.equalsExp(db.weightResults.scanId),
+      ),
     ])..where(_filterPredicate(since: since, pigDisplayName: pigDisplayName));
 
     return query.watch().map((rows) {
-      final results = rows
-          .map((row) => row.readTable(db.weightResults))
-          .toList();
-      if (results.isEmpty) return WeightAnalytics.empty();
+      if (rows.isEmpty) return WeightAnalytics.empty();
 
-      final totalScans = results.length;
-      final eligibleRows = results.where((r) => r.eligible).toList();
+      final totalScans = rows.length;
+      final eligibleRows = <WeightResult>[];
+      var blockedScans = 0;
+      var healthOnlyScans = 0;
+
+      for (final row in rows) {
+        final weight = row.readTable(db.weightResults);
+        if (weight.eligible) {
+          eligibleRows.add(weight);
+          continue;
+        }
+        final health = row.readTableOrNull(db.healthResults);
+        if (health?.eligible ?? false) {
+          healthOnlyScans++;
+        } else {
+          blockedScans++;
+        }
+      }
       final eligibleScans = eligibleRows.length;
-      final blockedScans = totalScans - eligibleScans;
 
       if (eligibleRows.isEmpty) {
         return WeightAnalytics(
           totalScans: totalScans,
           eligibleScans: 0,
           blockedScans: blockedScans,
+          healthOnlyScans: healthOnlyScans,
         );
       }
 
@@ -74,6 +93,7 @@ class AnalyticsDao extends DatabaseAccessor<AppDatabase>
           totalScans: totalScans,
           eligibleScans: eligibleScans,
           blockedScans: blockedScans,
+          healthOnlyScans: healthOnlyScans,
         );
       }
 
@@ -86,6 +106,7 @@ class AnalyticsDao extends DatabaseAccessor<AppDatabase>
         totalScans: totalScans,
         eligibleScans: eligibleScans,
         blockedScans: blockedScans,
+        healthOnlyScans: healthOnlyScans,
         averageKg: avg,
         minKg: minVal,
         maxKg: maxVal,
@@ -97,37 +118,44 @@ class AnalyticsDao extends DatabaseAccessor<AppDatabase>
     DateTime? since,
     String? pigDisplayName,
   }) {
+    // docs/fix-7.md F73: left-joined to WeightResults so "Blocked" only counts scans where
+    // the weight branch also failed (the same both-failed rule as the weight panel).
     final query = select(db.healthResults).join([
       innerJoin(
         db.scanRecords,
         db.scanRecords.id.equalsExp(db.healthResults.scanId),
       ),
+      leftOuterJoin(
+        db.weightResults,
+        db.weightResults.scanId.equalsExp(db.healthResults.scanId),
+      ),
     ])..where(_filterPredicate(since: since, pigDisplayName: pigDisplayName));
 
     return query.watch().map((rows) {
-      final results = rows
-          .map((row) => row.readTable(db.healthResults))
-          .toList();
-      if (results.isEmpty) return HealthAnalytics.empty();
+      if (rows.isEmpty) return HealthAnalytics.empty();
 
-      final totalScans = results.length;
+      final totalScans = rows.length;
       int eligibleScans = 0;
       int uncertainScans = 0;
       int blockedScans = 0;
       final Map<String, int> classCounts = {};
 
-      for (final r in results) {
-        if (!r.eligible) {
-          blockedScans++;
-        } else {
-          eligibleScans++;
-          if (r.uncertain) {
-            uncertainScans++;
+      for (final row in rows) {
+        final health = row.readTable(db.healthResults);
+        if (!health.eligible) {
+          final weight = row.readTableOrNull(db.weightResults);
+          if (!(weight?.eligible ?? false)) {
+            blockedScans++;
           }
-          final name = r.className?.trim();
-          if (name != null && name.isNotEmpty) {
-            classCounts[name] = (classCounts[name] ?? 0) + 1;
-          }
+          continue;
+        }
+        eligibleScans++;
+        if (health.uncertain) {
+          uncertainScans++;
+        }
+        final name = health.className?.trim();
+        if (name != null && name.isNotEmpty) {
+          classCounts[name] = (classCounts[name] ?? 0) + 1;
         }
       }
 

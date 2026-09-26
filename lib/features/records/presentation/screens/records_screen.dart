@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/database/database_scope.dart';
 import '../../../../core/models/pig_suggestion.dart';
+import '../../../../core/models/scan_display_status.dart';
 import '../../../../core/models/scan_flow.dart';
 import '../../../../core/models/scan_with_pig.dart';
 import '../../../../core/theme/app_colors.dart';
@@ -121,13 +122,23 @@ class _RecordsScreenState extends State<RecordsScreen> {
                 ),
               ],
             ),
-            IconButton(
-              tooltip: 'Add sample record',
-              icon: const Icon(Icons.add_task),
-              onPressed: () async {
-                final db = DatabaseScope.of(context);
-                await db.insertSampleRecord();
-              },
+            Row(
+              children: [
+                // docs/plan-6.md (round 6, pig folders): opens the folders list.
+                IconButton(
+                  tooltip: 'Folders',
+                  icon: const Icon(Icons.folder_outlined),
+                  onPressed: () => context.push('/records/folders'),
+                ),
+                IconButton(
+                  tooltip: 'Add sample record',
+                  icon: const Icon(Icons.add_task),
+                  onPressed: () async {
+                    final db = DatabaseScope.of(context);
+                    await db.insertSampleRecord();
+                  },
+                ),
+              ],
             ),
           ],
         ),
@@ -392,8 +403,10 @@ class _RecordsScreenState extends State<RecordsScreen> {
                   final record = item.scan;
 
                   if (_filter == 'review') {
-                    if (record.status != ScanStatuses.blocked &&
-                        record.status != ScanStatuses.rejected) {
+                    // docs/fix-7.md F73: "Health only" scans are not "Needs Review" -- the
+                    // health branch already gave a usable result.
+                    if (item.displayStatus != ScanStatuses.blocked &&
+                        item.displayStatus != ScanStatuses.rejected) {
                       return false;
                     }
                   } else if (_filter == 'complete') {
@@ -509,7 +522,7 @@ class _RecordCard extends StatelessWidget {
               ],
             ),
           ),
-          _StatusPill(status: record.status),
+          _StatusPill(status: item.displayStatus),
           const SizedBox(width: 6),
           const Icon(
             Icons.chevron_right,
@@ -538,9 +551,12 @@ class _StatusPill extends StatelessWidget {
     final color = switch (status) {
       ScanStatuses.completed => AppColors.success,
       ScanStatuses.blocked || ScanStatuses.rejected => AppColors.blocked,
+      ScanDisplayStatuses.healthOnly => AppColors.mutedForeground,
       _ => AppColors.mutedForeground,
     };
-    final label = status.replaceAll('_', ' ');
+    final label = status == ScanDisplayStatuses.healthOnly
+        ? 'Health only'
+        : status.replaceAll('_', ' ');
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(

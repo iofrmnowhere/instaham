@@ -33,14 +33,6 @@ CaptureOrientation? captureOrientationFromStorage(String? value) {
 }
 
 extension CaptureOrientationCopy on CaptureOrientation {
-  /// The instruction shown to the user for this orientation, phrased for the orientation the
-  /// phone is actually in rather than as a conditional the user has to evaluate.
-  String get headDirectionInstruction => switch (this) {
-    CaptureOrientation.portrait => "Portrait: keep the pig's head facing up.",
-    CaptureOrientation.landscape =>
-      "Landscape: keep the pig's head facing right.",
-  };
-
   /// The attestation sentence shown on the post-capture confirm step.
   String get attestationLabel => switch (this) {
     CaptureOrientation.portrait =>

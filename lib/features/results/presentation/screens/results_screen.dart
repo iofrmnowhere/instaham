@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/database/app_database.dart';
 import '../../../../core/database/database_scope.dart';
+import '../../../../core/models/folder_summary.dart';
 import '../../../../core/models/local_scan_bundle.dart';
 import '../../../../core/models/measurement_mode.dart';
 import '../../../../core/models/scan_flow.dart';
@@ -13,6 +14,9 @@ import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/widgets/app_card.dart';
 import '../../../../core/theme/widgets/app_scaffold.dart';
+import '../../../../core/widgets/folder_name_dialog.dart';
+import '../../../../core/widgets/folders_scope.dart';
+import '../../../../core/widgets/stacked_dialog_actions.dart';
 import '../../../inference_pipeline/domain/use_cases/run_and_persist_pipeline_use_case.dart';
 import '../widgets/analysis_progress_view.dart';
 
@@ -108,38 +112,35 @@ class _ResultsScreenState extends State<ResultsScreen> {
     return widget.args.reference;
   }
 
-  Future<void> _assignPig(LocalScanBundle bundle) async {
-    final isEditing = bundle.pig != null;
-    final currentTag = bundle.pig?.tag ?? '';
-    final currentName = bundle.pig?.displayName ?? bundle.pig?.tag ?? '';
+  // docs/fix-8.md F74: every scan already has its own auto-ID pig (from createDraftScan
+  // onward), so this only renames it -- there is no "unassigned scan" case to assign a tag
+  // to anymore. The tag itself is not editable here; it is the auto-generated ID.
+  Future<void> _renamePig(LocalScanBundle bundle) async {
+    final pig = bundle.pig;
+    if (pig == null) return;
 
-    final tagController = TextEditingController(text: currentTag);
-    final nameController = TextEditingController(
-      text: isEditing ? currentName : '',
-    );
+    final nameController = TextEditingController(text: pig.displayName ?? '');
 
-    final result = await showDialog<List<String>>(
+    final result = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(isEditing ? 'Change pig display name' : 'Assign this scan'),
+        title: const Text('Rename pig'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (!isEditing) ...[
-              TextField(
-                controller: tagController,
-                autofocus: true,
-                decoration: const InputDecoration(labelText: 'Pig tag or ID'),
-              ),
-              const SizedBox(height: 12),
-            ],
             TextField(
               controller: nameController,
-              autofocus: isEditing,
-              decoration: InputDecoration(
-                labelText: isEditing
-                    ? 'Display name'
-                    : 'Display name (optional)',
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Display name (optional)',
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'ID ${pig.tag}',
+              style: AppTextStyles.subtext.copyWith(
+                color: AppColors.mutedForeground,
               ),
             ),
           ],
@@ -150,26 +151,18 @@ class _ResultsScreenState extends State<ResultsScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () {
-              final tag = tagController.text.trim();
-              if (tag.isEmpty && !isEditing) return;
-              Navigator.pop(dialogContext, [
-                isEditing ? currentTag : tag,
-                nameController.text.trim(),
-              ]);
-            },
-            child: Text(isEditing ? 'Save' : 'Assign'),
+            onPressed: () =>
+                Navigator.pop(dialogContext, nameController.text.trim()),
+            child: const Text('Save'),
           ),
         ],
       ),
     );
-    tagController.dispose();
     nameController.dispose();
     if (result == null) return;
-    await _database!.assignPig(
+    await _database!.renamePigForScan(
       scanId: bundle.scan.id,
-      tag: result.first,
-      displayName: result.last,
+      displayName: result,
     );
     if (mounted) _reload();
   }
@@ -264,12 +257,18 @@ class _ResultsScreenState extends State<ResultsScreen> {
                         color: AppColors.mutedForeground,
                       ),
                     ),
+                    // docs/plan-6.md (round 6, pig folders) step 5: shown only when the
+                    // scan has a pig, since folders hold pigs, not unassigned scans.
+                    if (bundle.pig != null) ...[
+                      const SizedBox(height: 6),
+                      _FolderLine(pig: bundle.pig!),
+                    ],
                   ],
                 ),
               ),
               TextButton(
-                onPressed: () => _assignPig(bundle),
-                child: Text(bundle.pig == null ? 'Assign' : 'Change'),
+                onPressed: bundle.pig == null ? null : () => _renamePig(bundle),
+                child: const Text('Rename'),
               ),
             ],
           ),
@@ -614,6 +613,136 @@ class _PhotoPreview extends StatelessWidget {
             ),
     );
   }
+}
+
+/// docs/plan-6.md (round 6, pig folders) step 5: the pig card's Folder line and picker.
+/// Reads `FoldersScope` live so a folder rename or a move made elsewhere (the folder
+/// detail screen) is reflected here without a manual reload.
+class _FolderLine extends StatelessWidget {
+  final Pig pig;
+
+  const _FolderLine({required this.pig});
+
+  Future<void> _openPicker(
+    BuildContext context,
+    List<FolderSummary> folders,
+  ) async {
+    final repository = FoldersScope.of(context);
+    final choice = await showDialog<_FolderPickerChoice>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Folder'),
+        content: SingleChildScrollView(
+          child: StackedDialogActions(
+            buttons: [
+              for (final summary in folders)
+                OutlinedButton(
+                  onPressed: () => Navigator.pop(
+                    dialogContext,
+                    _FolderPickerChoice.existing(summary.folder.id),
+                  ),
+                  child: Text(summary.folder.name),
+                ),
+              OutlinedButton(
+                onPressed: () => Navigator.pop(
+                  dialogContext,
+                  const _FolderPickerChoice.none(),
+                ),
+                child: const Text('No folder'),
+              ),
+              OutlinedButton(
+                onPressed: () => Navigator.pop(
+                  dialogContext,
+                  const _FolderPickerChoice.createNew(),
+                ),
+                child: const Text('New folder'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, null),
+                child: const Text('Cancel'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (choice == null) return;
+    if (choice.createNew) {
+      if (!context.mounted) return;
+      final name = await showFolderNameDialog(
+        context,
+        title: 'New folder',
+        confirmLabel: 'Create',
+      );
+      if (name == null) return;
+      final folderId = await repository.createFolder(name);
+      await repository.setPigFolder(pig.id, folderId);
+      return;
+    }
+    await repository.setPigFolder(pig.id, choice.folderId);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final repository = FoldersScope.of(context);
+    // Two live queries, not the scan bundle's once-loaded `pig.folderId`: a move made from
+    // this picker (or from the folder detail screen) must show up here without a reload.
+    return StreamBuilder<String?>(
+      stream: repository.watchPigFolderId(pig.id),
+      builder: (context, pigSnapshot) {
+        final currentFolderId = pigSnapshot.data;
+        return StreamBuilder<List<FolderSummary>>(
+          stream: repository.watchFolders(),
+          builder: (context, foldersSnapshot) {
+            final folders = foldersSnapshot.data ?? const [];
+            FolderSummary? current;
+            for (final summary in folders) {
+              if (summary.folder.id == currentFolderId) {
+                current = summary;
+                break;
+              }
+            }
+            return Row(
+              children: [
+                const Icon(
+                  Icons.folder_outlined,
+                  size: 16,
+                  color: AppColors.mutedForeground,
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    current?.folder.name ?? 'No folder',
+                    style: AppTextStyles.subtext.copyWith(
+                      color: AppColors.mutedForeground,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => _openPicker(context, folders),
+                  child: const Text('Folder'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _FolderPickerChoice {
+  final bool createNew;
+  final String? folderId;
+
+  const _FolderPickerChoice.none() : createNew = false, folderId = null;
+
+  const _FolderPickerChoice.existing(String id)
+    : createNew = false,
+      folderId = id;
+
+  const _FolderPickerChoice.createNew() : createNew = true, folderId = null;
 }
 
 class _MissingRecord extends StatelessWidget {

@@ -3,6 +3,363 @@
 part of 'app_database.dart';
 
 // ignore_for_file: type=lint
+class $PigFoldersTable extends PigFolders
+    with TableInfo<$PigFoldersTable, PigFolder> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $PigFoldersTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  static const VerificationMeta _remoteIdMeta = const VerificationMeta(
+    'remoteId',
+  );
+  @override
+  late final GeneratedColumn<String> remoteId = GeneratedColumn<String>(
+    'remote_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    name,
+    createdAt,
+    updatedAt,
+    remoteId,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'pig_folders';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<PigFolder> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    }
+    if (data.containsKey('remote_id')) {
+      context.handle(
+        _remoteIdMeta,
+        remoteId.isAcceptableOrUnknown(data['remote_id']!, _remoteIdMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  PigFolder map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PigFolder(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+      remoteId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}remote_id'],
+      ),
+    );
+  }
+
+  @override
+  $PigFoldersTable createAlias(String alias) {
+    return $PigFoldersTable(attachedDatabase, alias);
+  }
+}
+
+class PigFolder extends DataClass implements Insertable<PigFolder> {
+  final String id;
+  final String name;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  final String? remoteId;
+  const PigFolder({
+    required this.id,
+    required this.name,
+    required this.createdAt,
+    required this.updatedAt,
+    this.remoteId,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['name'] = Variable<String>(name);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    if (!nullToAbsent || remoteId != null) {
+      map['remote_id'] = Variable<String>(remoteId);
+    }
+    return map;
+  }
+
+  PigFoldersCompanion toCompanion(bool nullToAbsent) {
+    return PigFoldersCompanion(
+      id: Value(id),
+      name: Value(name),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+      remoteId: remoteId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(remoteId),
+    );
+  }
+
+  factory PigFolder.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PigFolder(
+      id: serializer.fromJson<String>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      remoteId: serializer.fromJson<String?>(json['remoteId']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'name': serializer.toJson<String>(name),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'remoteId': serializer.toJson<String?>(remoteId),
+    };
+  }
+
+  PigFolder copyWith({
+    String? id,
+    String? name,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    Value<String?> remoteId = const Value.absent(),
+  }) => PigFolder(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+    remoteId: remoteId.present ? remoteId.value : this.remoteId,
+  );
+  PigFolder copyWithCompanion(PigFoldersCompanion data) {
+    return PigFolder(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      remoteId: data.remoteId.present ? data.remoteId.value : this.remoteId,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PigFolder(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('remoteId: $remoteId')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, name, createdAt, updatedAt, remoteId);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PigFolder &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt &&
+          other.remoteId == this.remoteId);
+}
+
+class PigFoldersCompanion extends UpdateCompanion<PigFolder> {
+  final Value<String> id;
+  final Value<String> name;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<String?> remoteId;
+  final Value<int> rowid;
+  const PigFoldersCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.remoteId = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PigFoldersCompanion.insert({
+    required String id,
+    required String name,
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.remoteId = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       name = Value(name);
+  static Insertable<PigFolder> custom({
+    Expression<String>? id,
+    Expression<String>? name,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<String>? remoteId,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (remoteId != null) 'remote_id': remoteId,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PigFoldersCompanion copyWith({
+    Value<String>? id,
+    Value<String>? name,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? updatedAt,
+    Value<String?>? remoteId,
+    Value<int>? rowid,
+  }) {
+    return PigFoldersCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      remoteId: remoteId ?? this.remoteId,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (remoteId.present) {
+      map['remote_id'] = Variable<String>(remoteId.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PigFoldersCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('remoteId: $remoteId, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $PigsTable extends Pigs with TableInfo<$PigsTable, Pig> {
   @override
   final GeneratedDatabase attachedDatabase;
@@ -37,6 +394,20 @@ class $PigsTable extends Pigs with TableInfo<$PigsTable, Pig> {
     true,
     type: DriftSqlType.string,
     requiredDuringInsert: false,
+  );
+  static const VerificationMeta _folderIdMeta = const VerificationMeta(
+    'folderId',
+  );
+  @override
+  late final GeneratedColumn<String> folderId = GeneratedColumn<String>(
+    'folder_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES pig_folders (id)',
+    ),
   );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
@@ -78,6 +449,7 @@ class $PigsTable extends Pigs with TableInfo<$PigsTable, Pig> {
     id,
     tag,
     displayName,
+    folderId,
     createdAt,
     updatedAt,
     deletedAt,
@@ -112,6 +484,12 @@ class $PigsTable extends Pigs with TableInfo<$PigsTable, Pig> {
           data['display_name']!,
           _displayNameMeta,
         ),
+      );
+    }
+    if (data.containsKey('folder_id')) {
+      context.handle(
+        _folderIdMeta,
+        folderId.isAcceptableOrUnknown(data['folder_id']!, _folderIdMeta),
       );
     }
     if (data.containsKey('created_at')) {
@@ -153,6 +531,10 @@ class $PigsTable extends Pigs with TableInfo<$PigsTable, Pig> {
         DriftSqlType.string,
         data['${effectivePrefix}display_name'],
       ),
+      folderId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}folder_id'],
+      ),
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -178,6 +560,7 @@ class Pig extends DataClass implements Insertable<Pig> {
   final String id;
   final String? tag;
   final String? displayName;
+  final String? folderId;
   final DateTime createdAt;
   final DateTime updatedAt;
   final DateTime? deletedAt;
@@ -185,6 +568,7 @@ class Pig extends DataClass implements Insertable<Pig> {
     required this.id,
     this.tag,
     this.displayName,
+    this.folderId,
     required this.createdAt,
     required this.updatedAt,
     this.deletedAt,
@@ -198,6 +582,9 @@ class Pig extends DataClass implements Insertable<Pig> {
     }
     if (!nullToAbsent || displayName != null) {
       map['display_name'] = Variable<String>(displayName);
+    }
+    if (!nullToAbsent || folderId != null) {
+      map['folder_id'] = Variable<String>(folderId);
     }
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
@@ -214,6 +601,9 @@ class Pig extends DataClass implements Insertable<Pig> {
       displayName: displayName == null && nullToAbsent
           ? const Value.absent()
           : Value(displayName),
+      folderId: folderId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(folderId),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
       deletedAt: deletedAt == null && nullToAbsent
@@ -231,6 +621,7 @@ class Pig extends DataClass implements Insertable<Pig> {
       id: serializer.fromJson<String>(json['id']),
       tag: serializer.fromJson<String?>(json['tag']),
       displayName: serializer.fromJson<String?>(json['displayName']),
+      folderId: serializer.fromJson<String?>(json['folderId']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
@@ -243,6 +634,7 @@ class Pig extends DataClass implements Insertable<Pig> {
       'id': serializer.toJson<String>(id),
       'tag': serializer.toJson<String?>(tag),
       'displayName': serializer.toJson<String?>(displayName),
+      'folderId': serializer.toJson<String?>(folderId),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
@@ -253,6 +645,7 @@ class Pig extends DataClass implements Insertable<Pig> {
     String? id,
     Value<String?> tag = const Value.absent(),
     Value<String?> displayName = const Value.absent(),
+    Value<String?> folderId = const Value.absent(),
     DateTime? createdAt,
     DateTime? updatedAt,
     Value<DateTime?> deletedAt = const Value.absent(),
@@ -260,6 +653,7 @@ class Pig extends DataClass implements Insertable<Pig> {
     id: id ?? this.id,
     tag: tag.present ? tag.value : this.tag,
     displayName: displayName.present ? displayName.value : this.displayName,
+    folderId: folderId.present ? folderId.value : this.folderId,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
@@ -271,6 +665,7 @@ class Pig extends DataClass implements Insertable<Pig> {
       displayName: data.displayName.present
           ? data.displayName.value
           : this.displayName,
+      folderId: data.folderId.present ? data.folderId.value : this.folderId,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
@@ -283,6 +678,7 @@ class Pig extends DataClass implements Insertable<Pig> {
           ..write('id: $id, ')
           ..write('tag: $tag, ')
           ..write('displayName: $displayName, ')
+          ..write('folderId: $folderId, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('deletedAt: $deletedAt')
@@ -291,8 +687,15 @@ class Pig extends DataClass implements Insertable<Pig> {
   }
 
   @override
-  int get hashCode =>
-      Object.hash(id, tag, displayName, createdAt, updatedAt, deletedAt);
+  int get hashCode => Object.hash(
+    id,
+    tag,
+    displayName,
+    folderId,
+    createdAt,
+    updatedAt,
+    deletedAt,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -300,6 +703,7 @@ class Pig extends DataClass implements Insertable<Pig> {
           other.id == this.id &&
           other.tag == this.tag &&
           other.displayName == this.displayName &&
+          other.folderId == this.folderId &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
           other.deletedAt == this.deletedAt);
@@ -309,6 +713,7 @@ class PigsCompanion extends UpdateCompanion<Pig> {
   final Value<String> id;
   final Value<String?> tag;
   final Value<String?> displayName;
+  final Value<String?> folderId;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<DateTime?> deletedAt;
@@ -317,6 +722,7 @@ class PigsCompanion extends UpdateCompanion<Pig> {
     this.id = const Value.absent(),
     this.tag = const Value.absent(),
     this.displayName = const Value.absent(),
+    this.folderId = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.deletedAt = const Value.absent(),
@@ -326,6 +732,7 @@ class PigsCompanion extends UpdateCompanion<Pig> {
     required String id,
     this.tag = const Value.absent(),
     this.displayName = const Value.absent(),
+    this.folderId = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.deletedAt = const Value.absent(),
@@ -335,6 +742,7 @@ class PigsCompanion extends UpdateCompanion<Pig> {
     Expression<String>? id,
     Expression<String>? tag,
     Expression<String>? displayName,
+    Expression<String>? folderId,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<DateTime>? deletedAt,
@@ -344,6 +752,7 @@ class PigsCompanion extends UpdateCompanion<Pig> {
       if (id != null) 'id': id,
       if (tag != null) 'tag': tag,
       if (displayName != null) 'display_name': displayName,
+      if (folderId != null) 'folder_id': folderId,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (deletedAt != null) 'deleted_at': deletedAt,
@@ -355,6 +764,7 @@ class PigsCompanion extends UpdateCompanion<Pig> {
     Value<String>? id,
     Value<String?>? tag,
     Value<String?>? displayName,
+    Value<String?>? folderId,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<DateTime?>? deletedAt,
@@ -364,6 +774,7 @@ class PigsCompanion extends UpdateCompanion<Pig> {
       id: id ?? this.id,
       tag: tag ?? this.tag,
       displayName: displayName ?? this.displayName,
+      folderId: folderId ?? this.folderId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       deletedAt: deletedAt ?? this.deletedAt,
@@ -382,6 +793,9 @@ class PigsCompanion extends UpdateCompanion<Pig> {
     }
     if (displayName.present) {
       map['display_name'] = Variable<String>(displayName.value);
+    }
+    if (folderId.present) {
+      map['folder_id'] = Variable<String>(folderId.value);
     }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
@@ -404,6 +818,7 @@ class PigsCompanion extends UpdateCompanion<Pig> {
           ..write('id: $id, ')
           ..write('tag: $tag, ')
           ..write('displayName: $displayName, ')
+          ..write('folderId: $folderId, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('deletedAt: $deletedAt, ')
@@ -5983,6 +6398,7 @@ class CustomReferencesCompanion extends UpdateCompanion<CustomReference> {
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
+  late final $PigFoldersTable pigFolders = $PigFoldersTable(this);
   late final $PigsTable pigs = $PigsTable(this);
   late final $ScanRecordsTable scanRecords = $ScanRecordsTable(this);
   late final $ReferenceAnnotationsTable referenceAnnotations =
@@ -6002,11 +6418,13 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final CustomReferencesDao customReferencesDao = CustomReferencesDao(
     this as AppDatabase,
   );
+  late final FoldersDao foldersDao = FoldersDao(this as AppDatabase);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
   @override
   List<DatabaseSchemaEntity> get allSchemaEntities => [
+    pigFolders,
     pigs,
     scanRecords,
     referenceAnnotations,
@@ -6019,11 +6437,306 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   ];
 }
 
+typedef $$PigFoldersTableCreateCompanionBuilder =
+    PigFoldersCompanion Function({
+      required String id,
+      required String name,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+      Value<String?> remoteId,
+      Value<int> rowid,
+    });
+typedef $$PigFoldersTableUpdateCompanionBuilder =
+    PigFoldersCompanion Function({
+      Value<String> id,
+      Value<String> name,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+      Value<String?> remoteId,
+      Value<int> rowid,
+    });
+
+final class $$PigFoldersTableReferences
+    extends BaseReferences<_$AppDatabase, $PigFoldersTable, PigFolder> {
+  $$PigFoldersTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static MultiTypedResultKey<$PigsTable, List<Pig>> _pigsRefsTable(
+    _$AppDatabase db,
+  ) => MultiTypedResultKey.fromTable(
+    db.pigs,
+    aliasName: $_aliasNameGenerator(db.pigFolders.id, db.pigs.folderId),
+  );
+
+  $$PigsTableProcessedTableManager get pigsRefs {
+    final manager = $$PigsTableTableManager(
+      $_db,
+      $_db.pigs,
+    ).filter((f) => f.folderId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_pigsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
+
+class $$PigFoldersTableFilterComposer
+    extends Composer<_$AppDatabase, $PigFoldersTable> {
+  $$PigFoldersTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get remoteId => $composableBuilder(
+    column: $table.remoteId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  Expression<bool> pigsRefs(
+    Expression<bool> Function($$PigsTableFilterComposer f) f,
+  ) {
+    final $$PigsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.pigs,
+      getReferencedColumn: (t) => t.folderId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$PigsTableFilterComposer(
+            $db: $db,
+            $table: $db.pigs,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$PigFoldersTableOrderingComposer
+    extends Composer<_$AppDatabase, $PigFoldersTable> {
+  $$PigFoldersTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get remoteId => $composableBuilder(
+    column: $table.remoteId,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$PigFoldersTableAnnotationComposer
+    extends Composer<_$AppDatabase, $PigFoldersTable> {
+  $$PigFoldersTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get remoteId =>
+      $composableBuilder(column: $table.remoteId, builder: (column) => column);
+
+  Expression<T> pigsRefs<T extends Object>(
+    Expression<T> Function($$PigsTableAnnotationComposer a) f,
+  ) {
+    final $$PigsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.pigs,
+      getReferencedColumn: (t) => t.folderId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$PigsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.pigs,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$PigFoldersTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $PigFoldersTable,
+          PigFolder,
+          $$PigFoldersTableFilterComposer,
+          $$PigFoldersTableOrderingComposer,
+          $$PigFoldersTableAnnotationComposer,
+          $$PigFoldersTableCreateCompanionBuilder,
+          $$PigFoldersTableUpdateCompanionBuilder,
+          (PigFolder, $$PigFoldersTableReferences),
+          PigFolder,
+          PrefetchHooks Function({bool pigsRefs})
+        > {
+  $$PigFoldersTableTableManager(_$AppDatabase db, $PigFoldersTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$PigFoldersTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$PigFoldersTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$PigFoldersTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<String?> remoteId = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => PigFoldersCompanion(
+                id: id,
+                name: name,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                remoteId: remoteId,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String name,
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<String?> remoteId = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => PigFoldersCompanion.insert(
+                id: id,
+                name: name,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                remoteId: remoteId,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$PigFoldersTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({pigsRefs = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [if (pigsRefs) db.pigs],
+              addJoins: null,
+              getPrefetchedDataCallback: (items) async {
+                return [
+                  if (pigsRefs)
+                    await $_getPrefetchedData<PigFolder, $PigFoldersTable, Pig>(
+                      currentTable: table,
+                      referencedTable: $$PigFoldersTableReferences
+                          ._pigsRefsTable(db),
+                      managerFromTypedResult: (p0) =>
+                          $$PigFoldersTableReferences(db, table, p0).pigsRefs,
+                      referencedItemsForCurrentItem: (item, referencedItems) =>
+                          referencedItems.where((e) => e.folderId == item.id),
+                      typedResults: items,
+                    ),
+                ];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$PigFoldersTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $PigFoldersTable,
+      PigFolder,
+      $$PigFoldersTableFilterComposer,
+      $$PigFoldersTableOrderingComposer,
+      $$PigFoldersTableAnnotationComposer,
+      $$PigFoldersTableCreateCompanionBuilder,
+      $$PigFoldersTableUpdateCompanionBuilder,
+      (PigFolder, $$PigFoldersTableReferences),
+      PigFolder,
+      PrefetchHooks Function({bool pigsRefs})
+    >;
 typedef $$PigsTableCreateCompanionBuilder =
     PigsCompanion Function({
       required String id,
       Value<String?> tag,
       Value<String?> displayName,
+      Value<String?> folderId,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<DateTime?> deletedAt,
@@ -6034,6 +6747,7 @@ typedef $$PigsTableUpdateCompanionBuilder =
       Value<String> id,
       Value<String?> tag,
       Value<String?> displayName,
+      Value<String?> folderId,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<DateTime?> deletedAt,
@@ -6043,6 +6757,23 @@ typedef $$PigsTableUpdateCompanionBuilder =
 final class $$PigsTableReferences
     extends BaseReferences<_$AppDatabase, $PigsTable, Pig> {
   $$PigsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $PigFoldersTable _folderIdTable(_$AppDatabase db) => db.pigFolders
+      .createAlias($_aliasNameGenerator(db.pigs.folderId, db.pigFolders.id));
+
+  $$PigFoldersTableProcessedTableManager? get folderId {
+    final $_column = $_itemColumn<String>('folder_id');
+    if ($_column == null) return null;
+    final manager = $$PigFoldersTableTableManager(
+      $_db,
+      $_db.pigFolders,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_folderIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
 
   static MultiTypedResultKey<$ScanRecordsTable, List<ScanRecord>>
   _scanRecordsRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
@@ -6100,6 +6831,29 @@ class $$PigsTableFilterComposer extends Composer<_$AppDatabase, $PigsTable> {
     column: $table.deletedAt,
     builder: (column) => ColumnFilters(column),
   );
+
+  $$PigFoldersTableFilterComposer get folderId {
+    final $$PigFoldersTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.folderId,
+      referencedTable: $db.pigFolders,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$PigFoldersTableFilterComposer(
+            $db: $db,
+            $table: $db.pigFolders,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
 
   Expression<bool> scanRecordsRefs(
     Expression<bool> Function($$ScanRecordsTableFilterComposer f) f,
@@ -6164,6 +6918,29 @@ class $$PigsTableOrderingComposer extends Composer<_$AppDatabase, $PigsTable> {
     column: $table.deletedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  $$PigFoldersTableOrderingComposer get folderId {
+    final $$PigFoldersTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.folderId,
+      referencedTable: $db.pigFolders,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$PigFoldersTableOrderingComposer(
+            $db: $db,
+            $table: $db.pigFolders,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
 }
 
 class $$PigsTableAnnotationComposer
@@ -6194,6 +6971,29 @@ class $$PigsTableAnnotationComposer
 
   GeneratedColumn<DateTime> get deletedAt =>
       $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  $$PigFoldersTableAnnotationComposer get folderId {
+    final $$PigFoldersTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.folderId,
+      referencedTable: $db.pigFolders,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$PigFoldersTableAnnotationComposer(
+            $db: $db,
+            $table: $db.pigFolders,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
 
   Expression<T> scanRecordsRefs<T extends Object>(
     Expression<T> Function($$ScanRecordsTableAnnotationComposer a) f,
@@ -6234,7 +7034,7 @@ class $$PigsTableTableManager
           $$PigsTableUpdateCompanionBuilder,
           (Pig, $$PigsTableReferences),
           Pig,
-          PrefetchHooks Function({bool scanRecordsRefs})
+          PrefetchHooks Function({bool folderId, bool scanRecordsRefs})
         > {
   $$PigsTableTableManager(_$AppDatabase db, $PigsTable table)
     : super(
@@ -6252,6 +7052,7 @@ class $$PigsTableTableManager
                 Value<String> id = const Value.absent(),
                 Value<String?> tag = const Value.absent(),
                 Value<String?> displayName = const Value.absent(),
+                Value<String?> folderId = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
@@ -6260,6 +7061,7 @@ class $$PigsTableTableManager
                 id: id,
                 tag: tag,
                 displayName: displayName,
+                folderId: folderId,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 deletedAt: deletedAt,
@@ -6270,6 +7072,7 @@ class $$PigsTableTableManager
                 required String id,
                 Value<String?> tag = const Value.absent(),
                 Value<String?> displayName = const Value.absent(),
+                Value<String?> folderId = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
@@ -6278,6 +7081,7 @@ class $$PigsTableTableManager
                 id: id,
                 tag: tag,
                 displayName: displayName,
+                folderId: folderId,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 deletedAt: deletedAt,
@@ -6289,11 +7093,42 @@ class $$PigsTableTableManager
                     (e.readTable(table), $$PigsTableReferences(db, table, e)),
               )
               .toList(),
-          prefetchHooksCallback: ({scanRecordsRefs = false}) {
+          prefetchHooksCallback: ({folderId = false, scanRecordsRefs = false}) {
             return PrefetchHooks(
               db: db,
               explicitlyWatchedTables: [if (scanRecordsRefs) db.scanRecords],
-              addJoins: null,
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (folderId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.folderId,
+                                referencedTable: $$PigsTableReferences
+                                    ._folderIdTable(db),
+                                referencedColumn: $$PigsTableReferences
+                                    ._folderIdTable(db)
+                                    .id,
+                              )
+                              as T;
+                    }
+
+                    return state;
+                  },
               getPrefetchedDataCallback: (items) async {
                 return [
                   if (scanRecordsRefs)
@@ -6327,7 +7162,7 @@ typedef $$PigsTableProcessedTableManager =
       $$PigsTableUpdateCompanionBuilder,
       (Pig, $$PigsTableReferences),
       Pig,
-      PrefetchHooks Function({bool scanRecordsRefs})
+      PrefetchHooks Function({bool folderId, bool scanRecordsRefs})
     >;
 typedef $$ScanRecordsTableCreateCompanionBuilder =
     ScanRecordsCompanion Function({
@@ -9992,6 +10827,8 @@ typedef $$CustomReferencesTableProcessedTableManager =
 class $AppDatabaseManager {
   final _$AppDatabase _db;
   $AppDatabaseManager(this._db);
+  $$PigFoldersTableTableManager get pigFolders =>
+      $$PigFoldersTableTableManager(_db, _db.pigFolders);
   $$PigsTableTableManager get pigs => $$PigsTableTableManager(_db, _db.pigs);
   $$ScanRecordsTableTableManager get scanRecords =>
       $$ScanRecordsTableTableManager(_db, _db.scanRecords);

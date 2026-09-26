@@ -6,6 +6,10 @@ abstract final class AppRoutes {
   static const String health = '/health';
   static const String measurements = '/measurements';
   static const String records = '/records';
+  // docs/plan-6.md (round 6, pig folders).
+  static const String recordsFolders = '/records/folders';
+  static const String recordsFolderDetail = '/records/folders/:id';
+  static String recordsFolderDetailPath(String id) => '/records/folders/$id';
   static const String referenceMarking = '/reference-marking';
   static const String analytics = '/analytics';
   static const String privacy = '/privacy';

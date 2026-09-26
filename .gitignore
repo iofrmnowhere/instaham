@@ -90,6 +90,15 @@ ML/host_scale_test/build/
 ML/host_scale_test/third_party/onnxruntime.dll
 ML/host_scale_test/third_party/onnxruntime.lib
 ML/host_scale_test/third_party/onnxruntime.exp
+ML/host_scale_test/reference_detect_dump/
+ML/host_scale_test/reference_detect_dump_21c/
+ML/host_scale_test/reference_detect_dump_21d/
+ML/host_scale_test/reference_detect_output.jsonl
+ML/host_scale_test/reference_detect_output_21.jsonl
+ML/host_scale_test/reference_detect_output_21b.jsonl
+ML/host_scale_test/reference_detect_output_21c.jsonl
+ML/host_scale_test/reference_detect_output_21d.jsonl
+ML/host_scale_test/reference_detect_recheck.jsonl
 
 # docs/test-plan-phase/3-driver-sweep.md: run_sweep.py's temporary patched manifest copies,
 # deleted at the end of every run -- never meant to be committed if one is ever left behind.
